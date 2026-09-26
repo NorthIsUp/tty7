@@ -1,0 +1,280 @@
+:root {
+  --bg: #0d0f14;
+  --panel: #161a22;
+  --line: #242a36;
+  --text: #d6d9e0;
+  --dim: #7d8595;
+  --accent: #7aa2f7;
+  --working: #7aa2f7;
+  --waiting: #e0af68;
+  --done: #9ece6a;
+  --bad: #f7768e;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+header h1 {
+  font-size: 17px;
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  margin: 16px 4px 8px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.back,
+.icon {
+  font-size: 26px;
+  line-height: 1;
+  padding: 0 6px;
+  color: var(--accent);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  margin-bottom: 6px;
+  background: var(--panel);
+  border-radius: 10px;
+}
+
+.row:active {
+  background: var(--line);
+}
+
+.row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-sub {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab {
+  margin-bottom: 10px;
+}
+
+.tab-name {
+  font-size: 13px;
+  color: var(--dim);
+  margin: 0 4px 4px;
+}
+
+.tab.asleep {
+  opacity: 0.55;
+}
+
+.tag {
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 6px;
+}
+
+.needs-you .row {
+  border: 1px solid color-mix(in srgb, var(--waiting) 45%, transparent);
+}
+
+.dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.dot.working {
+  background: var(--working);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+.dot.waiting {
+  background: var(--waiting);
+}
+
+.dot.done {
+  background: var(--done);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.link {
+  font-size: 12px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.link.direct,
+.link.done {
+  color: var(--done);
+}
+
+.link.relay,
+.link.waiting {
+  color: var(--waiting);
+}
+
+.link.working {
+  color: var(--working);
+}
+
+.link.offline {
+  color: var(--bad);
+}
+
+.status {
+  color: var(--dim);
+  font-size: 13px;
+  margin: 8px 4px;
+}
+
+.status.error {
+  color: var(--bad);
+}
+
+.hint {
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 8px 4px;
+}
+
+code {
+  font-family: Menlo, ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code,
+.field {
+  font: 13px Menlo, ui-monospace, monospace;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+}
+
+.primary {
+  background: var(--accent);
+  color: #0d0f14;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+}
+
+.term {
+  flex: 1;
+  overflow: auto;
+  padding: 4px;
+  background: #0d0f14;
+}
+
+.keybar {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.keybar button {
+  flex: none;
+  min-width: 40px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--line);
+  font: 13px Menlo, ui-monospace, monospace;
+}
+
+.keybar button.on {
+  background: var(--accent);
+  color: #0d0f14;
+}
