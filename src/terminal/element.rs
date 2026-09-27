@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use alacritty_terminal::grid::Dimensions as _;
 use alacritty_terminal::index::{Column as AlacColumn, Line as AlacLine, Point as AlacPoint};
 use alacritty_terminal::selection::SelectionRange;
+use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor, Rgb};
 use gpui::{
@@ -1723,6 +1724,22 @@ fn cursor_style_from_shape(shape: CursorShape) -> crate::core::config::CursorSty
     }
 }
 
+/// Whether an IME preedit has anything to draw. `paint_marked` blanks the cell
+/// under the cursor to the theme's background before it lays the preedit
+/// down, which also covers the block cursor's reverse-video cell. A preedit of
+/// nothing but blanks (a composition an IME opened and left empty-looking —
+/// Windows IMEs can leave one behind, and gpui there never hears the
+/// composition end) would therefore paint a theme-coloured hole with an
+/// underline where the character and the caret should be, and hold it on
+/// every cell the cursor visits (#966). Nothing to show means nothing to
+/// paint: the grid, and the caret on it, stay as they are.
+fn preedit_has_ink(marked: &str) -> bool {
+    use unicode_width::UnicodeWidthChar as _;
+    marked
+        .chars()
+        .any(|c| !c.is_whitespace() && !c.is_control() && c.width().unwrap_or(0) > 0)
+}
+
 fn paint_marked(
     window: &mut Window,
     cx: &mut App,
@@ -1734,7 +1751,7 @@ fn paint_marked(
     default_fg: Hsla,
     default_bg: Hsla,
 ) {
-    if marked.is_empty() {
+    if !preedit_has_ink(marked) {
         return;
     }
     let Some((row, col)) = cursor else {
@@ -1801,6 +1818,17 @@ impl GridSnapshot {
 }
 
 impl TerminalElement {
+    /// The shape `prompt_cursor_style` puts on the grid cursor while the shell
+    /// waits at a prompt with its own line editor — `prompt_editor` off, or a
+    /// line handed back to ZLE/readline. Shell integration has no mark for "a
+    /// prompt plugin set this shape", so the one it does report, vi mode, keeps
+    /// the shell's own insert/normal shapes.
+    pub(super) fn prompt_cursor_shape(&self, cx: &App) -> Option<crate::core::config::CursorStyle> {
+        let shape = cx.global::<Config>().prompt_cursor_style.shape()?;
+        let terminal = &self.view.read(cx).terminal;
+        (terminal.at_prompt() && !terminal.shell_vi_mode()).then_some(shape)
+    }
+
     pub(super) fn build_grid(
         &self,
         colors: &PaintColors,
@@ -1818,6 +1846,7 @@ impl TerminalElement {
         let mut any_selected = false;
         let display_offset;
         let history_size;
+        let prompt_shape = self.prompt_cursor_shape(cx);
         {
             let mut palette = self.view.read(cx).terminal.palette;
             if let Some(active) = cx.try_global::<crate::terminal::palette::ActivePalette>() {
@@ -1933,7 +1962,11 @@ impl TerminalElement {
                     col,
                     ime_col,
                     hidden: cursor_hidden,
-                    style: cursor_style_from_shape(cur.shape),
+                    // Checked under the grid lock: `on_alt_screen` would take
+                    // it a second time.
+                    style: prompt_shape
+                        .filter(|_| !term.mode().contains(TermMode::ALT_SCREEN))
+                        .unwrap_or_else(|| cursor_style_from_shape(cur.shape)),
                 });
             }
         }
@@ -2712,6 +2745,61 @@ mod tests {
         });
         let ink = crate::ui::presets::caret_ink(deep, colors.default_bg, colors.default_fg);
         assert_eq!(ink, colors.default_bg);
+    }
+
+    #[test]
+    fn a_caret_the_colour_of_the_text_still_leaves_its_glyph_readable() {
+        // Gruvbox Dark, the theme in #966: the caret is the foreground colour
+        // exactly, so drawing the glyph in its own ink on the caret would be
+        // cream on cream. Reverse video has to reach for the background.
+        let fg = Rgb {
+            r: 0xeb,
+            g: 0xdb,
+            b: 0xb2,
+        };
+        let bg = Rgb {
+            r: 0x28,
+            g: 0x28,
+            b: 0x28,
+        };
+        let colors = PaintColors {
+            default_fg: to_hsla(fg),
+            default_bg: to_hsla(bg),
+            caret: to_hsla(fg),
+            fg_rgb: fg,
+            bg_rgb: bg,
+            ..caret_colors()
+        };
+        let mut buf = vec![RenderCell::default(); 3];
+        buf[1].c = 'v';
+        buf[1].fg = to_hsla(fg);
+        invert_cursor_cell(&mut buf, 3, 0, 1, &colors);
+        assert_eq!(buf[1].bg, colors.caret);
+        assert_eq!(buf[1].fg, colors.default_bg);
+        assert_eq!(buf[1].c, 'v');
+    }
+
+    #[test]
+    fn a_preedit_with_nothing_to_show_leaves_the_cursor_cell_alone() {
+        // Painting any of these would blank the cell under the cursor —
+        // character and block caret both — to the theme background (#966).
+        for blank in [
+            "",
+            " ",
+            "  ",
+            "\u{3000}",
+            "\u{200b}",
+            "\t",
+            "\u{0}",
+            " \u{200d} ",
+        ] {
+            assert!(!preedit_has_ink(blank), "{blank:?} has nothing to draw");
+        }
+        // Real compositions still paint, including a leading or trailing
+        // blank the IME put between syllables.
+        for text in ["n", "ni hao", "你好", " a", "に", "ㅎ", "é"] {
+            assert!(preedit_has_ink(text), "{text:?} is a real preedit");
+        }
     }
 
     #[test]

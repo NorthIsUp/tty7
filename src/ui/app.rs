@@ -3016,6 +3016,19 @@ impl Tty7App {
         self.apply_terminal_config_to_panes(&cfg, cx);
     }
 
+    pub(crate) fn set_prompt_cursor_style(
+        &mut self,
+        style: crate::core::config::PromptCursorStyle,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_config(cx, |cfg| cfg.prompt_cursor_style = style);
+        for tab in &self.tabs {
+            for leaf in tab.pane.terminals() {
+                leaf.update(cx, |_, cx| cx.notify());
+            }
+        }
+    }
+
     pub(crate) fn persist_settings_config(&mut self, cx: &mut Context<Self>) {
         let config = cx.global::<Config>().clone();
         let error = config.try_save().err().map(|error| error.to_string());
@@ -4889,6 +4902,20 @@ impl Tty7App {
         }
     }
 
+    /// Reorders the active tab one slot — the keyboard form of the drag that
+    /// the strip and the sidebar both do. Left is back along the order and
+    /// right is forward (on a left tab bar that reads as up and down), and
+    /// both wrap: past the last tab the first one follows, so a tab can walk
+    /// the whole list without letting go of the key. On a left tab bar the
+    /// list is the tab's own sidebar group: the grouping keys off the tab,
+    /// not its position, so a step out of the group would move nothing.
+    fn move_tab(&mut self, right: bool, cx: &mut Context<Self>) {
+        let run = self.tab_run(self.active, cx);
+        if let Some(permutation) = one_slot_move(&run, self.tabs.len(), self.active, right) {
+            self.apply_tab_order(&permutation, cx);
+        }
+    }
+
     pub(crate) fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         // A tab is woken by being looked at, the way a browser reloads a
         // discarded tab when it is selected: a tab on screen is always a
@@ -6134,6 +6161,8 @@ impl Tty7App {
             SwapPanePrev => self.swap_pane(false, window, cx),
             SelectNextTab => self.cycle_tab(true, window, cx),
             SelectPrevTab => self.cycle_tab(false, window, cx),
+            MoveTabLeft => self.move_tab(false, cx),
+            MoveTabRight => self.move_tab(true, cx),
             ToggleMaximizePane => self.toggle_maximize(window, cx),
             ToggleFullscreen => self.toggle_fullscreen(window, cx),
             ToggleTabSidebar => self.toggle_tab_sidebar(cx),
@@ -6387,6 +6416,9 @@ impl Tty7App {
             }
             L10nKey::SettingsCursorBlink => self.set_cursor_blink(defaults.cursor_blink, cx),
             L10nKey::SettingsCursorShape => self.set_cursor_style(defaults.cursor_style, cx),
+            L10nKey::SettingsPromptCursorShape => {
+                self.set_prompt_cursor_style(defaults.prompt_cursor_style, cx)
+            }
             L10nKey::SettingsScrollback => self.set_scrollback_limit(defaults.scrollback_limit, cx),
             L10nKey::SettingsNewTabPosition => {
                 self.set_new_tab_position(defaults.new_tab_position, cx)
@@ -6562,6 +6594,9 @@ impl Tty7App {
                     s.ui_font_select = ui;
                 }
             }
+            L10nKey::SettingsCursorShape | L10nKey::SettingsPromptCursorShape => {
+                self.sync_cursor_selects(window, cx)
+            }
             L10nKey::SettingsLanguage => {
                 let value = self.build_language_select(&mut subs, window, cx);
                 if let Some(s) = self.active_settings_mut() {
@@ -6689,6 +6724,8 @@ impl Tty7App {
         let (font_select, font_bold_select, font_italic_select, ui_font_select) =
             self.build_font_selects(&mut subs, window, cx);
         let language_select = self.build_language_select(&mut subs, window, cx);
+        let (cursor_style_select, prompt_cursor_style_select) =
+            self.build_cursor_selects(&mut subs, window, cx);
         #[cfg(target_os = "windows")]
         let window_backdrop_select = self.build_window_backdrop_select(&mut subs, window, cx);
         let (shell_program_input, shell_args_input, wd_path_input) =
@@ -6780,6 +6817,8 @@ impl Tty7App {
             font_italic_select,
             ui_font_select,
             language_select,
+            cursor_style_select,
+            prompt_cursor_style_select,
             #[cfg(target_os = "windows")]
             window_backdrop_select,
             shell_program_input,
@@ -6985,6 +7024,98 @@ impl Tty7App {
         language_select
     }
 
+    /// The cursor shape and prompt cursor shape dropdowns. Each resolves the
+    /// picked label back through the row list it was built from.
+    fn build_cursor_selects(
+        &mut self,
+        subs: &mut Vec<Subscription>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (
+        Entity<SelectState<SearchableVec<String>>>,
+        Entity<SelectState<SearchableVec<String>>>,
+    ) {
+        use crate::ui::settings::{
+            CURSOR_SHAPES, PROMPT_CURSOR_SHAPES, cursor_shape_labels, prompt_cursor_shape_labels,
+        };
+        let (shape_ix, prompt_ix) = Self::cursor_select_rows(cx);
+        let shape = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(cursor_shape_labels()),
+                Some(IndexPath::default().row(shape_ix)),
+                window,
+                cx,
+            )
+        });
+        let prompt = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(prompt_cursor_shape_labels()),
+                Some(IndexPath::default().row(prompt_ix)),
+                window,
+                cx,
+            )
+        });
+        subs.push(cx.subscribe_in(
+            &shape,
+            window,
+            |this, _select, ev: &SelectEvent<SearchableVec<String>>, _window, cx| {
+                if let SelectEvent::Confirm(Some(label)) = ev {
+                    if let Some(ix) = cursor_shape_labels().iter().position(|r| r == label) {
+                        this.set_cursor_style(CURSOR_SHAPES[ix], cx);
+                    }
+                }
+            },
+        ));
+        subs.push(cx.subscribe_in(
+            &prompt,
+            window,
+            |this, _select, ev: &SelectEvent<SearchableVec<String>>, _window, cx| {
+                if let SelectEvent::Confirm(Some(label)) = ev {
+                    if let Some(ix) = prompt_cursor_shape_labels().iter().position(|r| r == label) {
+                        this.set_prompt_cursor_style(PROMPT_CURSOR_SHAPES[ix], cx);
+                    }
+                }
+            },
+        ));
+        (shape, prompt)
+    }
+
+    /// The dropdown rows the config's two cursor shapes sit on.
+    fn cursor_select_rows(cx: &App) -> (usize, usize) {
+        use crate::ui::settings::{CURSOR_SHAPES, PROMPT_CURSOR_SHAPES};
+        let cfg = cx.global::<Config>();
+        let shape = CURSOR_SHAPES.iter().position(|s| *s == cfg.cursor_style);
+        let prompt = PROMPT_CURSOR_SHAPES
+            .iter()
+            .position(|s| *s == cfg.prompt_cursor_style);
+        (shape.unwrap_or(0), prompt.unwrap_or(0))
+    }
+
+    /// Puts both cursor dropdowns back on the config's values, relabelled in
+    /// the current language — after a reset, a language switch, or a config
+    /// edit made outside this window.
+    fn sync_cursor_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::ui::settings::{cursor_shape_labels, prompt_cursor_shape_labels};
+        let Some((shape, prompt)) = self.active_settings().map(|s| {
+            (
+                s.cursor_style_select.clone(),
+                s.prompt_cursor_style_select.clone(),
+            )
+        }) else {
+            return;
+        };
+        let (shape_ix, prompt_ix) = Self::cursor_select_rows(cx);
+        for (select, rows, ix) in [
+            (shape, cursor_shape_labels(), shape_ix),
+            (prompt, prompt_cursor_shape_labels(), prompt_ix),
+        ] {
+            select.update(cx, |state, cx| {
+                state.set_items(SearchableVec::new(rows), window, cx);
+                state.set_selected_index(Some(IndexPath::default().row(ix)), window, cx);
+            });
+        }
+    }
+
     fn normalize_gui_language(code: &str) -> &'static str {
         crate::ui::i18n::find_language(code)
             .map(|lang| lang.code)
@@ -7054,6 +7185,7 @@ impl Tty7App {
     }
 
     pub(crate) fn refresh_locale_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_cursor_selects(window, cx);
         self.sidebar_search.update(cx, |state, cx| {
             state.set_placeholder(t(L10nKey::SearchTabs), window, cx)
         });
@@ -7582,6 +7714,7 @@ impl Tty7App {
             self.terminal_scrollback_limit = config.scrollback_limit;
             self.apply_terminal_config_to_panes(&config, cx);
         }
+        self.sync_cursor_selects(window, cx);
         let (font_size, line_height, font_family, font_fallbacks, font_features) = {
             let cfg = cx.global::<Config>();
             (
@@ -9359,6 +9492,12 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &SelectPrevTab, window, cx| {
                     this.cycle_tab(false, window, cx)
                 }))
+                .on_action(
+                    cx.listener(|this, _: &MoveTabLeft, _window, cx| this.move_tab(false, cx)),
+                )
+                .on_action(
+                    cx.listener(|this, _: &MoveTabRight, _window, cx| this.move_tab(true, cx)),
+                )
                 .on_action(cx.listener(|this, _: &ActivateTab1, window, cx| {
                     this.activate_visual(0, window, cx)
                 }))
@@ -9645,6 +9784,35 @@ fn step_in_order(order: &[usize], active: usize, forward: bool) -> Option<usize>
         (None, false) => n - 1,
     };
     Some(order[next]).filter(|&i| i != active)
+}
+
+/// The `apply_tab_order` permutation that moves the active tab one slot
+/// within `run` — a move, not a trade: the tab is lifted out and put back at
+/// the neighbour's place, so through a wrap the run it crossed shifts one slot
+/// (`[a, b, c]` with `c` moved right becomes `[c, a, b]`, not `[c, b, a]`).
+/// `run` is the tabs drawn together (a sidebar section, or every tab on a top
+/// bar) as ascending `self.tabs` indices out of `n`; only their slots are
+/// reassigned, so no tab in another run moves, not even out of sight. `None`
+/// when there is nothing to move: a run of fewer than two tabs, or one that
+/// does not hold the active tab.
+fn one_slot_move(run: &[usize], n: usize, active: usize, right: bool) -> Option<Vec<usize>> {
+    let len = run.len();
+    if len < 2 {
+        return None;
+    }
+    let pos = run.iter().position(|&i| i == active)?;
+    let mut moved = run.to_vec();
+    match (right, pos) {
+        (true, p) if p + 1 == len => moved.rotate_right(1),
+        (false, 0) => moved.rotate_left(1),
+        (true, p) => moved.swap(p, p + 1),
+        (false, p) => moved.swap(p, p - 1),
+    }
+    let mut permutation: Vec<usize> = (0..n).collect();
+    for (&slot, &tab) in run.iter().zip(&moved) {
+        permutation[slot] = tab;
+    }
+    Some(permutation)
 }
 
 fn mru_order(stamps: &[u64], active: usize) -> Vec<usize> {
@@ -10835,7 +11003,7 @@ mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_W, Dir, Pane, Rename, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab,
         TabAgentSession, clear_window_override_values, close_prompt, document_column_px,
-        join_shell_args, leaf_shares_the_window_daemon, mru_order, pane_free_for,
+        join_shell_args, leaf_shares_the_window_daemon, mru_order, one_slot_move, pane_free_for,
         parse_ssh_connect_input, parse_ssh_option_words, rename_outcome, side_panel_max,
         split_shell_args, step_in_order, strip_band, wd_path_saveable,
     };
@@ -11213,6 +11381,46 @@ mod tests {
         assert_eq!(step_in_order(&[], 0, true), None);
         assert_eq!(step_in_order(&[0], 0, true), None);
         assert_eq!(step_in_order(&[0], 0, false), None);
+    }
+
+    #[test]
+    fn moving_a_tab_one_slot_puts_it_where_the_neighbour_was() {
+        // A move, not a trade: the neighbour it crossed shifts one slot.
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 1, true), Some(vec![0, 2, 1]));
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 1, false), Some(vec![1, 0, 2]));
+    }
+
+    #[test]
+    fn a_tab_moved_past_an_end_carries_the_whole_run_with_it() {
+        // Through the wrap the tab lands at the far end and the run it
+        // crossed shifts one slot — `[c, a, b]`, not `[c, b, a]`.
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 2, true), Some(vec![2, 0, 1]));
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 0, false), Some(vec![1, 2, 0]));
+    }
+
+    #[test]
+    fn a_move_inside_a_sidebar_group_leaves_the_other_groups_alone() {
+        // Tabs 0, 2 and 4 are one group, 1 and 3 another: only the group's
+        // own slots are reassigned, and the wrap stays inside it.
+        assert_eq!(
+            one_slot_move(&[0, 2, 4], 5, 2, true),
+            Some(vec![0, 1, 4, 3, 2])
+        );
+        assert_eq!(
+            one_slot_move(&[0, 2, 4], 5, 0, false),
+            Some(vec![2, 1, 4, 3, 0])
+        );
+        assert_eq!(
+            one_slot_move(&[1, 3], 5, 3, true),
+            Some(vec![0, 3, 2, 1, 4])
+        );
+    }
+
+    #[test]
+    fn a_move_with_nothing_to_move_is_refused() {
+        assert_eq!(one_slot_move(&[], 0, 0, true), None);
+        assert_eq!(one_slot_move(&[0], 3, 0, true), None);
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 7, true), None);
     }
 
     #[test]

@@ -158,6 +158,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsCursor => "Cursor",
         L10nKey::SettingsCursorShape => "Cursor shape",
         L10nKey::SettingsCursorShapeDesc => "How the terminal cursor is drawn.",
+        L10nKey::SettingsPromptCursorShape => "Prompt cursor shape",
+        L10nKey::SettingsPromptCursorShapeDesc => {
+            "The cursor at the shell prompt. Follow uses the cursor shape above everywhere."
+        }
         L10nKey::SettingsCursorBlink => "Cursor blink",
         L10nKey::SettingsCursorBlinkDesc => "Pulse the cursor while the terminal is focused.",
         L10nKey::SettingsLanguage => "Language",
@@ -823,6 +827,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAgentCrush => "Crush",
         L10nKey::SettingsAgentCodeBuddy => "CodeBuddy",
         L10nKey::SettingsAgentCursorCli => "Cursor CLI",
+        L10nKey::SettingsAgentPrimeAgent => "Prime Agent",
+        L10nKey::SettingsAgentAntigravity => "Antigravity",
         L10nKey::SettingsSearchAboutKeywords => "version license credits build update check github",
         L10nKey::SettingsSearchAppHttpProxyKeywords => {
             "proxy http https socks socks5 clash v2ray network download update"
@@ -855,6 +861,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchCopyOnSelectKeywords => "clipboard selection yank mouse",
         L10nKey::SettingsSearchCursorBlinkKeywords => "caret blinking flash",
         L10nKey::SettingsSearchCursorShapeKeywords => "caret block bar underline beam",
+        L10nKey::SettingsSearchPromptCursorShapeKeywords => {
+            "prompt cursor shape caret block bar underline beam shell integration"
+        }
         L10nKey::SettingsSearchCustomThemesKeywords => {
             "theme duplicate edit colors folder yaml import background image wallpaper"
         }
@@ -928,6 +937,12 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsSearchCursorCliKeywords => {
             "agent integration hooks install cursor cursor-agent"
+        }
+        L10nKey::SettingsSearchPrimeAgentKeywords => {
+            "agent integration extension install prime prime-agent primeintellect"
+        }
+        L10nKey::SettingsSearchAntigravityKeywords => {
+            "agent integration hooks install antigravity agy google"
         }
         L10nKey::SettingsSearchPiKeywords => "agent integration extension install pi",
         L10nKey::SettingsSearchPortForwardingKeywords => {
@@ -1540,6 +1555,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdSwapPanePrevious => "Swap Pane Previous",
         L10nKey::CmdNextTab => "Next Tab",
         L10nKey::CmdPreviousTab => "Previous Tab",
+        L10nKey::CmdMoveTabLeft => "Move Tab Left",
+        L10nKey::CmdMoveTabRight => "Move Tab Right",
         L10nKey::CmdRecentTabSwitcher => "Recent Tab Switcher",
         L10nKey::CmdRecentTabSwitcherReverse => "Recent Tab Switcher (Reverse)",
         L10nKey::CmdCopyWorkingDirectory => "Copy Working Directory",
@@ -1831,6 +1848,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CursorShapeBlock => "Block",
         L10nKey::CursorShapeBar => "Bar",
         L10nKey::CursorShapeUnderline => "Underline",
+        L10nKey::PromptCursorShapeFollow => "Follow",
         L10nKey::PaletteTryDifferentSearch => "Try a different search.",
         L10nKey::CompletionListingRemote => "listing remote…",
         L10nKey::CompletionRemoteListingFailed => "remote listing failed — {error}",
@@ -1908,6 +1926,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppMenuZoomPane => "Zoom Pane",
         L10nKey::AppMenuClearScrollback => "Clear Scrollback",
         L10nKey::AppMenuOpenLink => "Open",
+        L10nKey::AppMenuOpenLinkWithDefaultApp => "Open with Default App",
         L10nKey::AppMenuRevealInFinder => "Show in Finder",
         L10nKey::AppMenuRevealInFolder => "Show Containing Folder",
         L10nKey::AppMenuCopyLinkPath => "Copy Path",

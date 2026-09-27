@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reorder the active tab from the keyboard** (`MoveTabLeft` / `MoveTabRight`).
+  The tab moves one slot past its neighbour — the keyboard form of dragging it
+  in the tab strip or the sidebar — and wraps past either end, so one held key
+  walks a tab the whole way down the list. On a left tab bar the same pair
+  reads as up and down, and the tab stays inside its sidebar group, wrapping
+  at the group's ends. Shipped unbound like the pane-swap pair: bind it under
+  Settings → Keyboard shortcuts ("Move Tab Left" / "Move Tab Right"), in
+  `config.json`, or run it from the palette.
+
 - **Quick launch for the coding agents on your PATH** (#955). Every agent tty7
   recognises whose binary is on `PATH` is a palette command — "Agent: Claude
   Code", "Agent: Codex", … — ordered by how often and how recently it was
@@ -64,6 +73,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pane in front as before, and an ended session still says so. The key is
   `ssh_tab_title` (`dynamic`, `profile-name`, `hostname`).
 
+- **Windows file paths are links** (#965). `C:\Users\me\a.png`,
+  `c:/Users/me/a.png` and `\\server\share\a.png` underline and open like any
+  other file path, with a `:10:2`, `(10,2)` or `#L10` location kept. The path
+  is found when Chinese prose is glued straight onto it
+  (`图片已保存到：c:/Users/me/a.png`) and inside a Markdown link
+  (`![chart](c:/out/chart.png)`), and is handed on with backslashes so
+  Explorer opens and reveals it — a forward-slashed path used to open
+  Documents instead. In a WSL pane a drive path is looked up under
+  `/mnt/<drive>`. A letter and a colon alone (`a:b`, `C:`, `C:notes.txt`) is
+  never read as a drive.
+
+- **A quoted path may contain spaces** (#965). `"C:\Program Files\app\app.exe"`,
+  `'/Users/me/My Docs/a.txt'` and the same in backticks are one link, with a
+  `:10:2` or `(10,2)` location read inside the quotes or just after the
+  closing one. Only quotes do this: an unquoted space still ends a path, and
+  quoted prose that is not written like a path — no separator, a space at
+  either end, over 260 characters — is left alone.
+
+- **"Open with Default App" in a file link's right-click menu** (#965). It
+  hands the file to whatever the OS has it associated with, whatever
+  `link_file_open` makes "Open" do. Shown for files on this machine only, and
+  not when "Open" already uses the system opener.
+
 ### Changed
 
 - **The command palette is now Search Everywhere, with tabs.** <kbd>⌘ P</kbd>
@@ -86,25 +118,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of each transcript are read, in the background, and remembered until the file
   changes.
 
+- **The command-line ghost suggests what you ran last, not what you ran
+  most.** It was the top prefix match by frecency, where run count and the
+  current-directory bonus outweighed recency, so after `git commit -m x`
+  typing `git c` still offered `git checkout main` because that had run 20
+  times here. The ghost is now the newest entry that extends the line,
+  preferring one run in the current directory and falling back to the newest
+  anywhere, and it skips commands whose last run exited non-zero, so it names
+  what ↑ recalls. Ctrl+R still ranks by frecency. Re-running a command now
+  moves it to the newest history entry instead of adding a second copy
+  (before, only an immediate repeat was collapsed), so ↑ steps onto each
+  command once, the same as after a restart.
+
 - **The sidebar groups tabs by repo automatically; pin what you want to keep**
-  (#955). Groups now come in two halves, split by a divider. Below it, every
-  tab you have not pinned is filed under its git repository, and an SSH tab
-  under the host it is on rather than its remote path — `/home/ubuntu` on two
-  machines used to share a header. Above it sit the groups you keep, in the
-  order you drag them into, until you delete them. A pinned group can keep a
-  folder: a tab whose working directory enters it joins it (the deepest folder
-  wins when they nest, and a worktree of a pinned repo counts), while a tab you
-  drag out stays out until it leaves the folder and comes back. Pin an auto
-  group with the pin on its header or by dragging the header above the
-  divider; pin a folder by dropping it from Finder, with **Pin as Group** in the
-  Files panel, or with **Open Folder as Group…** in the palette. **New Group**
-  in the palette or on a tab's right-click makes a label group. Deleting a
-  group closes nothing — its tabs go back to auto grouping — and dragging a tab
-  below the divider does the same for one tab. Groups, their order and which
-  are folded are stored with the workspace, so every window onto it agrees.
-  **Settings → Window & Tabs → Auto grouping** replaces the three-way *Sidebar
-  grouping* choice; off, unpinned tabs sit in one flat list under the pinned
-  groups. Scratch is now **Ungrouped**.
+  (#955). Groups now come in two halves. Below, every tab you have not pinned is
+  filed under its git repository, and an SSH tab under the host it is on rather
+  than its remote path — `/home/ubuntu` on two machines used to share a header.
+  Above sit the groups you keep, each marked ◆ beside its name, in the order you
+  drag them into, until you delete them. A pinned group can keep a folder: a tab
+  whose working directory enters it joins it (the deepest folder wins when they
+  nest, and a worktree of a pinned repo counts), while a tab you drag out stays
+  out until it leaves the folder and comes back. Pin an auto group with the ◆ on
+  its header or by dragging the header up among the pinned ones; pin a folder by
+  dropping it from Finder, with **Pin as Group** in the Files panel, or with
+  **Open Folder as Group…** in the palette. **New Group** in the palette or on a
+  tab's right-click makes a label group. Deleting a group closes nothing — its
+  tabs go back to auto grouping — and dragging a tab below the pinned groups
+  does the same for one tab. Groups, their order and which are folded are stored
+  with the workspace, so every window onto it agrees. **Settings → Window & Tabs
+  → Auto grouping** replaces the three-way *Sidebar grouping* choice; off,
+  unpinned tabs sit in one flat list under the pinned groups. Scratch is now
+  **Ungrouped**.
 
 - **The New Tab menu names three shells, not every one the machine has.** A
   stock macOS box reports nine, so the `+` menu opened on a column of `csh`,
@@ -164,6 +208,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tree is remembered in the config. Both are built from the status the host
   already sends, so a remote repository gets them unchanged. Searching the
   diff text itself is not part of this.
+- **The cursor at the shell prompt can have its own shape** (#958). A new
+  `prompt_cursor_style` setting (Settings → Appearance → Cursor) takes
+  `follow`, `block`, `bar` or `underline`. `follow`, the default, keeps
+  `cursor_style` everywhere, exactly as before. Any other value is used at the
+  prompt, drawn by tty7's inline editor or by the shell's own line editor, and
+  leaves `cursor_style` to the programs the shell runs — so `bar` with
+  `cursor_style: "block"` gives kitty and ghostty's bar-at-the-prompt, block in
+  a TUI that never sets a shape itself, such as Claude Code. A shell prompt in
+  vi mode keeps its own insert/normal shapes.
 
 ### Removed
 
@@ -186,6 +239,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to connect as `ssh -p 2222 me`; a line with spaces is now always taken as an
   `ssh` command line.
 
+- **The character under the cursor no longer disappears in vim and Neovim**
+  (#966). An input-method composition with nothing visible in it — Windows
+  IMEs can leave one behind — was still painted at the cursor, as a cell of
+  the theme's background with an underline under it, covering both the
+  character and the block cursor on every cell the cursor moved to. A
+  composition that has nothing to draw is no longer painted, so the cell keeps
+  its character and the block cursor draws it in reverse video as usual.
 - **Nerd Font icons from a fallback font come out at the text's size** (#866).
   With a Nerd Font icon face such as Symbols Nerd Font Mono behind a primary
   that lacks the icons, an icon followed by a space on the same background —
