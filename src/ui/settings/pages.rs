@@ -1372,7 +1372,7 @@ impl Tty7App {
             TabBarPosition::Left => 1,
         };
         let sidebar_auto_grouping = cfg.sidebar_auto_grouping;
-        let new_tab = self.segmented(
+        let new_tab = self.settings_choice(
             "wt-new-tab-pos",
             &[t(L10nKey::SettingsAfterCurrent), t(L10nKey::SettingsAtEnd)],
             new_tab_idx,
@@ -1388,7 +1388,7 @@ impl Tty7App {
                 );
             },
         );
-        let tab_bar = self.segmented(
+        let tab_bar = self.settings_choice(
             "wt-tab-bar-pos",
             &[t(L10nKey::SettingsTop), t(L10nKey::SettingsLeft)],
             tab_bar_idx,
