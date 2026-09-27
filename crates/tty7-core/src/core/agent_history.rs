@@ -1820,7 +1820,12 @@ mod tests {
     #[test]
     fn the_immutable_fallback_opens_a_path_with_uri_characters_in_it() {
         let dir = tempfile::tempdir().unwrap();
-        let odd = dir.path().join("50% #1 ?x");
+        // `?` is not allowed in a Windows file name.
+        let odd = dir.path().join(if cfg!(windows) {
+            "50% #1 x"
+        } else {
+            "50% #1 ?x"
+        });
         std::fs::create_dir_all(&odd).unwrap();
         let db = odd.join("opencode.db");
         drop(opencode_db(&db));
