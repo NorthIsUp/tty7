@@ -5668,8 +5668,10 @@ impl Tty7App {
             .and_then(|leaf| leaf.read(cx).spawnable_cwd());
         let home = crate::core::agent_history::home();
         let now = crate::core::config::unix_now();
+        let hidden = &cx.global::<Config>().hidden_agent_sessions;
         let (mut mine, mut rest): (Vec<_>, Vec<_>) = found
             .into_iter()
+            .filter(|s| !hidden.contains(&crate::core::agent_history::session_key(s.agent, &s.id)))
             .partition(|s| here.is_some() && s.cwd == here);
         let here_section: Option<gpui::SharedString> = here.as_ref().map(|dir| {
             t_fmt(
@@ -5925,10 +5927,8 @@ impl Tty7App {
         let Some(home) = crate::core::agent_history::home() else {
             return;
         };
-        let codex_home = crate::core::agent_history::codex_home();
-        let scan = cx.background_spawn(async move {
-            crate::core::agent_history::scan(&home, codex_home.as_deref())
-        });
+        let roots = crate::core::agent_history::Roots::from_env(&home);
+        let scan = cx.background_spawn(async move { crate::core::agent_history::scan(&roots) });
         cx.spawn_in(window, async move |this, cx| {
             let found = scan.await;
             this.update_in(cx, |this, window, cx| {
@@ -5962,6 +5962,8 @@ impl Tty7App {
                 self.close_search(window, cx);
                 self.run_command(kind, window, cx);
             }
+            // Done inside the search, which stays open on the list it was.
+            SearchEvent::RunInPlace(kind) => self.run_command(kind.clone(), window, cx),
             SearchEvent::Dismiss => self.close_search(window, cx),
             SearchEvent::PreviewTheme(i) => {
                 if let Some(id) = crate::ui::presets::all(cx).get(*i).map(|t| t.id.clone()) {
@@ -6172,7 +6174,17 @@ impl Tty7App {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, window, cx),
+            } => self.resume_session(agent, &session_id, cwd, false, window, cx),
+            ForkSession {
+                agent,
+                session_id,
+                cwd,
+            } => self.resume_session(agent, &session_id, cwd, true, window, cx),
+            CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
+            HideSession { agent, session_id } => self.update_config(cx, |cfg| {
+                cfg.hidden_agent_sessions
+                    .insert(crate::core::agent_history::session_key(agent, &session_id));
+            }),
         }
     }
 
