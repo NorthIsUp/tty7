@@ -2,7 +2,7 @@
 //! way ⌘P does in VS Code, instead of walking the tree to it.
 //!
 //! The list comes from one walk of the project behind the active tab's panes,
-//! done on the host that owns them through [`Host::search`](tty7_core::host::Host::search)
+//! done on the host that owns them through [`Host::search`]
 //! — the same breadth-first, `.gitignore`-aware walk the Files panel's filter
 //! runs, asked for every name at once. It is kept between openings and shown
 //! at once when the search opens again, while a fresh walk runs behind it

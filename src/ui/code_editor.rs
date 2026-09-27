@@ -1586,7 +1586,7 @@ impl Tty7App {
             PromptLevel::Warning,
             &t_fmt(
                 L10nKey::EditorEncodeFailedTitle,
-                &[("name", &name), ("encoding", &encoding)],
+                &[("name", &name), ("encoding", encoding)],
             ),
             Some(&t_fmt(
                 L10nKey::EditorEncodeFailedBody,
