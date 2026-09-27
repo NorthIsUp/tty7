@@ -331,6 +331,9 @@ impl RenderOnce for Btn {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let tk = Tk::of(cx);
         let kind = self.kind;
+        // A primary with nothing to do yet — disabled, or dimmed with nothing
+        // to save — is drawn on the well rather than faded.
+        let resting_primary = kind == BtnKind::Primary && (self.disabled || self.dimmed);
         let base = h_flex()
             .id(self.id)
             .flex_shrink_0()
@@ -350,15 +353,24 @@ impl RenderOnce for Btn {
                     b.hover(move |s| s.bg(tk.well_hover))
                         .active(move |s| s.bg(tk.well_hover.blend(tk.k05)))
                 }),
+            // Disabled, the ink fill sinks to the well with secondary text —
+            // the fall the dialogs' Create and the Git panel's Commit take. At
+            // 45% opacity a disabled Save was a washed-out black button that
+            // still looked like the thing to press.
             BtnKind::Primary => base
                 .h(px(26.))
                 .px(px(12.))
                 .rounded(px(6.))
-                .bg(tk.fg)
+                .bg(if resting_primary { tk.well } else { tk.fg })
                 .text_size(self.size.unwrap_or(fs(12.5)))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(tk.page)
-                .when(!self.disabled, |b| b.hover(|s| s.opacity(0.88))),
+                .text_color(if resting_primary { tk.k6 } else { tk.page })
+                .when(!self.disabled && !resting_primary, |b| {
+                    b.hover(|s| s.opacity(0.88))
+                })
+                .when(resting_primary && !self.disabled, |b| {
+                    b.hover(move |s| s.bg(tk.well_hover))
+                }),
             BtnKind::Link | BtnKind::Danger => base
                 .text_size(self.size.unwrap_or(fs(12.)))
                 .text_color(if kind == BtnKind::Danger {
@@ -376,16 +388,21 @@ impl RenderOnce for Btn {
                     })
                 }),
         };
-        el.when(self.disabled, |b| b.opacity(0.45))
-            .when(self.dimmed && !self.disabled, |b| b.opacity(0.55))
-            .when_some(self.icon, |b, path| {
-                b.child(Icon::empty().path(path).size(px(10.)).text_color(tk.k6))
-            })
-            .child(self.label)
-            .when_some(self.handler.filter(|_| !self.disabled), |b, handler| {
-                b.cursor_pointer()
-                    .on_click(move |ev, window, cx| handler(ev, window, cx))
-            })
+        el.when(self.disabled && kind != BtnKind::Primary, |b| {
+            b.opacity(0.45)
+        })
+        .when(
+            self.dimmed && !self.disabled && kind != BtnKind::Primary,
+            |b| b.opacity(0.55),
+        )
+        .when_some(self.icon, |b, path| {
+            b.child(Icon::empty().path(path).size(px(10.)).text_color(tk.k6))
+        })
+        .child(self.label)
+        .when_some(self.handler.filter(|_| !self.disabled), |b, handler| {
+            b.cursor_pointer()
+                .on_click(move |ev, window, cx| handler(ev, window, cx))
+        })
     }
 }
 
