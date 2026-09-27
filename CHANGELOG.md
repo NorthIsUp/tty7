@@ -32,8 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sign-in reuses the GitHub CLI (`GH_TOKEN`, `GITHUB_TOKEN`, then
   `gh auth token`, found even from a Finder launch); public repositories work
   signed out, and a private repository or a spent rate limit says to run
-  `gh auth login`. Remote images in issue text are shown as links rather than
-  loaded, and non-web link targets are disabled. The Info tab gains a GitHub
+  `gh auth login`. Screenshots pasted into an issue are shown; images from
+  any other host are shown as links rather than loaded, and non-web link
+  targets are disabled. The Info tab gains a GitHub
   row that opens the branch you are on. The tab talks to `api.github.com` only
   while you use it.
 

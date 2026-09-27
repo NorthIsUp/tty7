@@ -6,8 +6,12 @@
 //!
 //! - **Images load themselves.** An `![](…)` or `<img src>` is fetched the
 //!   moment it is drawn, which tells whoever controls that URL that this
-//!   issue was opened, from which IP, and when. Every image becomes a plain
-//!   link instead: the reader can still open it, deliberately, in the browser.
+//!   issue was opened, from which IP, and when. Only images GitHub itself
+//!   hosts (a screenshot pasted into an issue, see [`is_github_hosted`]) are
+//!   drawn — reading the issue already told GitHub as much. Any other image
+//!   becomes a plain link: the reader can still open it, deliberately, in
+//!   the browser. (github.com proxies third-party images through its own
+//!   servers for the same reason; tty7 has no proxy, so it does not load them.)
 //! - **Links open whatever they name.** A click hands the URL to the OS, and
 //!   `file:///…` or an app's custom scheme can launch programs. Only `http`,
 //!   `https` and `mailto` targets survive; anything else is pointed at `#`.
@@ -67,12 +71,14 @@ fn sanitize_line(line: &str, image_label: &str) -> String {
     if let Some(rewritten) = reference_definition(line) {
         return rewritten;
     }
+    // A table row cannot be split across paragraphs without ending the table.
+    let own_block = !line.trim_start().starts_with('|');
     let mut out = String::with_capacity(line.len());
     let mut rest = line;
     while !rest.is_empty() {
         match rest.find('`') {
             Some(start) => {
-                out.push_str(&sanitize_text(&rest[..start], image_label));
+                out.push_str(&sanitize_text(&rest[..start], image_label, own_block));
                 let after = &rest[start..];
                 let ticks = after.chars().take_while(|c| *c == '`').count();
                 let closer = "`".repeat(ticks);
@@ -90,7 +96,7 @@ fn sanitize_line(line: &str, image_label: &str) -> String {
                 }
             }
             None => {
-                out.push_str(&sanitize_text(rest, image_label));
+                out.push_str(&sanitize_text(rest, image_label, own_block));
                 break;
             }
         }
@@ -123,14 +129,30 @@ fn reference_definition(line: &str) -> Option<String> {
     ))
 }
 
-/// Plain text between code spans.
-fn sanitize_text(text: &str, image_label: &str) -> String {
+/// Plain text between code spans. `own_block` puts each image kept as an
+/// image in a paragraph of its own: the text view draws an image that shares
+/// a paragraph with text at line height, a screenshot shrunk to an icon.
+fn sanitize_text(text: &str, image_label: &str, own_block: bool) -> String {
+    let image = |alt: &str, url: &str| match own_block {
+        true => format!("\n\n![{alt}]({url})\n\n"),
+        false => format!("![{alt}]({url})"),
+    };
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < text.len() {
         let rest = &text[i..];
-        // `![alt](…)` / `![alt][ref]` → a link with the same target.
+        // A GitHub-hosted `![alt](url)` stays an image.
+        if rest.starts_with("![")
+            && !escaped(bytes, i)
+            && let Some((alt, url, len)) = inline_image(rest)
+            && is_github_hosted(url)
+        {
+            out.push_str(&image(alt, url));
+            i += len;
+            continue;
+        }
+        // Any other `![alt](…)` / `![alt][ref]` → a link with the same target.
         if rest.starts_with("![") && !escaped(bytes, i) {
             out.push('[');
             if rest[2..].starts_with(']') {
@@ -173,7 +195,9 @@ fn sanitize_text(text: &str, image_label: &str) -> String {
                 let alt = attr(tag, "alt").filter(|a| !a.trim().is_empty());
                 let label = alt.as_deref().unwrap_or(image_label);
                 let label = label.replace(['[', ']'], "");
-                if is_safe_target(&src) && !src.is_empty() {
+                if is_github_hosted(&src) {
+                    out.push_str(&image(&label, &src.replace(' ', "%20")));
+                } else if is_safe_target(&src) && !src.is_empty() {
                     out.push_str(&format!("[{label}]({})", src.replace(' ', "%20")));
                 } else {
                     out.push_str(&format!("[{label}](#)"));
@@ -300,6 +324,52 @@ fn scheme(url: &str) -> Option<&str> {
     Some(head)
 }
 
+/// `![alt](url)` or `![alt](url "title")` at the start of `s`: the alt text,
+/// the URL, and how many bytes the whole form takes. `None` for anything
+/// else, including the reference form `![alt][id]`.
+fn inline_image(s: &str) -> Option<(&str, &str, usize)> {
+    let rest = s.strip_prefix("![")?;
+    let alt_end = rest.find(']')?;
+    let alt = &rest[..alt_end];
+    if alt.contains('[') {
+        return None;
+    }
+    let target = rest[alt_end + 1..].strip_prefix('(')?;
+    let close = target.find(')')?;
+    let inside = target[..close].trim();
+    let url = inside.split_whitespace().next()?;
+    let url = url
+        .strip_prefix('<')
+        .and_then(|u| u.strip_suffix('>'))
+        .unwrap_or(url);
+    Some((alt, url, 2 + alt_end + 1 + 1 + close + 1))
+}
+
+/// Whether an image URL is one GitHub serves itself: attachments pasted into
+/// an issue (`github.com/user-attachments/…`, a repository's `/assets/…`) and
+/// anything under `githubusercontent.com` (older attachments, raw files,
+/// avatars, GitHub's own image proxy). Only `https`.
+pub fn is_github_hosted(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    // Userinfo or a port would make the "host" above something else.
+    if host.contains(['@', ':']) {
+        return false;
+    }
+    let host = host.to_ascii_lowercase();
+    if host == "github.com" {
+        let mut parts = path.trim_start_matches('/').split('/');
+        return match (parts.next(), parts.next(), parts.next()) {
+            (Some("user-attachments"), Some(_), _) => true,
+            (Some(_), Some(_), Some("assets")) => true,
+            _ => false,
+        };
+    }
+    host.ends_with(".githubusercontent.com")
+}
+
 /// Whether a link target may be handed to the OS opener.
 ///
 /// Relative targets and fragments carry no scheme and so cannot name a program;
@@ -325,6 +395,60 @@ mod tests {
     }
 
     #[test]
+    fn github_hosted_images_stay_images() {
+        let pasted = "https://github.com/user-attachments/assets/352d14e0-d11c";
+        // Each in a paragraph of its own, so it is drawn at its size.
+        assert_eq!(
+            s(&format!("![shot]({pasted})")),
+            format!("\n\n![shot]({pasted})\n\n")
+        );
+        assert_eq!(
+            s(&format!("a ![](<{pasted}> \"t\") b")),
+            format!("a \n\n![]({pasted})\n\n b")
+        );
+        assert_eq!(
+            s(
+                r#"<img width="300" alt="Screenshot" src="https://user-images.githubusercontent.com/1/a.png">"#
+            ),
+            "\n\n![Screenshot](https://user-images.githubusercontent.com/1/a.png)\n\n"
+        );
+        assert_eq!(
+            s(&format!(r#"<img src="{pasted}" />"#)),
+            format!("\n\n![image]({pasted})\n\n")
+        );
+        // In a table row the image stays in its cell.
+        assert_eq!(
+            s(&format!("| ![x]({pasted}) |")),
+            format!("| ![x]({pasted}) |")
+        );
+    }
+
+    #[test]
+    fn only_github_itself_counts_as_github_hosted() {
+        for yes in [
+            "https://github.com/user-attachments/assets/x",
+            "https://github.com/owner/repo/assets/1/x",
+            "https://private-user-images.githubusercontent.com/1/x.png?jwt=y",
+            "https://camo.githubusercontent.com/abc",
+            "https://RAW.githubusercontent.com/o/r/main/a.png",
+        ] {
+            assert!(is_github_hosted(yes), "{yes}");
+        }
+        for no in [
+            "http://github.com/user-attachments/assets/x",
+            "https://github.com/owner/repo",
+            "https://github.com.evil.io/user-attachments/assets/x",
+            "https://evil.io/x.githubusercontent.com/a.png",
+            "https://githubusercontent.com.evil.io/a.png",
+            "https://github.com@evil.io/user-attachments/assets/x",
+            "https://x.io/a.png",
+            "",
+        ] {
+            assert!(!is_github_hosted(no), "{no}");
+        }
+    }
+
+    #[test]
     fn images_become_links_to_the_same_target() {
         assert_eq!(
             s("see ![shot](https://x.io/a.png) here"),
@@ -339,8 +463,8 @@ mod tests {
     #[test]
     fn html_images_become_links_too() {
         assert_eq!(
-            s(r#"<img width="300" alt="Screenshot" src="https://github.com/u/a.png">"#),
-            "[Screenshot](https://github.com/u/a.png)"
+            s(r#"<img width="300" alt="Screenshot" src="https://x.io/u/a.png">"#),
+            "[Screenshot](https://x.io/u/a.png)"
         );
         assert_eq!(
             s("<IMG SRC='https://x.io/b.png' />"),

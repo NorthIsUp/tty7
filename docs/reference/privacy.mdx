@@ -54,8 +54,9 @@ All of the above honour `http_proxy`. [Updates →](/reference/updates#proxies)
 The GitHub tab stores no credential of its own. It asks `GH_TOKEN`,
 `GITHUB_TOKEN` or `gh auth token` each time it connects, keeps the answer in
 memory only, and never writes it to disk or to the log. Images in issue and pull
-request text are not fetched — they are shown as links — so opening an issue
-does not tell a third-party image host that you read it.
+request text are fetched only when GitHub hosts them (screenshots pasted into
+an issue, `*.githubusercontent.com`); any other image is shown as a link, so
+opening an issue does not tell a third-party image host that you read it.
 [The GitHub tab →](/window/side-panel#github)
 
 ## What is stored, and where
