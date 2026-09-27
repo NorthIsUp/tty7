@@ -209,8 +209,9 @@ impl Render for TextPrompt {
             .track_focus(&self.focus)
             .size_full()
             // Nothing under the scrim answers the pointer while the question
-            // is up: the prompt is painted over the window, not into it, so
-            // without this a click on the dimmed tab strip still switched tabs.
+            // is up: the prompt is painted over the window, not into it, and
+            // gpui hands a click to every hitbox under it that is not
+            // occluded — the dimmed window would still take it.
             .occlude()
             .cursor_default()
             .bg(crate::ui::presets::scrim_fill(cx))

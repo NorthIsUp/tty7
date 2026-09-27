@@ -47,8 +47,6 @@ pub(crate) struct Tk {
     pub heading: Hsla,
     /// A nav item at rest.
     pub nav: Hsla,
-    /// A raised button's fill.
-    pub btn: Hsla,
     /// The one fill every control on the page stands on — field, dropdown,
     /// secondary button, stepper — the theme's `muted`, the same well the
     /// dialogs' fields and the sidebar's search sit in. No outline, no drop.
@@ -104,7 +102,6 @@ impl Tk {
             k6: a(0.6, 0.65),
             heading: a(0.9, 0.9),
             nav: a(0.82, 0.8),
-            btn: if dark { fg.opacity(0.1) } else { white },
             well,
             well_hover: well.blend(fg.opacity(if dark { 0.06 } else { 0.05 })),
             focus: theme.ring,
@@ -126,18 +123,6 @@ impl Tk {
             vec![
                 ring(gpui::black().opacity(0.08), 0.5, false),
                 drop(gpui::black().opacity(0.06), 1., 2., 0.),
-            ]
-        }
-    }
-
-    /// The same, a step firmer, for a hovered raised control.
-    pub(crate) fn raised_hover(&self) -> Vec<BoxShadow> {
-        if self.dark {
-            vec![ring(self.fg.opacity(0.2), 0.5, false)]
-        } else {
-            vec![
-                ring(gpui::black().opacity(0.16), 0.5, false),
-                drop(gpui::black().opacity(0.08), 1., 2., 0.),
             ]
         }
     }
@@ -442,7 +427,7 @@ pub(crate) fn search_glass(size: f32, tk: &Tk) -> Icon {
 /// lower, at 26.
 pub(crate) const CONTROL_H: f32 = 28.;
 
-/// A search field with a hairline ring, for filtering a list on the page.
+/// A search field on the well, for filtering a list on the page.
 pub(crate) fn search_field(input: &gpui::Entity<InputState>, tk: &Tk) -> Div {
     h_flex()
         .h(px(CONTROL_H))
