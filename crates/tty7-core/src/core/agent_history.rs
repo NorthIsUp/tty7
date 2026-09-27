@@ -50,7 +50,7 @@ pub struct PastSession {
 /// Where each agent keeps its history on this computer.
 #[derive(Clone, Debug)]
 pub struct Roots {
-    /// `~/.claude`.
+    /// `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
     pub claude: PathBuf,
     /// `$CODEX_HOME`, else `~/.codex`.
     pub codex: PathBuf,
@@ -111,6 +111,12 @@ impl Roots {
                 .map(PathBuf::from)
         };
         let mut roots = Self::under(home);
+        // The same override the hooks installer honours
+        // (`agent_hooks::claude_settings_path`): Claude Code keeps its
+        // projects wherever it keeps its settings.
+        if let Some(dir) = var("CLAUDE_CONFIG_DIR") {
+            roots.claude = dir;
+        }
         if let Some(dir) = var("CODEX_HOME") {
             roots.codex = dir;
         }
@@ -533,15 +539,24 @@ fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
     {
         return Some(conn);
     }
-    let uri = format!(
-        "file:{}?immutable=1",
-        path.to_string_lossy()
-            .replace('\\', "/")
-            .replace('?', "%3f")
-    );
-    Connection::open_with_flags(uri, flags)
+    Connection::open_with_flags(immutable_uri(path), flags)
         .ok()
         .and_then(usable)
+}
+
+/// `path` as a SQLite URI that reads the file as it stands, taking no locks
+/// and never looking for a log. What SQLite would read as URI syntax in the
+/// path — `%`, `?`, `#` — is escaped.
+fn immutable_uri(path: &Path) -> String {
+    format!(
+        "file:{}?immutable=1",
+        // `%` first: it is the escape the other two are spelled in.
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .replace('%', "%25")
+            .replace('?', "%3f")
+            .replace('#', "%23")
+    )
 }
 
 /// OpenCode's databases: `$OPENCODE_DB`, else every `opencode*.db` in its
@@ -769,10 +784,14 @@ fn read_codex(path: &Path, updated: u64) -> Option<PastSession> {
     let file = File::open(path).ok()?;
     let mut reader = std::io::BufReader::new(file.take(CODEX_HEAD_BYTES));
     let mut head = String::new();
-    let mut line = String::new();
-    while reader.read_line(&mut line).ok()? > 0 {
-        let prompt = line.contains("\"user_message\"");
-        head.push_str(&line);
+    let mut line = Vec::new();
+    // Bytes, not `read_line`: the cap can cut a multi-byte character in
+    // half, and `read_line` fails the whole read on that — losing a session
+    // whose metadata was already in.
+    while reader.read_until(b'\n', &mut line).ok()? > 0 {
+        let line_text = String::from_utf8_lossy(&line);
+        let prompt = line_text.contains("\"user_message\"");
+        head.push_str(&line_text);
         line.clear();
         // The prompt comes after the metadata, so once one is in, both are.
         if prompt {
@@ -1793,6 +1812,33 @@ mod tests {
             ("agent-1", Some(known.as_path()), None)
         );
         assert_eq!(found[0].updated, 7);
+    }
+
+    #[test]
+    fn the_immutable_fallback_opens_a_path_with_uri_characters_in_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let odd = dir.path().join("50% #1 ?x");
+        std::fs::create_dir_all(&odd).unwrap();
+        let db = odd.join("opencode.db");
+        drop(opencode_db(&db));
+        let flags =
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+        let conn = rusqlite::Connection::open_with_flags(immutable_uri(&db), flags).unwrap();
+        assert_eq!(read_opencode(&conn).len(), 2);
+    }
+
+    #[test]
+    fn a_codex_rollout_cut_inside_a_character_still_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout.jsonl");
+        let meta = codex_meta(json!({"title": "named"}));
+        // A second record long enough that the head cap lands one byte into
+        // a two-byte character, with no prompt before it.
+        let filler = CODEX_HEAD_BYTES as usize - meta.len() - 1;
+        let long = format!("{}{}\n", "a".repeat(filler), "é".repeat(8));
+        std::fs::write(&path, format!("{meta}{long}")).unwrap();
+        let s = read_codex(&path, 0).expect("the metadata was read");
+        assert_eq!((s.id.as_str(), s.title.as_str()), ("0199-abc", "named"));
     }
 
     #[test]

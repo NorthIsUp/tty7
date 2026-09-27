@@ -116,12 +116,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>⏎</kbd> goes back to the tab you were just in. The keybinding action is
   still `TogglePalette`, so a custom binding keeps working.
 - **Resume a past agent session from Search Everywhere.** Its **Sessions** tab
-  lists the Claude Code and Codex sessions on this computer — those that ran in
-  the focused tab's directory first — by the title the agent gave them, with
-  directory, branch and age, and <kbd>⏎</kbd> resumes one in a new tab in the
-  directory it ran in, with the agent's configured launch flags. Only the ends
-  of each transcript are read, in the background, and remembered until the file
-  changes.
+  lists past sessions of Claude Code, Codex, Gemini CLI, Qwen Code, Qoder,
+  CodeBuddy, Pi, Oh My Pi, Kimi Code, Copilot CLI, Droid, Cursor CLI and
+  OpenCode — those that ran in the focused tab's directory first — by the title
+  the agent gave them, with directory, branch and age, and <kbd>⏎</kbd>
+  resumes one in a new tab in the directory it ran in, with the agent's
+  configured launch flags. In a remote workspace the list is that machine's
+  sessions, and they resume there. <kbd>⌘ E</kbd> (<kbd>Ctrl E</kbd>
+  elsewhere) on a session opens what else can be done with it: fork it, for
+  the agents that can, copy its id, or *Remove from List*, which only hides it
+  from the tab (`hidden_agent_sessions` in `config.json`) and leaves the
+  agent's history alone. Only the ends of each transcript are read, in the
+  background, and remembered until the file changes; OpenCode's and Cursor's
+  SQLite stores are opened read-only. The control dialect moves to v12, so
+  each remote host needs one Update Server, which ends the sessions on it.
 
 - **The command-line ghost suggests what you ran last, not what you ran
   most.** It was the top prefix match by frecency, where run count and the
