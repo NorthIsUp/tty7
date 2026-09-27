@@ -397,7 +397,7 @@ fn write_replacing(
     };
     // From here on every early return must take the temp file with it, or a
     // failed save would litter the user's directory with `.tty7-….tmp` files.
-    let result = (|| {
+    let staged = (|| {
         // A new file keeps the umask-derived mode it was created with, which
         // is what `fs::write` would have given it; an existing one keeps its
         // own.
@@ -407,19 +407,29 @@ fn write_replacing(
         fill(&mut tmp)?;
         // Without this the rename can reach the disk before the data does,
         // and a power cut leaves an empty file under the old name.
-        tmp.sync_all()?;
-        drop(tmp);
-        fs::rename(&tmp_path, p)
+        tmp.sync_all()
     })();
-    if result.is_err() {
+    drop(tmp);
+    // Staging failed — a full disk, say. The original is untouched and must
+    // stay that way: writing it in place now would truncate it into exactly
+    // the half-written file this function exists to prevent.
+    if let Err(e) = staged {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp_path, p) {
         let _ = fs::remove_file(&tmp_path);
         // Windows refuses to rename over a file another program holds open,
         // where the in-place write it used to get succeeds, so there a failed
-        // swap is not yet a failed save.
+        // swap is not yet a failed save. Only the swap: the content was just
+        // written out in full, so the disk has room for it.
         #[cfg(not(unix))]
-        return fs::write(p, bytes);
+        {
+            let _ = e;
+            return fs::write(p, bytes);
+        }
         #[cfg(unix)]
-        return result;
+        return Err(e);
     }
     sync_parent_dir(p);
     Ok(())
