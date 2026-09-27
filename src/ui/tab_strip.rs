@@ -1,7 +1,7 @@
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Axis, Bounds, Context, FontWeight, MouseButton,
     Pixels, SharedString, Window, canvas, deferred, div, ease_out_quint, linear_color_stop,
-    linear_gradient, prelude::*, px, relative,
+    linear_gradient, prelude::*, px,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::input::Input;
@@ -1005,10 +1005,19 @@ fn menu_hosts(
 /// Both halves are cut rather than allowed to push: the panel stops at
 /// [`MENU_W`], and a descriptive host name next to a long `user@host:port`
 /// asks for more than that. Which half gives way is the whole point — the name
-/// is what the reader is picking by, so the endpoint is capped at half the row
-/// and elides first, and the name takes everything left over. Sized the other
-/// way round (name growing from nothing, endpoint at its natural width) a long
-/// address squeezes the name down to `..` and the row names nothing at all.
+/// is what the reader is picking by, so it keeps its width up to
+/// [`MENU_NAME_W`], and the endpoint takes whatever is left and elides first.
+/// Sized the other way round (name growing from nothing, endpoint at its
+/// natural width) a long address squeezes the name down to `..` and the row
+/// names nothing at all.
+///
+/// Both caps are fixed lengths, never a share of the row. The panel is sized
+/// to fit its content, so while the text is laid out no row has a width yet:
+/// anything capped by `relative(..)` or by flex shrinking measures at full
+/// length, is squeezed afterwards, and is clipped mid-glyph at the panel edge
+/// (`git@ssh.github.con`) instead of ending in an ellipsis. A pixel cap is
+/// known up front, so the text elides against it. The two caps and the row's
+/// insets add up to [`MENU_W`].
 ///
 /// An empty note drops the right half entirely rather than leaving a zero-width
 /// child to hold the `gap_3` open — the name is then free to use the full row,
@@ -1020,18 +1029,42 @@ fn menu_row(label: SharedString, note: SharedString, cx: &gpui::App) -> impl Int
         .items_center()
         .justify_between()
         .gap_3()
-        .child(div().flex_1().min_w_0().truncate().child(label))
+        .child(
+            div()
+                .flex_shrink_0()
+                .max_w(match note.is_empty() {
+                    true => MENU_W - MENU_ROW_INSET,
+                    false => MENU_NAME_W,
+                })
+                .truncate()
+                .child(label),
+        )
         .when(!note.is_empty(), |this| {
+            // Pushed right by the cell, not by `text_right`: a line set
+            // with `truncate` ignores its alignment and hugs the name.
             this.child(
-                div()
-                    .flex_shrink_0()
-                    .max_w(relative(0.5))
-                    .truncate()
-                    .text_color(muted)
-                    .child(note),
+                h_flex().flex_1().justify_end().child(
+                    div()
+                        .max_w(MENU_NOTE_W)
+                        .truncate()
+                        .text_color(muted)
+                        .child(note),
+                ),
             )
         })
 }
+
+/// The most of a [`menu_row`] its name keeps before it elides — the larger
+/// share, since the name is what the row is picked by.
+const MENU_NAME_W: Pixels = px(172.);
+
+/// The most the endpoint beside a name gets: room for `user@host:port` on a
+/// typical host, and the gap and the insets take the rest of [`MENU_W`].
+const MENU_NOTE_W: Pixels = px(150.);
+
+/// What the panel spends on either side of a row's content: its own 5px
+/// inset and the row's 8px padding, twice.
+const MENU_ROW_INSET: Pixels = px(26.);
 
 /// The words behind the status dot's colour.
 pub(crate) fn agent_status_label(
@@ -2444,7 +2477,11 @@ impl Tty7App {
                         .id("titlebar-search")
                         .occlude()
                         .w(px(TITLEBAR_SEARCH_W))
-                        .max_w(gpui::relative(0.5))
+                        // Enough of the bar that the label and its chord still
+                        // fit with a document docked beside the terminal; at a
+                        // half it read `Search Everywhe…` in exactly the
+                        // layout people search from most.
+                        .max_w(gpui::relative(0.6))
                         .h(px(TITLEBAR_SEARCH_H))
                         .items_center()
                         .gap(px(7.))

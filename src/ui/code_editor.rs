@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, Focusable as _, PromptLevel, SharedString, Subscription, Window,
-    div, px,
+    div, px, rems,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState, Position, TabSize};
@@ -1550,42 +1550,72 @@ impl Tty7App {
     }
 
     fn render_editor_conflict_banner(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::ui::dialog::{self, Tone};
         let tab_ix = self.active;
         let ix = self.tab_code().map(|c| c.active).unwrap_or(0);
+        let theme = cx.theme();
+        let rungs = cx.global::<crate::ui::presets::Surfaces>().window;
+        // The floating notices' grammar, laid flat: a neutral strip over a
+        // hairline, and the state carried by one amber dot. A strip tinted
+        // amber end to end, with a white outlined button from the component
+        // library beside a bare-text one, was three visual languages in one
+        // 32px row.
+        //
+        // Keep mine is the filled answer because it is the safe one: Reload
+        // throws away every unsaved edit in the file, so it is offered, not
+        // pressed on the reader.
         h_flex()
             .flex_none()
             .w_full()
             .items_center()
-            .gap_2()
-            .px_2()
-            .py_1()
-            .bg(cx.theme().warning.opacity(0.15))
+            .gap(px(8.))
+            .pl(px(dialog::INSET))
+            .pr(px(6.))
+            .h(px(dialog::FOOTER_H))
             .border_b_1()
-            .border_color(cx.theme().border)
-            .text_sm()
-            .child(div().flex_1().child(crate::ui::i18n::t(
-                crate::ui::i18n::L10nKey::FileChangedOnDisk,
-            )))
+            .border_color(theme.border)
+            .text_size(rems(crate::ui::right_panel::TAB_TEXT))
             .child(
-                Button::new("editor-conflict-reload")
-                    .label(crate::ui::i18n::t(crate::ui::i18n::L10nKey::Reload))
-                    .small()
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.editor_reload_from_disk(tab_ix, ix, window, cx);
-                    })),
+                div()
+                    .flex_none()
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(theme.warning),
             )
             .child(
-                Button::new("editor-conflict-keep")
-                    .label(crate::ui::i18n::t(crate::ui::i18n::L10nKey::KeepMine))
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(move |this, _, _w, cx| {
-                        if let Some(f) = this.tab_code_mut().and_then(|c| c.files.get_mut(ix)) {
-                            f.conflict = false;
-                            cx.notify();
-                        }
-                    })),
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(crate::ui::i18n::t(
+                        crate::ui::i18n::L10nKey::FileChangedOnDisk,
+                    )),
             )
+            .child(dialog::button(
+                "editor-conflict-reload",
+                crate::ui::i18n::t(crate::ui::i18n::L10nKey::Reload),
+                Tone::Secondary,
+                true,
+                rungs,
+                cx,
+                cx.listener(move |this, _, window, cx| {
+                    this.editor_reload_from_disk(tab_ix, ix, window, cx);
+                }),
+            ))
+            .child(dialog::button(
+                "editor-conflict-keep",
+                crate::ui::i18n::t(crate::ui::i18n::L10nKey::KeepMine),
+                Tone::Primary,
+                true,
+                rungs,
+                cx,
+                cx.listener(move |this, _, _w, cx| {
+                    if let Some(f) = this.tab_code_mut().and_then(|c| c.files.get_mut(ix)) {
+                        f.conflict = false;
+                        cx.notify();
+                    }
+                }),
+            ))
             .into_any_element()
     }
 }

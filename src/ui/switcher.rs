@@ -2567,9 +2567,10 @@ impl Tty7App {
                     .gap(px(2.))
                     .text_size(gpui::rems(11.5 / 16.))
                     .text_color(muted)
-                    .when(!row.tabs.is_empty(), |c| {
-                        c.child(row.tabs.len().to_string())
-                    })
+                    // In words, the way the tab column's header says it: a
+                    // bare `1` here sat a few pixels from the slot number after
+                    // the name, and the two read as the same thing twice.
+                    .when(!row.tabs.is_empty(), |c| c.child(tab_count(row.tabs.len())))
                     .children(badge.map(|(label, _here)| {
                         div()
                             .text_size(gpui::rems(11. / 16.))
@@ -2973,10 +2974,7 @@ impl Tty7App {
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .child(row.name.clone()),
                 )
-                .child(div().flex_shrink_0().child(match row.tabs.len() {
-                    1 => t(L10nKey::SwitcherTabCountOne).to_string(),
-                    n => t_fmt(L10nKey::SwitcherTabCount, &[("n", &n.to_string())]),
-                })),
+                .child(div().flex_shrink_0().child(tab_count(row.tabs.len()))),
         );
 
         for (nth, i) in hits.iter().enumerate() {
@@ -3447,6 +3445,13 @@ fn keycap(label: impl Into<gpui::SharedString>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// "1 tab", "3 tabs" — how both columns count a workspace's tabs.
+fn tab_count(n: usize) -> String {
+    match n {
+        1 => t(L10nKey::SwitcherTabCountOne).to_string(),
+        n => t_fmt(L10nKey::SwitcherTabCount, &[("n", &n.to_string())]),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
