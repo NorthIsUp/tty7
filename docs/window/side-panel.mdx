@@ -1,6 +1,6 @@
 ---
 title: "The side panel"
-description: "Info, Source Control, Files, and Search — plus the built-in editor."
+description: "Info, Source Control, Files, Search and GitHub — plus the built-in editor."
 ---
 
 <kbd>⌘ J</kbd> opens a panel on the right of the window. It is hidden by
@@ -93,6 +93,50 @@ this feature cannot search; the tab says so and asks you to update the server
 rather than showing an empty result. An SSH pane's files are browsed over
 [SFTP](/remote/sftp), which cannot search them — open the host as a remote
 workspace for that.
+
+## GitHub
+
+Issues and pull requests for the repository the focused pane is in, read-only.
+The tab reads the repository's remotes and binds to the one on `github.com`; in a
+fork, where `origin` is yours and `upstream` is the project, it picks
+`upstream`, and the name at the top is a menu of every GitHub remote when there
+is more than one. GitHub Enterprise hosts are not supported.
+
+- **Issues | Pull Requests** and **Open | Closed** switch the list, newest
+  activity first, 50 at a time with **Load more** underneath.
+- Each row carries a state glyph whose *shape* says open, closed, not planned,
+  merged or draft; the number, author and last update; and the labels.
+  **Click a label** to show only that label, and the × beside it to clear it.
+- **Click a row** for the detail: title, state, author, labels, the description
+  and the conversation as Markdown. A pull request adds its branches, size and
+  changed files — click a file to open its patch in the
+  [diff overlay](/git/diffs).
+- The ↗ button opens the repository, or the issue, on github.com; ↻ refreshes.
+
+Lists are kept per repository, so switching tabs or panes does not fetch them
+again; anything older than two minutes is refreshed in the background while
+it stays on screen.
+
+### Signing in
+
+There is nothing to sign in to in tty7. It reuses the GitHub CLI's login: the
+token comes from `GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`. `gh` is
+looked for on your `PATH` and in the usual Homebrew and `/usr/local/bin`
+locations, so it is found even when tty7 was opened from Finder.
+
+Without a token, public repositories still work, at GitHub's unauthenticated
+limit of 60 requests an hour. A private repository, or a spent limit, says so
+in the panel and suggests running `gh auth login`; press ↻ afterwards and the
+new login is picked up without a restart.
+
+The Info tab gains a **GitHub** row for a repository with a GitHub remote. It
+opens the branch you are on, on the remote it tracks — or the repository's page
+for a branch you have not pushed.
+
+Markdown from GitHub is written by strangers, so it is rendered with two
+changes: images are not loaded — each becomes a link you can open in the
+browser — and links that would open anything other than a web page or an
+e-mail are disabled. See [what leaves your machine](/reference/privacy#what-leaves-your-machine).
 
 ## The editor
 

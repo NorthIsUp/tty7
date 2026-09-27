@@ -1895,6 +1895,42 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::TabContextWake => "唤醒",
         L10nKey::TabTooltipAsleep => "已休眠 — 选中即可唤醒",
         L10nKey::TabWakeFailed => "无法唤醒标签页：其中的窗格都无法启动",
+        // ---- The right panel's GitHub tab ----
+        L10nKey::GitHubIssues => "议题",
+        L10nKey::GitHubPulls => "拉取请求",
+        L10nKey::GitHubOpen => "开放",
+        L10nKey::GitHubClosed => "已关闭",
+        L10nKey::GitHubMerged => "已合并",
+        L10nKey::GitHubDraft => "草稿",
+        L10nKey::GitHubNotPlanned => "不予计划",
+        L10nKey::GitHubRefresh => "刷新",
+        L10nKey::GitHubOpenOnGitHub => "在 GitHub 上打开",
+        L10nKey::GitHubShowRemote => "显示此远程的议题",
+        L10nKey::GitHubLoadMore => "加载更多",
+        L10nKey::GitHubNoRemote => "没有 GitHub 远程仓库",
+        L10nKey::GitHubNoRemoteHint => "此仓库的远程都不指向 github.com。",
+        L10nKey::GitHubNoIssues => "没有匹配的议题。",
+        L10nKey::GitHubNoPulls => "没有匹配的拉取请求。",
+        L10nKey::GitHubSignInHint => "在终端中运行 `gh auth login` 登录，然后刷新。",
+        L10nKey::GitHubNotFoundSignedOut => "GitHub 找不到此仓库。如果它是私有仓库，请先登录。",
+        L10nKey::GitHubNotFoundSignedIn => "GitHub 找不到此仓库，或当前账户无权查看。",
+        L10nKey::GitHubUnauthorized => "GitHub 拒绝了已保存的登录凭据。",
+        L10nKey::GitHubRateLimited => "GitHub 的请求额度已用完。",
+        L10nKey::GitHubRateLimitResetIn => "{n} 分钟后重置。",
+        L10nKey::GitHubRateLimitSignedOut => {
+            "未登录时 GitHub 每小时只允许 60 次请求。运行 `gh auth login` 登录可提高额度。"
+        }
+        L10nKey::GitHubForbidden => "GitHub 拒绝了该请求。",
+        L10nKey::GitHubNetworkError => "无法连接到 GitHub。",
+        L10nKey::GitHubHttpError => "GitHub 返回了错误（{code}）。",
+        L10nKey::GitHubDecodeError => "GitHub 返回了 tty7 无法解析的响应。",
+        L10nKey::GitHubMoreOnGitHub => "在 GitHub 上查看更多",
+        L10nKey::GitHubNoDescription => "未提供描述。",
+        L10nKey::GitHubFilterByLabel => "只显示此标签",
+        L10nKey::GitHubClearLabel => "清除标签筛选",
+        L10nKey::GitHubImage => "图片",
+        L10nKey::GitHubComments => "{count} 条评论",
+        L10nKey::GitHubCommits => "{count} 个提交",
     })
 }
 
@@ -2024,6 +2060,13 @@ pub fn translate_variant_zh(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::WindowDeleteShells, "other") => {
             "{count} 个正在运行的 shell 将会被终止，布局也将被清除。"
         }
+        // ---- The right panel's GitHub tab ----
+        (L10nKey::GitHubComments, "zero") => "暂无评论",
+        (L10nKey::GitHubComments, "one") => "1 条评论",
+        (L10nKey::GitHubComments, "other") => "{count} 条评论",
+        (L10nKey::GitHubCommits, "zero") => "没有提交",
+        (L10nKey::GitHubCommits, "one") => "1 个提交",
+        (L10nKey::GitHubCommits, "other") => "{count} 个提交",
         _ => return None,
     };
     Some(res)

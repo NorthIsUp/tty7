@@ -2022,6 +2022,46 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::TabContextWake => "Wake",
         L10nKey::TabTooltipAsleep => "Hibernated — select to wake",
         L10nKey::TabWakeFailed => "Could not wake the tab: none of its panes could be started",
+        // ---- The right panel's GitHub tab ----
+        L10nKey::GitHubIssues => "Issues",
+        L10nKey::GitHubPulls => "Pull Requests",
+        L10nKey::GitHubOpen => "Open",
+        L10nKey::GitHubClosed => "Closed",
+        L10nKey::GitHubMerged => "Merged",
+        L10nKey::GitHubDraft => "Draft",
+        L10nKey::GitHubNotPlanned => "Not planned",
+        L10nKey::GitHubRefresh => "Refresh",
+        L10nKey::GitHubOpenOnGitHub => "Open on GitHub",
+        L10nKey::GitHubShowRemote => "Show issues from",
+        L10nKey::GitHubLoadMore => "Load more",
+        L10nKey::GitHubNoRemote => "No GitHub remote",
+        L10nKey::GitHubNoRemoteHint => "None of this repository's remotes point at github.com.",
+        L10nKey::GitHubNoIssues => "No issues match.",
+        L10nKey::GitHubNoPulls => "No pull requests match.",
+        L10nKey::GitHubSignInHint => "Sign in with `gh auth login` in a terminal, then refresh.",
+        L10nKey::GitHubNotFoundSignedOut => {
+            "GitHub did not find this repository. If it is private, sign in first."
+        }
+        L10nKey::GitHubNotFoundSignedIn => {
+            "GitHub did not find this repository, or this account cannot see it."
+        }
+        L10nKey::GitHubUnauthorized => "GitHub rejected the saved sign-in.",
+        L10nKey::GitHubRateLimited => "GitHub's rate limit is used up.",
+        L10nKey::GitHubRateLimitResetIn => "It resets in {n} min.",
+        L10nKey::GitHubRateLimitSignedOut => {
+            "Signed out, GitHub allows 60 requests an hour. Sign in with `gh auth login` for more."
+        }
+        L10nKey::GitHubForbidden => "GitHub refused the request.",
+        L10nKey::GitHubNetworkError => "Could not reach GitHub.",
+        L10nKey::GitHubHttpError => "GitHub answered with an error ({code}).",
+        L10nKey::GitHubDecodeError => "GitHub sent a response tty7 could not read.",
+        L10nKey::GitHubMoreOnGitHub => "More on GitHub",
+        L10nKey::GitHubNoDescription => "No description provided.",
+        L10nKey::GitHubFilterByLabel => "Show only this label",
+        L10nKey::GitHubClearLabel => "Clear label filter",
+        L10nKey::GitHubImage => "image",
+        L10nKey::GitHubComments => "{count} comments",
+        L10nKey::GitHubCommits => "{count} commits",
     }
 }
 
@@ -2182,6 +2222,13 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::WindowDeleteShells, "other") => {
             "{count} running shells will be ended and the layout forgotten."
         }
+        // ---- The right panel's GitHub tab ----
+        (L10nKey::GitHubComments, "zero") => "No comments",
+        (L10nKey::GitHubComments, "one") => "1 comment",
+        (L10nKey::GitHubComments, "other") => "{count} comments",
+        (L10nKey::GitHubCommits, "zero") => "No commits",
+        (L10nKey::GitHubCommits, "one") => "1 commit",
+        (L10nKey::GitHubCommits, "other") => "{count} commits",
         _ => return None,
     };
     Some(res)

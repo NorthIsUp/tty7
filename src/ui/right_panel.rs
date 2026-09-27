@@ -347,6 +347,8 @@ enum InfoValue {
         removed: u32,
         open: Option<(crate::ui::host_ops::HostId, PathBuf)>,
     },
+    /// Text that opens a web page when clicked — the repository on GitHub.
+    Link { text: String, url: String },
 }
 
 /// The table convention for a cell with nothing in it. Needs no translating,
@@ -414,6 +416,7 @@ impl InfoRow {
         self.copy.is_some()
             || self.reveal.is_some()
             || matches!(self.value, InfoValue::Diff { open: Some(_), .. })
+            || matches!(self.value, InfoValue::Link { .. })
     }
 }
 
@@ -1004,6 +1007,19 @@ impl Tty7App {
                     copy: None,
                     reveal: None,
                 });
+                // The same repository on GitHub, at this branch, when one of
+                // its remotes is there.
+                if let Some((text, url)) = self.github_info_link(&git.branch, window, cx) {
+                    rows.push(InfoRow {
+                        label: t(L10nKey::PanelGitHubTitle),
+                        value: InfoValue::Link {
+                            text,
+                            url: url.clone(),
+                        },
+                        copy: Some(url),
+                        reveal: None,
+                    });
+                }
             }
         }
 
@@ -1092,6 +1108,26 @@ impl Tty7App {
                     .child(div().min_w_0().flex_shrink(1.).truncate().child(leaf))
                     .into_any_element()
             }
+            // Underlined on hover like the counts below: the row's fill says
+            // it reacts, the underline says the text is the button.
+            InfoValue::Link { text, url } => div()
+                .id(("panel-info-link", i))
+                .min_w_0()
+                .truncate()
+                .text_size(rems(TEXT))
+                .text_color(cx.theme().foreground)
+                .cursor_pointer()
+                .hover(|s| s.underline())
+                .tooltip(|window, cx| {
+                    gpui_component::tooltip::Tooltip::new(t(L10nKey::GitHubOpenOnGitHub))
+                        .build(window, cx)
+                })
+                .on_click(move |_, _window, cx| {
+                    cx.stop_propagation();
+                    cx.open_url(&url);
+                })
+                .child(text)
+                .into_any_element(),
             InfoValue::Text(v) => div()
                 .flex_1()
                 .min_w_0()

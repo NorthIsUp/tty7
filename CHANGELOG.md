@@ -22,6 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   predates it is never sent the request — the tab asks for the server to be
   updated instead of showing an empty result.
 
+- **A GitHub tab in the right panel: issues and pull requests, read-only.** It
+  follows the focused pane's repository, binds to its `github.com` remote
+  (`upstream` over `origin` in a fork, with a menu to pick another), and lists
+  open or closed issues or pull requests with state glyphs, labels and
+  relative times; a label click filters by it. A row opens the detail —
+  description and comments as Markdown, and for a pull request its branches,
+  size and changed files, each of which opens its patch in the diff overlay.
+  Sign-in reuses the GitHub CLI (`GH_TOKEN`, `GITHUB_TOKEN`, then
+  `gh auth token`, found even from a Finder launch); public repositories work
+  signed out, and a private repository or a spent rate limit says to run
+  `gh auth login`. Remote images in issue text are shown as links rather than
+  loaded, and non-web link targets are disabled. The Info tab gains a GitHub
+  row that opens the branch you are on. The tab talks to `api.github.com` only
+  while you use it.
+
 - **Reorder the active tab from the keyboard** (`MoveTabLeft` / `MoveTabRight`).
   The tab moves one slot past its neighbour — the keyboard form of dragging it
   in the tab strip or the sidebar — and wraps past either end, so one held key

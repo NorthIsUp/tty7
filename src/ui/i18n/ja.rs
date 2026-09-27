@@ -2071,6 +2071,50 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::TabContextWake => "復帰",
         L10nKey::TabTooltipAsleep => "休止中 — 選択すると復帰",
         L10nKey::TabWakeFailed => "タブを復帰できませんでした：どのペインも起動できません",
+        // ---- The right panel's GitHub tab ----
+        L10nKey::GitHubIssues => "イシュー",
+        L10nKey::GitHubPulls => "プルリクエスト",
+        L10nKey::GitHubOpen => "オープン",
+        L10nKey::GitHubClosed => "クローズ済み",
+        L10nKey::GitHubMerged => "マージ済み",
+        L10nKey::GitHubDraft => "下書き",
+        L10nKey::GitHubNotPlanned => "対応予定なし",
+        L10nKey::GitHubRefresh => "再読み込み",
+        L10nKey::GitHubOpenOnGitHub => "GitHub で開く",
+        L10nKey::GitHubShowRemote => "表示するリモート",
+        L10nKey::GitHubLoadMore => "さらに読み込む",
+        L10nKey::GitHubNoRemote => "GitHub リモートがありません",
+        L10nKey::GitHubNoRemoteHint => {
+            "このリポジトリのリモートはどれも github.com を指していません。"
+        }
+        L10nKey::GitHubNoIssues => "一致するイシューはありません。",
+        L10nKey::GitHubNoPulls => "一致するプルリクエストはありません。",
+        L10nKey::GitHubSignInHint => {
+            "ターミナルで `gh auth login` を実行してサインインし、再読み込みしてください。"
+        }
+        L10nKey::GitHubNotFoundSignedOut => {
+            "GitHub でこのリポジトリが見つかりません。非公開の場合は先にサインインしてください。"
+        }
+        L10nKey::GitHubNotFoundSignedIn => {
+            "GitHub でこのリポジトリが見つからないか、このアカウントでは閲覧できません。"
+        }
+        L10nKey::GitHubUnauthorized => "GitHub が保存済みのサインイン情報を拒否しました。",
+        L10nKey::GitHubRateLimited => "GitHub のレート制限に達しました。",
+        L10nKey::GitHubRateLimitResetIn => "{n} 分後にリセットされます。",
+        L10nKey::GitHubRateLimitSignedOut => {
+            "サインインしていない場合、GitHub へのリクエストは 1 時間に 60 回までです。`gh auth login` でサインインすると上限が上がります。"
+        }
+        L10nKey::GitHubForbidden => "GitHub がリクエストを拒否しました。",
+        L10nKey::GitHubNetworkError => "GitHub に接続できません。",
+        L10nKey::GitHubHttpError => "GitHub がエラーを返しました（{code}）。",
+        L10nKey::GitHubDecodeError => "GitHub から tty7 が読み取れない応答が返されました。",
+        L10nKey::GitHubMoreOnGitHub => "続きは GitHub で",
+        L10nKey::GitHubNoDescription => "説明はありません。",
+        L10nKey::GitHubFilterByLabel => "このラベルのみ表示",
+        L10nKey::GitHubClearLabel => "ラベルの絞り込みを解除",
+        L10nKey::GitHubImage => "画像",
+        L10nKey::GitHubComments => "{count} 件のコメント",
+        L10nKey::GitHubCommits => "{count} 件のコミット",
     })
 }
 
@@ -2224,6 +2268,13 @@ pub fn translate_variant_ja(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::WindowDeleteShells, "other") => {
             "{count} 個の実行中シェルが終了し、レイアウトが消去されます"
         }
+        // ---- The right panel's GitHub tab ----
+        (L10nKey::GitHubComments, "zero") => "コメントはありません",
+        (L10nKey::GitHubComments, "one") => "1 件のコメント",
+        (L10nKey::GitHubComments, "other") => "{count} 件のコメント",
+        (L10nKey::GitHubCommits, "zero") => "コミットはありません",
+        (L10nKey::GitHubCommits, "one") => "1 件のコミット",
+        (L10nKey::GitHubCommits, "other") => "{count} 件のコミット",
         _ => return None,
     };
     Some(res)

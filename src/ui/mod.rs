@@ -10,6 +10,7 @@ pub mod document_column;
 pub mod file_copy;
 pub mod file_tree;
 pub mod forwards;
+pub mod github;
 pub mod hints;
 pub mod home;
 #[allow(dead_code)]
