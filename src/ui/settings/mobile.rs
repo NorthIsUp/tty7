@@ -95,6 +95,9 @@ fn qr_image(code: &str) -> Option<Arc<gpui::Image>> {
 impl Tty7App {
     pub(crate) fn set_mobile_access(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.mobile_access = on);
+        if on {
+            crate::core::mobile::ensure_served_soon();
+        }
         if !on && let Some(s) = self.active_settings_mut() {
             s.mobile_pairing = None;
         }

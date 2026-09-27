@@ -6,6 +6,13 @@
 //! from Settings. It is a client of this same daemon over the local sockets,
 //! exactly as the standalone `tty7-gateway serve` is, and shares its state
 //! directory — the two cannot run at once (see `State::lock_serve`).
+//!
+//! Not every daemon can: one started by `tty7 server start` is the lean
+//! `tty7-server`, which carries no gateway. So the GUI checks, and when
+//! phone access is on and nothing is serving it starts a helper of its own
+//! (`tty7-app --mobile-gateway`), detached like the daemon, which serves until
+//! the switch goes off. Whichever of the two takes the lock serves; the other
+//! stands by.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
@@ -61,6 +68,78 @@ pub fn supervise() {
         });
     if let Err(e) = spawned {
         log::error!("could not start the mobile supervisor: {e}");
+    }
+}
+
+/// How long the GUI gives the daemon's own gateway to come up before it
+/// starts the helper instead.
+const DAEMON_GRACE: Duration = Duration::from_secs(5);
+
+/// The flag that runs this binary as the gateway helper.
+pub const HELPER_FLAG: &str = "--mobile-gateway";
+
+/// From the GUI: if phone access is on and, after the daemon has had its
+/// chance, no gateway is serving, starts the helper.
+pub fn ensure_served_soon() {
+    let _ = std::thread::Builder::new()
+        .name("mobile-check".into())
+        .spawn(|| {
+            std::thread::sleep(DAEMON_GRACE);
+            if !Config::load().mobile_access {
+                return;
+            }
+            let Ok(state) = State::open_default() else {
+                return;
+            };
+            if state.serving() {
+                return;
+            }
+            if let Err(e) = spawn_helper() {
+                log::warn!("could not start the mobile gateway helper: {e}");
+            }
+        });
+}
+
+fn spawn_helper() -> std::io::Result<()> {
+    let mut cmd = std::process::Command::new(std::env::current_exe()?);
+    cmd.arg(HELPER_FLAG);
+    if let Some(dir) = tty7_core::core::config::config_dir_path() {
+        cmd.arg("--config-dir").arg(dir);
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    tty7_core::daemon::spawn::detach_helper(&mut cmd);
+    cmd.spawn().map(drop)
+}
+
+/// The helper's whole life: serve while phone access is on, and leave as
+/// soon as it is off — or at once, if some other process is serving.
+pub fn run_helper() {
+    let mut switch = Switch::default();
+    loop {
+        if !switch.on() {
+            return;
+        }
+        let Ok(state) = State::open_default() else {
+            return;
+        };
+        match service::start(state.clone()) {
+            Ok(gateway) => {
+                while switch.on() {
+                    std::thread::sleep(POLL);
+                }
+                gateway.stop();
+                return;
+            }
+            // The daemon's own gateway, or a `tty7-gateway serve`: it is
+            // served, and this helper has nothing to do.
+            Err(_) if state.serving() => return,
+            Err(e) => {
+                log::warn!("the mobile gateway helper could not start the gateway: {e:#}");
+                std::thread::sleep(RETRY);
+            }
+        }
     }
 }
 

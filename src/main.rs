@@ -541,7 +541,14 @@ fn main() {
     let daemon = args
         .iter()
         .any(|arg| arg == std::ffi::OsStr::new("--daemon"));
-    let role = if daemon { "daemon" } else { "gui" };
+    let mobile_helper = args
+        .iter()
+        .any(|arg| arg == std::ffi::OsStr::new(crate::core::mobile::HELPER_FLAG));
+    let role = match (daemon, mobile_helper) {
+        (true, _) => "daemon",
+        (false, true) => "mobile",
+        (false, false) => "gui",
+    };
     crate::core::crash::install(role);
     crate::core::logfile::install(role);
 
@@ -567,6 +574,11 @@ fn main() {
             log::error!("the Explorer context-menu update failed: {error}");
             std::process::exit(1);
         }
+        return;
+    }
+
+    if mobile_helper {
+        crate::core::mobile::run_helper();
         return;
     }
 
@@ -652,6 +664,7 @@ fn main() {
     } else {
         crate::daemon::spawn::restart()
     };
+    crate::core::mobile::ensure_served_soon();
     // A pathless launch that found a GUI already registered hands the request
     // to it — the GUI may be sitting in the tray with no window — and exits.
     // The forward above cannot do this: it runs before the daemon exists, and

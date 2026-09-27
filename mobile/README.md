@@ -24,7 +24,9 @@ phone (Tauri: WebView + Rust)  ──iroh──▶  tty7-gateway  ──local so
 On the desktop: **Settings → Mobile → Allow phone access**. The local daemon
 runs the gateway from then on, with every window closed too. **Show code** there
 gives a QR code and a `tty7pair:` code, and the phones it paired are listed
-below it, each with an Unpair button.
+below it, each with an Unpair button. A daemon that cannot run the gateway, such as a lean
+`tty7-server` started by `tty7 server start`, gets a helper instead: the GUI starts
+`tty7-app --mobile-gateway`, detached, and it serves until phone access goes off.
 
 Without the GUI, the same gateway runs from the command line. It shares the
 state in `<config dir>/mobile/`, so the two never run at once:

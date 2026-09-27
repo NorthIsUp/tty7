@@ -1333,6 +1333,13 @@ fn strip_deleted_marker(path: String) -> String {
     }
 }
 
+/// Detaches a helper the way the daemon itself is detached, so it outlives
+/// the process that started it and has no console or window of its own. The
+/// GUI starts the mobile gateway helper through this.
+pub fn detach_helper(cmd: &mut Command) {
+    detach(cmd);
+}
+
 #[cfg(unix)]
 fn detach(cmd: &mut Command) {
     use std::os::unix::process::CommandExt;
