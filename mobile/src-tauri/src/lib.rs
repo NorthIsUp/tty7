@@ -19,7 +19,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, State};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tty7_mobile_client::{ControlSender, Host, LinkInfo, PaneItem, Session};
-use tty7_mobile_proto::{ControlEvent, GridSize, PaneEvent, TabCreated, Tree};
+use tty7_mobile_proto::{ControlEvent, GridSize, PaneEvent, PaneRequest, TabCreated, Tree};
 
 /// How long output is gathered before it crosses to the WebView. One frame at
 /// 60 Hz: shorter buys nothing on screen, longer starts to feel like lag.
@@ -37,11 +37,17 @@ struct AppState {
     sessions: Mutex<HashMap<String, Session>>,
     /// The refresh half of each machine's control stream, by host id.
     controls: Mutex<HashMap<String, ControlSender>>,
-    panes: Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>,
+    panes: Mutex<HashMap<u32, mpsc::UnboundedSender<Up>>>,
     next_pane: AtomicU32,
 }
 
 type CmdResult<T> = Result<T, String>;
+
+/// What goes up an open pane's stream, in the order the frontend sent it.
+enum Up {
+    Keys(Vec<u8>),
+    Request(PaneRequest),
+}
 
 fn err(e: impl std::fmt::Display) -> String {
     // `{:#}` walks anyhow's chain, so "could not reach studio: no route"
@@ -251,7 +257,7 @@ async fn pane_open(
         .await
         .map_err(err)?;
     let handle = state.next_pane.fetch_add(1, Ordering::Relaxed);
-    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Up>();
     state.panes.lock().await.insert(handle, input_tx);
 
     // A write that fails is said on the pane's channel, and the handle goes,
@@ -259,8 +265,12 @@ async fn pane_open(
     let refused = on_output.clone();
     let app_state = state.inner().clone();
     tokio::spawn(async move {
-        while let Some(bytes) = input_rx.recv().await {
-            if let Err(e) = keys.input(&bytes).await {
+        while let Some(up) = input_rx.recv().await {
+            let sent = match &up {
+                Up::Keys(bytes) => keys.input(bytes).await,
+                Up::Request(request) => keys.request(request).await,
+            };
+            if let Err(e) = sent {
                 app_state.panes.lock().await.remove(&handle);
                 let event = PaneEvent::Error {
                     message: format!("typing didn't reach the computer: {}", err(e)),
@@ -346,7 +356,27 @@ async fn pane_open(
 async fn pane_input(state: State<'_, Arc<AppState>>, handle: u32, data: String) -> CmdResult<()> {
     match state.panes.lock().await.get(&handle) {
         Some(tx) => tx
-            .send(data.into_bytes())
+            .send(Up::Keys(data.into_bytes()))
+            .map_err(|_| "the pane has closed".to_string()),
+        None => Err("the pane has closed".into()),
+    }
+}
+
+/// Runs the pane at `size` — the phone's screen — or, with none, gives it
+/// back to the desktop's. Answered on the pane's channel with a `lease` event.
+#[tauri::command]
+async fn pane_lease(
+    state: State<'_, Arc<AppState>>,
+    handle: u32,
+    size: Option<GridSize>,
+) -> CmdResult<()> {
+    let request = match size {
+        Some(size) => PaneRequest::TakeOver { size },
+        None => PaneRequest::Release,
+    };
+    match state.panes.lock().await.get(&handle) {
+        Some(tx) => tx
+            .send(Up::Request(request))
             .map_err(|_| "the pane has closed".to_string()),
         None => Err("the pane has closed".into()),
     }
@@ -376,7 +406,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            hosts, pair, forget, watch, refresh, tab_new, pane_open, pane_input, pane_close
+            hosts, pair, forget, watch, refresh, tab_new, pane_open, pane_input, pane_lease,
+            pane_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tty7");

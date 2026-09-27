@@ -7,17 +7,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tty7_core::client::{ControlClient, PaneClient, PaneSession};
+use tty7_core::client::{ControlClient, PaneClient, PaneInput, PaneOutput};
 use tty7_core::core::machine::Machine;
 use tty7_core::daemon::control::{
     ControlHello, ControlRequest, PaneAgentState, PaneSeed, ReplyOk, RouteInfo, WorkspaceId,
 };
-use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
+use tty7_core::daemon::protocol::{DaemonMsg, FEATURE_SIZE_LEASE, LeaseRequest, WinSize};
 use tty7_core::daemon::router::RouteTarget;
 use tty7_mobile_proto::{GridSize, TabCreated};
 
 use crate::poller::Poller;
-use crate::serve::{Backend, PaneFeed, Remote};
+use crate::serve::{Backend, PaneFeed, PaneLeases, Remote};
 
 /// How long a tree read waits on linked machines before reporting the slow
 /// ones as they last were. A healthy link answers well inside it.
@@ -226,8 +226,16 @@ impl Backend for Daemon {
     }
 
     fn observe(&self, machine: Option<&str>, pane_id: u64) -> io::Result<Box<dyn PaneFeed>> {
-        let session = self.panes_on(machine)?.observe(pane_id, OBSERVE_SIZE)?;
-        Ok(Box::new(Observed(session)))
+        let client = self.panes_on(machine)?;
+        let (input, output) = client.observe(pane_id, OBSERVE_SIZE)?.split();
+        Ok(Box::new(Observed {
+            output,
+            leases: Some(Box::new(Leases {
+                input,
+                client,
+                supported: None,
+            })),
+        }))
     }
 
     fn send_input(&self, machine: Option<&str>, pane_id: u64, bytes: &[u8]) -> io::Result<()> {
@@ -287,12 +295,19 @@ impl Backend for Daemon {
     }
 }
 
-struct Observed(PaneSession);
+struct Observed {
+    output: PaneOutput,
+    leases: Option<Box<dyn PaneLeases>>,
+}
 
 impl PaneFeed for Observed {
+    fn leases(&mut self) -> Option<Box<dyn PaneLeases>> {
+        self.leases.take()
+    }
+
     fn recv(&mut self, wait: Duration) -> io::Result<Option<DaemonMsg>> {
-        self.0.set_recv_timeout(Some(wait))?;
-        match self.0.recv() {
+        self.output.set_recv_timeout(Some(wait))?;
+        match self.output.recv() {
             Ok(msg) => Ok(Some(msg)),
             Err(e)
                 if matches!(
@@ -304,6 +319,39 @@ impl PaneFeed for Observed {
             }
             Err(e) => Err(e),
         }
+    }
+}
+
+/// The observer connection's writing half, for leases.
+struct Leases {
+    input: PaneInput,
+    client: PaneClient,
+    /// Whether the pane's daemon knows leases, asked on the first one. A
+    /// daemon that does not would drop the observer on reading one.
+    supported: Option<bool>,
+}
+
+impl PaneLeases for Leases {
+    fn send(&mut self, request: LeaseRequest) -> io::Result<()> {
+        let supported = match self.supported {
+            Some(known) => known,
+            None => {
+                let known = self
+                    .client
+                    .version()?
+                    .features
+                    .iter()
+                    .any(|f| f == FEATURE_SIZE_LEASE);
+                *self.supported.insert(known)
+            }
+        };
+        if !supported {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the tty7 running this pane is too old to take over; update it",
+            ));
+        }
+        self.input.lease(request)
     }
 }
 

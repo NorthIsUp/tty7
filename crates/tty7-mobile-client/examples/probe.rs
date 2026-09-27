@@ -9,6 +9,9 @@
 //! ```
 //!
 //! `newtab <workspace-id> [cwd]` opens a shell in a new tab, as the app does.
+//! `take <pane-id> <cols> <rows> <secs>` takes the pane over at that size,
+//! runs `stty size` in it, holds it for `secs` (printing whatever the pane
+//! says, a desktop Take Back included), then gives it back.
 //! Keeps its key and host in `$TTY7_PROBE_DIR` (default `./probe-state`).
 
 use std::path::PathBuf;
@@ -17,7 +20,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, bail};
 use iroh::SecretKey;
 use tty7_mobile_client::{Host, PaneItem, Session};
-use tty7_mobile_proto::{ControlEvent, GridSize};
+use tty7_mobile_proto::{ControlEvent, GridSize, PaneEvent, PaneRequest};
 
 fn dir() -> PathBuf {
     std::env::var_os("TTY7_PROBE_DIR")
@@ -126,7 +129,64 @@ async fn main() -> Result<()> {
                 created.tab_id, created.pane_id
             );
         }
-        _ => bail!("usage: probe pair <code> | tree | type <pane> <text> | newtab <ws> [cwd]"),
+        Some("take") => {
+            let usage = "take <pane> <cols> <rows> <secs>";
+            let pane: u64 = args.get(1).context(usage)?.parse()?;
+            let cols: u16 = args.get(2).context(usage)?.parse()?;
+            let rows: u16 = args.get(3).context(usage)?.parse()?;
+            let secs: u64 = args.get(4).context(usage)?.parse()?;
+            let session = Session::connect(&endpoint, &host()?).await?;
+            let (mut keys, mut screen) = session.pane(None, pane).await?;
+            // Prints events as they come and collects output, for `wait`.
+            async fn watch(
+                screen: &mut tty7_mobile_client::PaneReader,
+                wait: Duration,
+            ) -> Result<String> {
+                let mut out = Vec::new();
+                let until = Instant::now() + wait;
+                while let Ok(item) = tokio::time::timeout_at(until.into(), screen.next()).await {
+                    match item? {
+                        Some(PaneItem::Output(b)) => out.extend(b),
+                        Some(PaneItem::Event(
+                            e @ (PaneEvent::Size { .. } | PaneEvent::Lease { .. }),
+                        )) => {
+                            println!("  event: {e:?}")
+                        }
+                        Some(PaneItem::Event(_)) => {}
+                        None => {
+                            println!("  stream ended");
+                            break;
+                        }
+                    }
+                }
+                Ok(String::from_utf8_lossy(&out).into_owned())
+            }
+            println!("replay:");
+            watch(&mut screen, Duration::from_millis(800)).await?;
+            println!("take over at {cols}x{rows}:");
+            keys.request(&PaneRequest::TakeOver {
+                size: GridSize { cols, rows },
+            })
+            .await?;
+            watch(&mut screen, Duration::from_millis(800)).await?;
+            keys.input(b"stty size\r").await?;
+            let out = watch(&mut screen, Duration::from_millis(1000)).await?;
+            println!(
+                "stty size said: {:?}",
+                out.lines()
+                    .filter(|l| l.trim().chars().all(|c| c.is_ascii_digit() || c == ' ')
+                        && !l.trim().is_empty())
+                    .collect::<Vec<_>>()
+            );
+            println!("holding for {secs}s:");
+            watch(&mut screen, Duration::from_secs(secs)).await?;
+            println!("release:");
+            keys.request(&PaneRequest::Release).await?;
+            watch(&mut screen, Duration::from_millis(800)).await?;
+        }
+        _ => bail!(
+            "usage: probe pair <code> | tree | type <pane> <text> | newtab <ws> [cwd] | take <pane> <cols> <rows> <secs>"
+        ),
     }
     endpoint.close().await;
     Ok(())

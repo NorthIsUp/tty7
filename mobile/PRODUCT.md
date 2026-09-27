@@ -37,6 +37,9 @@ connects peer-to-peer over iroh by public key, end-to-end encrypted.
   title, cwd, and agent status, under the workspace it belongs to.
 - A pane is **observed, not attached**: it keeps the desktop's size (cols × rows), and
   the phone fits that width by shrinking the font. Input goes in beside the desktop.
+- **Take over** runs the pane at the phone's size until the phone lets go or leaves. The
+  desktop keeps its window, says the phone has the pane, and can **Take Back** at any
+  time; only that explicit button takes it back, never typing on the desktop.
 - Connection state matters and is shown: direct vs relay path, round-trip time,
   connecting, offline.
 
@@ -48,8 +51,7 @@ connects peer-to-peer over iroh by public key, end-to-end encrypted.
   for native selection.
 - Forget a machine (requires re-pairing).
 - No framework: vanilla TypeScript with a tiny DOM helper; xterm.js for the terminal.
-- Not yet: QR scanning, push notifications, keychain storage, taking over a pane at the
-  phone's size.
+- Not yet: QR scanning, push notifications, keychain storage.
 
 ## Brand Commitments
 
@@ -72,4 +74,5 @@ metrics to show and none should be invented.
 2. Same truth as the desktop: names, grouping, and status mean exactly what they mean
    on the desktop app.
 3. Honest connection state: the user always knows whether keystrokes will land.
-4. Never take the pane away from the desktop.
+4. Never take the pane away from the desktop: a take-over only borrows its size, and the
+   desktop can always take it back.

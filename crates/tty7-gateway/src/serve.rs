@@ -18,10 +18,10 @@ use tokio::sync::mpsc;
 use tty7_core::core::cli_agent::{AgentSessionState, CLIAgent};
 use tty7_core::core::machine::Machine;
 use tty7_core::daemon::control::PaneAgentState;
-use tty7_core::daemon::protocol::DaemonMsg;
+use tty7_core::daemon::protocol::{DaemonMsg, LeaseRequest, WinSize};
 use tty7_mobile_proto::{
     ControlEvent, ControlRequest, Frame, GridSize, Open, OpenReply, PROTOCOL_VERSION, PaneEvent,
-    RemoteView, TabCreated, Tree, read_frame, write_bytes, write_msg,
+    PaneRequest, RemoteView, TabCreated, Tree, read_frame, write_bytes, write_msg,
 };
 
 use crate::state::State;
@@ -78,6 +78,19 @@ pub struct Remote {
 pub trait PaneFeed: Send {
     /// The next message, or `Ok(None)` if none arrived within `wait`.
     fn recv(&mut self, wait: Duration) -> io::Result<Option<DaemonMsg>>;
+
+    /// The way back to the daemon on the same connection, for a take-over.
+    /// Taken once, before the feed goes to its reader thread.
+    fn leases(&mut self) -> Option<Box<dyn PaneLeases>> {
+        None
+    }
+}
+
+/// Asks the daemon to run a pane at the phone's size, over the connection
+/// that observes it, so the lease ends when that connection does.
+pub trait PaneLeases: Send {
+    /// Fails with `Unsupported` where the pane's daemon predates leases.
+    fn send(&mut self, request: LeaseRequest) -> io::Result<()>;
 }
 
 pub async fn run(endpoint: Endpoint, state: State, backend: Arc<dyn Backend>) {
@@ -199,7 +212,13 @@ async fn serve_stream(
             match feed {
                 Ok(feed) => {
                     write_msg(&mut send, &ok).await?;
-                    pane_stream(machine, pane_id, feed, send, recv, backend).await
+                    // How the desktop names who has the pane.
+                    let by = state
+                        .devices()
+                        .ok()
+                        .and_then(|devices| devices.into_iter().find(|d| d.id == peer))
+                        .map_or_else(|| "a phone".to_string(), |d| d.name);
+                    pane_stream(machine, pane_id, by, feed, send, recv, backend).await
                 }
                 Err(e) => {
                     write_msg(&mut send, &denied(&e.to_string())).await?;
@@ -340,10 +359,17 @@ enum Down {
     Event(PaneEvent),
 }
 
+/// What the phone sends up a pane stream, in the order it sent it.
+enum Up {
+    Keys(Vec<u8>),
+    Lease(PaneRequest),
+}
+
 async fn pane_stream(
     machine: Option<String>,
     pane_id: u64,
-    feed: Box<dyn PaneFeed>,
+    by: String,
+    mut feed: Box<dyn PaneFeed>,
     mut send: SendStream,
     mut recv: RecvStream,
     backend: Arc<dyn Backend>,
@@ -351,6 +377,7 @@ async fn pane_stream(
     let (down_tx, mut down) = mpsc::channel::<Down>(PANE_BACKLOG);
     // Weak, so the stream still ends when the pane's feed does.
     let refused = down_tx.downgrade();
+    let mut leases = feed.leases();
     std::thread::Builder::new()
         .name(format!("gateway-pane-{pane_id}"))
         .spawn(move || read_pane(feed, down_tx))?;
@@ -358,19 +385,58 @@ async fn pane_stream(
     // Keystrokes go through one thread so they reach the pane in the order
     // they were typed; each `send_input` is its own daemon round trip. One
     // that fails is said to the phone, which would otherwise go on showing a
-    // live pane while what it types goes nowhere.
-    let (input_tx, input_rx) = std_mpsc::channel::<Vec<u8>>();
+    // live pane while what it types goes nowhere. Take-overs share the
+    // thread, so one sent after some keys lands after them.
+    let (input_tx, input_rx) = std_mpsc::channel::<Up>();
     std::thread::Builder::new()
         .name(format!("gateway-input-{pane_id}"))
         .spawn(move || {
-            for bytes in input_rx {
-                if let Err(e) = backend.send_input(machine.as_deref(), pane_id, &bytes) {
-                    log::debug!("mobile gateway: input to pane {pane_id}: {e}");
-                    let message = format!("typing didn't reach the pane: {e}");
-                    if let Some(down) = refused.upgrade() {
-                        let _ = down.blocking_send(Down::Event(PaneEvent::Error { message }));
+            let tell = |event: PaneEvent| {
+                if let Some(down) = refused.upgrade() {
+                    let _ = down.blocking_send(Down::Event(event));
+                }
+            };
+            let mut typing = true;
+            for up in input_rx {
+                match up {
+                    // Once typing has failed, the phone has been told; later
+                    // keys are dropped rather than ending the stream, which
+                    // would read as the pane closing.
+                    Up::Keys(_) if !typing => {}
+                    Up::Keys(bytes) => {
+                        if let Err(e) = backend.send_input(machine.as_deref(), pane_id, &bytes) {
+                            log::debug!("mobile gateway: input to pane {pane_id}: {e}");
+                            typing = false;
+                            tell(PaneEvent::Error {
+                                message: format!("typing didn't reach the pane: {e}"),
+                            });
+                        }
                     }
-                    return;
+                    Up::Lease(request) => {
+                        let request = match request {
+                            PaneRequest::TakeOver { size } => LeaseRequest::Take {
+                                size: lease_size(size),
+                                by: by.clone(),
+                            },
+                            PaneRequest::Release => LeaseRequest::Release,
+                        };
+                        let sent = match leases.as_mut() {
+                            Some(leases) => leases.send(request),
+                            None => Err(io::Error::new(
+                                io::ErrorKind::Unsupported,
+                                "this pane can't be taken over",
+                            )),
+                        };
+                        // The daemon answers a lease itself, with who holds
+                        // it; only a request that never got there is ours
+                        // to answer.
+                        if let Err(e) = sent {
+                            tell(PaneEvent::Lease {
+                                held: false,
+                                refused: Some(e.to_string()),
+                            });
+                        }
+                    }
                 }
             }
         })?;
@@ -378,15 +444,16 @@ async fn pane_stream(
     loop {
         tokio::select! {
             frame = read_frame(&mut recv) => match frame? {
-                // Once typing has failed, the phone has been told; later
-                // keys are dropped rather than ending the stream, which would
-                // read as the pane closing.
                 Some(Frame::Bytes(bytes)) => {
-                    let _ = input_tx.send(bytes);
+                    let _ = input_tx.send(Up::Keys(bytes));
                 }
-                // No upstream messages yet; one from a newer app is ignored
-                // rather than fatal, so the terminal keeps working.
-                Some(Frame::Json(_)) => {}
+                // A request this gateway does not know, from a newer app, is
+                // ignored rather than fatal, so the terminal keeps working.
+                Some(frame @ Frame::Json(_)) => {
+                    if let Ok(request) = frame.msg::<PaneRequest>() {
+                        let _ = input_tx.send(Up::Lease(request));
+                    }
+                }
                 None => return Ok(()),
             },
             item = down.recv() => match item {
@@ -449,11 +516,26 @@ fn read_pane(mut feed: Box<dyn PaneFeed>, down: mpsc::Sender<Down>) {
                 return;
             }
             DaemonMsg::Error(message) => Down::Event(PaneEvent::Error { message }),
+            DaemonMsg::Lease(holder) => Down::Event(PaneEvent::Lease {
+                held: holder.is_some(),
+                refused: None,
+            }),
             _ => continue,
         };
         if down.blocking_send(item).is_err() {
             return;
         }
+    }
+}
+
+/// The phone's grid as the pty takes it, within sane bounds. Cell pixels are
+/// nominal: nothing on the phone draws images at the pane's pixel size.
+fn lease_size(size: GridSize) -> WinSize {
+    WinSize {
+        cols: size.cols.clamp(20, 500),
+        rows: size.rows.clamp(5, 300),
+        cell_w: 8,
+        cell_h: 16,
     }
 }
 

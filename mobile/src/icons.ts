@@ -28,6 +28,7 @@ export const icon = {
   paste: stroke(
     `<rect x="6" y="4.5" width="12" height="16" rx="2"/><path d="M9.5 4.5V3.5h5v1M9.5 10.5h5M9.5 14.5h5"/>`,
   ),
+  phone: stroke(`<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/>`),
   copy: stroke(`<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.2"/><path d="M15.5 8.5V6.2A2.2 2.2 0 0 0 13.3 4H6.2A2.2 2.2 0 0 0 4 6.2v7.1a2.2 2.2 0 0 0 2.2 2.2h2.3"/>`),
   compose: stroke(`<path d="M20 11.5a8 8 0 0 1-11.6 7.1L4 20l1.4-4.2A8 8 0 1 1 20 11.5Z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>`),
   send: stroke(`<path d="M12 19V5.5M6 11l6-6 6 6"/>`, 2.4),

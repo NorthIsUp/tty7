@@ -836,6 +836,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     const sub = h("span", { class: "term-sub" }, state, cwd);
     const zoom = h("button", { class: "nav-icon", ariaLabel: "Fit the whole width" }, ico("fit"));
     const select = h("button", { class: "nav-icon", ariaLabel: "Select text" }, ico("copy"));
+    const take = h("button", { class: "nav-icon", ariaLabel: "Use this phone's screen size" }, ico("phone"));
     let head = avatar(pane.agent, "avatar small");
     const bar = h(
       "header",
@@ -851,7 +852,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         head,
         h("div", { class: "term-titles" }, h("span", { class: "term-title" }, title), sub),
       ),
-      h("div", { class: "nav-trail" }, select, zoom),
+      h("div", { class: "nav-trail" }, select, take, zoom),
     );
     const screenEl = h("div", { class: "term" });
     const banner = h("div", { class: "term-banner-slot" });
@@ -915,6 +916,12 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     let composing = false;
     // The pane exited: nothing to reconnect to.
     let ended = false;
+    // The phone's size: `wanted` is what the user asked for, `leased` what
+    // the daemon confirmed, `sent` the grid last asked for.
+    let wanted = false;
+    let leased = false;
+    let releasing = false;
+    let sent = "";
     let ctrlKey: HTMLButtonElement | null = null;
 
     // Typing that does not get through is said, never dropped quietly: the
@@ -1057,6 +1064,14 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       return width <= 0 ? READABLE_PX : Math.min(14, Math.floor((width / cols / CELL_EM) * 10) / 10);
     };
     const fit = () => {
+      // Taken over, the pane is exactly the phone's width at the readable
+      // size: nothing to shrink, nothing to pan.
+      if (leased) {
+        zoom.hidden = true;
+        term.options.fontSize = READABLE_PX;
+        screenEl.classList.remove("panning");
+        return;
+      }
       const fitted = fittedSize();
       const cramped = fitted < READABLE_PX;
       zoom.hidden = !cramped;
@@ -1076,6 +1091,84 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     };
     zoom.onclick = () => {
       readable = !readable;
+      fit();
+    };
+
+    // Taking the pane over (the lets are with the others above): it runs at
+    // the phone's grid while this screen is open, and the desktop keeps its
+    // window and can take it back.
+    const takeGrid = () => {
+      const width = screenEl.clientWidth - 12;
+      const height = screenEl.clientHeight - 16;
+      // A row's height, measured off what xterm drew and scaled to the size
+      // the pane will be read at; the metrics guess only before the first draw.
+      const drawn = screenEl.querySelector<HTMLElement>(".xterm-screen");
+      const now = term.options.fontSize ?? READABLE_PX;
+      const rowH =
+        drawn && term.rows && drawn.clientHeight
+          ? ((drawn.clientHeight / term.rows) * READABLE_PX) / now
+          : READABLE_PX * 1.18;
+      return {
+        cols: Math.max(20, Math.floor(width / (READABLE_PX * CELL_EM))),
+        rows: Math.max(5, Math.floor(height / rowH)),
+      };
+    };
+    const askLease = () => {
+      if (handle === null || !live || !wanted) return;
+      const grid = takeGrid();
+      const key = `${grid.cols}x${grid.rows}`;
+      if (leased && key === sent) return;
+      sent = key;
+      api.paneLease(handle, grid).catch(() => {});
+    };
+    const showTake = () => {
+      take.classList.toggle("on", wanted);
+      take.ariaLabel = wanted ? "Give the pane back to the desktop's size" : "Use this phone's screen size";
+    };
+    take.onclick = () => {
+      wanted = !wanted;
+      showTake();
+      if (wanted) {
+        sent = "";
+        askLease();
+      } else if (handle !== null && leased) {
+        releasing = true;
+        api.paneLease(handle, null).catch(() => {});
+      }
+    };
+    // The keyboard coming up or the phone turning changes the grid; asked
+    // for once it settles, not on every step of the animation.
+    let regrid: number | undefined;
+    const regridSoon = () => {
+      clearTimeout(regrid);
+      if (wanted) regrid = window.setTimeout(askLease, 250);
+    };
+    const leaseEvent = (held: boolean, refused: string | null | undefined) => {
+      const was = leased;
+      leased = held;
+      if (held) {
+        banner.replaceChildren();
+      } else {
+        sent = "";
+        const ours = releasing;
+        releasing = false;
+        if (refused) {
+          wanted = false;
+          showBanner(sentence(refused));
+        } else if (was && !ours) {
+          // Nobody here let go: the desktop took it back, or another device
+          // took it over. Asking again is one tap, not automatic.
+          wanted = false;
+          showBanner("The desktop took this pane back.", {
+            label: "Take over again",
+            run: () => {
+              banner.replaceChildren();
+              take.click();
+            },
+          });
+        }
+        showTake();
+      }
       fit();
     };
     term.onCursorMove(follow);
@@ -1115,6 +1208,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       term.options.theme = terminalTheme();
     };
     window.addEventListener("resize", fit);
+    window.addEventListener("resize", regridSoon);
     darkScheme.addEventListener("change", retheme);
 
     const setState = (cls: string, label: string) => {
@@ -1189,6 +1283,9 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
               case "error":
                 offline(event.message);
                 break;
+              case "lease":
+                leaseEvent(event.held, event.refused);
+                break;
             }
           },
         );
@@ -1198,6 +1295,11 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         }
         handle = opened;
         live = true;
+        // A new stream starts at the desktop's size; the lease the old one
+        // held ended with it. Asked for again if it is still wanted.
+        leased = false;
+        sent = "";
+        askLease();
         retry.reset();
         banner.replaceChildren();
         setState("live", "Live");
@@ -1221,6 +1323,8 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       retry.cancel();
       window.removeEventListener("online", online);
       window.removeEventListener("resize", fit);
+      window.removeEventListener("resize", regridSoon);
+      clearTimeout(regrid);
       darkScheme.removeEventListener("change", retheme);
       if (handle !== null) api.paneClose(handle);
       term.dispose();

@@ -13,9 +13,15 @@ phone (Tauri: WebView + Rust)  ──iroh──▶  tty7-gateway  ──local so
 - **Protocol**: `crates/tty7-mobile-proto`. The phone never speaks the daemon's own
   protocols. The gateway exposes a small vocabulary: pair, a live tree of workspaces, tabs,
   panes and agent status, and one stream per open pane.
-- **Panes are observed, not attached.** A phone never resizes a pane or takes it away from
-  the desktop window showing it. Keystrokes go in beside the observer (`SendInput`). The
-  terminal keeps the desktop's size, and the app shrinks the font to fit the width.
+- **Panes are observed, not attached.** A phone never takes a pane away from the desktop
+  window showing it. Keystrokes go in beside the observer (`SendInput`). The terminal keeps
+  the desktop's size, and the app shrinks the font to fit the width.
+- **Take over.** The phone button runs the pane at the phone's grid instead: a size
+  lease the daemon holds for the observer (`ClientMsg::Lease`, feature `size-lease`). The
+  desktop window keeps its grid, shows "In use on <phone>" with **Take Back**, and a resize
+  there is remembered for when the lease ends. It ends when the phone lets go, when the
+  desktop takes it back, or when the phone's stream closes — a phone that just drops off
+  gives the pane back once the connection times out.
 - **Auth**: pairing with a one-time code, valid 10 minutes, single use. After that the
   gateway admits only the phone keys on its device list (`<config dir>/mobile/devices.json`).
 
@@ -109,5 +115,4 @@ devices on local networks" once. On iOS the app declares it in
   but APNs/FCM delivery needs a small native plugin and a push relay.
 - **Keychain / Keystore** for the phone's key. It lives in the app's private data
   directory today.
-- **Take over.** Attaching a pane at the phone's size, for when the desktop isn't in use.
 - **A self-hosted iroh relay** for production, instead of n0's public ones.

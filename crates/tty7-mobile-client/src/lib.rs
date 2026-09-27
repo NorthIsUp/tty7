@@ -15,7 +15,8 @@ use iroh_mdns_address_lookup::MdnsAddressLookup;
 use serde::{Deserialize, Serialize};
 use tty7_mobile_proto::{
     ALPN, ControlEvent, ControlRequest, Frame, GridSize, MDNS_SERVICE, Open, OpenReply,
-    PROTOCOL_VERSION, PairCode, PaneEvent, TabCreated, read_frame, write_bytes, write_msg,
+    PROTOCOL_VERSION, PairCode, PaneEvent, PaneRequest, TabCreated, read_frame, write_bytes,
+    write_msg,
 };
 
 /// How long to wait for a gateway to answer an [`Open`].
@@ -272,6 +273,11 @@ pub struct PaneWriter {
 impl PaneWriter {
     pub async fn input(&mut self, bytes: &[u8]) -> Result<()> {
         write_bytes(&mut self.send, bytes).await?;
+        Ok(())
+    }
+
+    pub async fn request(&mut self, request: &PaneRequest) -> Result<()> {
+        write_msg(&mut self.send, request).await?;
         Ok(())
     }
 

@@ -58,10 +58,10 @@ pub enum Open {
     /// Watch one pane and type into it.
     ///
     /// The gateway observes the pane rather than attaching to it: an attach
-    /// would resize the pane to the phone's screen and reflow it under the
-    /// desktop, and would take the pane away from the window showing it.
-    /// Keystrokes go in beside the observer, so the phone can drive the pane
-    /// without owning it.
+    /// would take the pane away from the window showing it. Keystrokes go in
+    /// beside the observer, so the phone can drive the pane without owning
+    /// it. The pane keeps the desktop's size unless the phone asks for its
+    /// own with [`PaneRequest::TakeOver`].
     Pane {
         pane_id: u64,
         /// The [`RemoteView::key`] of the remote machine the pane lives on;
@@ -130,6 +130,19 @@ pub enum ControlEvent {
     Error { message: String },
 }
 
+/// Phone → gateway on a pane stream, as JSON frames beside the keystrokes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PaneRequest {
+    /// Run the pane at the phone's size while this stream is open, or change
+    /// the size it runs at. The desktop keeps its window, is told the phone
+    /// has the pane, and can take it back; closing the stream gives it back.
+    /// Answered with [`PaneEvent::Lease`].
+    TakeOver { size: GridSize },
+    /// Give the pane back to the desktop's size.
+    Release,
+}
+
 /// Gateway → phone on a pane stream, beside the [`KIND_BYTES`] output frames.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -152,6 +165,14 @@ pub enum PaneEvent {
     },
     Error {
         message: String,
+    },
+    /// Whether the pane runs at this phone's size. `held: false` after a
+    /// take-over means it ended: released, taken back on the desktop, or taken
+    /// over by another device. `refused` says why a take-over did not start.
+    Lease {
+        held: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refused: Option<String>,
     },
 }
 
@@ -495,6 +516,24 @@ mod tests {
         assert_eq!(json, serde_json::json!({"type": "exited", "code": 1}));
         let json = serde_json::to_value(AgentStatus::Waiting).unwrap();
         assert_eq!(json, serde_json::json!("waiting"));
+    }
+
+    #[test]
+    fn take_over_tags_are_the_ones_the_app_matches() {
+        let ask = serde_json::to_value(PaneRequest::TakeOver {
+            size: GridSize { cols: 50, rows: 30 },
+        })
+        .unwrap();
+        assert_eq!(
+            ask,
+            serde_json::json!({"type": "take_over", "size": {"cols": 50, "rows": 30}})
+        );
+        let held = serde_json::to_value(PaneEvent::Lease {
+            held: true,
+            refused: None,
+        })
+        .unwrap();
+        assert_eq!(held, serde_json::json!({"type": "lease", "held": true}));
     }
 
     #[test]

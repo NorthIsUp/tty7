@@ -11,11 +11,13 @@ use iroh::Endpoint;
 use iroh::endpoint::presets;
 use tty7_core::core::machine::{Machine, Tab, Workspace};
 use tty7_core::daemon::control::PaneAgentState;
-use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
-use tty7_gateway::serve::{self, Backend, PaneFeed, Remote};
+use tty7_core::daemon::protocol::{DaemonMsg, LeaseRequest, WinSize};
+use tty7_gateway::serve::{self, Backend, PaneFeed, PaneLeases, Remote};
 use tty7_gateway::state::State;
 use tty7_mobile_client::{PaneItem, Session};
-use tty7_mobile_proto::{ALPN, ControlEvent, GridSize, PairCode, PaneEvent, TabCreated};
+use tty7_mobile_proto::{
+    ALPN, ControlEvent, GridSize, PairCode, PaneEvent, PaneRequest, TabCreated,
+};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -24,6 +26,8 @@ const WAIT: Duration = Duration::from_secs(10);
 struct FakeMachine {
     machine: Machine,
     typed: Mutex<Option<std_mpsc::Sender<Vec<u8>>>>,
+    /// Every lease request that reached the "daemon".
+    leased: Arc<Mutex<Vec<LeaseRequest>>>,
 }
 
 impl FakeMachine {
@@ -43,6 +47,7 @@ impl FakeMachine {
                 panes,
             },
             typed: Mutex::new(None),
+            leased: Arc::default(),
         }
     }
 }
@@ -96,7 +101,15 @@ impl Backend for FakeMachine {
         };
         let (tx, rx) = std_mpsc::channel();
         *self.typed.lock().unwrap() = Some(tx);
+        let (answer, answers) = std_mpsc::channel();
+        // The remote named "old" runs a tty7 from before leases.
+        let leases = (machine != Some("old")).then(|| FakeLeases {
+            answer,
+            seen: self.leased.clone(),
+        });
         Ok(Box::new(FakeFeed {
+            leases,
+            answers,
             replay: vec![
                 DaemonMsg::Size(WinSize {
                     cols: 100,
@@ -144,16 +157,50 @@ impl Backend for FakeMachine {
 struct FakeFeed {
     replay: Vec<DaemonMsg>,
     typed: std_mpsc::Receiver<Vec<u8>>,
+    leases: Option<FakeLeases>,
+    answers: std_mpsc::Receiver<DaemonMsg>,
+}
+
+/// Answers a lease the way the daemon does: the size, then who holds it.
+struct FakeLeases {
+    answer: std_mpsc::Sender<DaemonMsg>,
+    seen: Arc<Mutex<Vec<LeaseRequest>>>,
+}
+
+impl PaneLeases for FakeLeases {
+    fn send(&mut self, request: LeaseRequest) -> io::Result<()> {
+        self.seen.lock().unwrap().push(request.clone());
+        let replies = match request {
+            LeaseRequest::Take { size, by } => {
+                vec![DaemonMsg::Size(size), DaemonMsg::Lease(Some(by))]
+            }
+            _ => vec![DaemonMsg::Lease(None)],
+        };
+        for reply in replies {
+            self.answer.send(reply).map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
 }
 
 impl PaneFeed for FakeFeed {
+    fn leases(&mut self) -> Option<Box<dyn PaneLeases>> {
+        self.leases
+            .take()
+            .map(|l| Box::new(l) as Box<dyn PaneLeases>)
+    }
+
     fn recv(&mut self, wait: Duration) -> io::Result<Option<DaemonMsg>> {
         if !self.replay.is_empty() {
             return Ok(Some(self.replay.remove(0)));
         }
-        match self.typed.recv_timeout(wait) {
+        if let Ok(answer) = self.answers.try_recv() {
+            return Ok(Some(answer));
+        }
+        match self.typed.recv_timeout(wait.min(Duration::from_millis(20))) {
             Ok(bytes) if bytes == b"exit\r" => Ok(Some(DaemonMsg::Exited { code: Some(0) })),
             Ok(bytes) => Ok(Some(DaemonMsg::Output(bytes))),
+            // Short waits, so an answer queued meanwhile is not held up.
             Err(std_mpsc::RecvTimeoutError::Timeout) => Ok(None),
             Err(e) => Err(io::Error::other(e)),
         }
@@ -162,6 +209,7 @@ impl PaneFeed for FakeFeed {
 
 struct Rig {
     _dir: tempfile::TempDir,
+    machine: Arc<FakeMachine>,
     state: State,
     gateway: Endpoint,
     phone: Endpoint,
@@ -170,6 +218,7 @@ struct Rig {
 impl Rig {
     async fn new() -> Rig {
         let dir = tempfile::tempdir().unwrap();
+        let machine = Arc::new(FakeMachine::new());
         let state = State::open(dir.path().join("mobile")).unwrap();
         let gateway = Endpoint::builder(presets::Minimal)
             .secret_key(state.secret_key().unwrap())
@@ -177,14 +226,11 @@ impl Rig {
             .bind()
             .await
             .unwrap();
-        tokio::spawn(serve::run(
-            gateway.clone(),
-            state.clone(),
-            Arc::new(FakeMachine::new()),
-        ));
+        tokio::spawn(serve::run(gateway.clone(), state.clone(), machine.clone()));
         let phone = Endpoint::builder(presets::Minimal).bind().await.unwrap();
         Rig {
             _dir: dir,
+            machine,
             state,
             gateway,
             phone,
@@ -322,6 +368,70 @@ async fn typing_that_fails_is_reported_not_dropped() {
             .await
             .is_err(),
         "nothing more arrives"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_takes_a_pane_over_at_its_size_and_gives_it_back() {
+    let rig = Rig::new().await;
+    let session = within(rig.paired()).await;
+    let (mut keys, mut screen) = within(session.pane(None, 1)).await.unwrap();
+    within(screen.next()).await.unwrap(); // size
+    within(screen.next()).await.unwrap(); // prompt
+
+    let size = GridSize { cols: 44, rows: 31 };
+    keys.request(&PaneRequest::TakeOver { size }).await.unwrap();
+    assert_eq!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Event(PaneEvent::Size { cols: 44, rows: 31 }))
+    );
+    assert_eq!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Event(PaneEvent::Lease {
+            held: true,
+            refused: None
+        }))
+    );
+    // The desktop is told who has it: the name the phone paired under.
+    assert!(matches!(
+        &rig.machine.leased.lock().unwrap()[0],
+        LeaseRequest::Take { size, by } if (size.cols, size.rows) == (44, 31) && by == "test phone"
+    ));
+
+    keys.request(&PaneRequest::Release).await.unwrap();
+    assert_eq!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Event(PaneEvent::Lease {
+            held: false,
+            refused: None
+        }))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_take_over_the_pane_cannot_do_is_refused_and_the_pane_stays_up() {
+    let rig = Rig::new().await;
+    let session = within(rig.paired()).await;
+    let (mut keys, mut screen) = within(session.pane(Some("old"), 1)).await.unwrap();
+    within(screen.next()).await.unwrap(); // size
+    within(screen.next()).await.unwrap(); // prompt
+
+    let size = GridSize { cols: 44, rows: 31 };
+    keys.request(&PaneRequest::TakeOver { size }).await.unwrap();
+    let Some(PaneItem::Event(PaneEvent::Lease {
+        held: false,
+        refused: Some(reason),
+    })) = within(screen.next()).await.unwrap()
+    else {
+        panic!("expected a refusal");
+    };
+    assert!(reason.contains("can't be taken over"), "{reason}");
+
+    keys.input(b"ls\r").await.unwrap();
+    assert_eq!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Output(b"ls\r".to_vec())),
+        "typing still works"
     );
 }
 

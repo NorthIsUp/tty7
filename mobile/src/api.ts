@@ -72,7 +72,9 @@ export type PaneEvent =
   | { type: "cwd"; path: string }
   | { type: "agent"; agent: AgentView | null }
   | { type: "exited"; code: number | null }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /** Whether the pane runs at this phone's size; `refused` says why not. */
+  | { type: "lease"; held: boolean; refused?: string | null };
 
 export const hosts = () => invoke<Host[]>("hosts");
 
@@ -121,5 +123,9 @@ export const tabNew = (
 
 export const paneInput = (handle: number, data: string) =>
   invoke<void>("pane_input", { handle, data });
+
+/** Run the pane at `size`, the phone's grid; `null` gives it back. */
+export const paneLease = (handle: number, size: { cols: number; rows: number } | null) =>
+  invoke<void>("pane_lease", { handle, size });
 
 export const paneClose = (handle: number) => invoke<void>("pane_close", { handle });
