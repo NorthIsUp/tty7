@@ -143,7 +143,8 @@ impl Tty7App {
                 d.child(kit::popover_below(
                     true,
                     4.,
-                    self.settings_menu_panel(&id, entries, cx).min_w(px(148.)),
+                    self.settings_menu_panel(&id, entries, cx)
+                        .min_w(px(kit::CONTROL_W)),
                 ))
             })
             .into_any_element()

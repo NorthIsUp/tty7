@@ -49,6 +49,15 @@ pub(crate) struct Tk {
     pub nav: Hsla,
     /// A raised button's fill.
     pub btn: Hsla,
+    /// The one fill every control on the page stands on — field, dropdown,
+    /// secondary button, stepper — the theme's `muted`, the same well the
+    /// dialogs' fields and the sidebar's search sit in. No outline, no drop.
+    pub well: Hsla,
+    /// [`Self::well`] a step firmer, under the pointer or while open.
+    pub well_hover: Hsla,
+    /// The focus ring: the accent, the one colour kept for "the keyboard
+    /// is here".
+    pub focus: Hsla,
     /// A popover's fill.
     pub menu: Hsla,
     /// A switch or slider knob at rest.
@@ -76,6 +85,7 @@ impl Tk {
         let page = theme.background;
         let a = |light: f32, dark_a: f32| fg.opacity(if dark { dark_a } else { light });
         let white = gpui::white();
+        let well = theme.muted;
         Self {
             dark,
             fg,
@@ -95,6 +105,9 @@ impl Tk {
             heading: a(0.9, 0.9),
             nav: a(0.82, 0.8),
             btn: if dark { fg.opacity(0.1) } else { white },
+            well,
+            well_hover: well.blend(fg.opacity(if dark { 0.06 } else { 0.05 })),
+            focus: theme.ring,
             menu: if dark { lift(page, 0.06) } else { white },
             knob: if dark { fg } else { white },
             chip: if dark { fg.opacity(0.16) } else { white },
@@ -330,13 +343,12 @@ impl RenderOnce for Btn {
                 .px(px(12.))
                 .when(self.icon.is_some(), |b| b.pl(px(9.)).pr(px(11.)))
                 .rounded(px(6.))
-                .bg(tk.btn)
-                .shadow(tk.raised())
+                .bg(tk.well)
                 .text_size(self.size.unwrap_or(fs(12.5)))
                 .text_color(tk.fg)
                 .when(!self.disabled, |b| {
-                    b.hover(move |s| s.shadow(tk.raised_hover()))
-                        .active(move |s| s.bg(tk.k05))
+                    b.hover(move |s| s.bg(tk.well_hover))
+                        .active(move |s| s.bg(tk.well_hover.blend(tk.k05)))
                 }),
             BtnKind::Primary => base
                 .h(px(26.))
@@ -409,22 +421,31 @@ pub(crate) fn search_glass(size: f32, tk: &Tk) -> Icon {
         .text_color(tk.k35)
 }
 
+/// The height of a field or a dropdown. Buttons and steppers are a step
+/// lower, at 26.
+pub(crate) const CONTROL_H: f32 = 28.;
+
 /// A search field with a hairline ring, for filtering a list on the page.
 pub(crate) fn search_field(input: &gpui::Entity<InputState>, tk: &Tk) -> Div {
     h_flex()
-        .h(px(26.))
+        .h(px(CONTROL_H))
         .px(px(8.))
         .gap(px(6.))
         .items_center()
-        .rounded(px(6.))
-        .shadow(vec![ring(tk.k15, 0.5, true)])
+        .rounded(px(7.))
+        .bg(tk.well)
         .child(search_glass(10., tk))
         .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(fs(12.5))
-                .child(Input::new(input).appearance(false).px_0().py_0().h(px(24.))),
+            // On the input, not around it: `Input` sets its own `text_sm`
+            // and only a size given to it directly outranks that.
+            div().flex_1().min_w_0().child(
+                Input::new(input)
+                    .appearance(false)
+                    .px_0()
+                    .py_0()
+                    .h(px(24.))
+                    .text_size(fs(12.5)),
+            ),
         )
 }
 
@@ -437,32 +458,36 @@ pub(crate) fn text_field(
     tk: &Tk,
     cx: &App,
 ) -> Div {
-    let ring_color = if invalid {
-        tk.danger
-    } else if focused {
-        tk.k45
-    } else {
-        tk.k15
+    // At rest a field is only its well. The ring is kept for the two states
+    // that have to be seen at a glance: where the keyboard is, and what is
+    // wrong.
+    let ring_color = match (invalid, focused) {
+        (true, _) => Some(tk.danger),
+        (false, true) => Some(tk.focus),
+        (false, false) => None,
     };
     div()
-        .h(px(26.))
+        .h(px(CONTROL_H))
         .px(px(10.))
         .flex()
         .items_center()
         .rounded(px(6.))
-        .shadow(vec![ring(
-            ring_color,
-            if focused || invalid { 1. } else { 0.5 },
-            true,
-        )])
+        .bg(tk.well)
+        .when_some(ring_color, |f, c| f.shadow(vec![ring(c, 1., true)]))
         .font_family(Tk::mono(cx))
-        .text_size(fs(12.))
         .text_color(tk.fg)
         .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(Input::new(input).appearance(false).px_0().py_0().h(px(24.))),
+            div().flex_1().min_w_0().child(
+                Input::new(input)
+                    .appearance(false)
+                    .px_0()
+                    .py_0()
+                    .h(px(24.))
+                    // The input's own `text_sm` beat the 12px set on this
+                    // box, so the value stood a size above every dropdown
+                    // label in the same column.
+                    .text_size(fs(12.)),
+            ),
         )
 }
 
@@ -489,8 +514,16 @@ pub(crate) fn section_head(title: &str, desc: Option<String>, tk: &Tk) -> Div {
         })
 }
 
+/// The width of a control in the page's right-hand column — dropdown or text
+/// field alike. The column used to size each dropdown to its value (anything
+/// from 148 to 260) beside fields fixed at 180, so its left edge zig-zagged
+/// down the page. One width, and a value too long for it elides. Only fields
+/// that hold a path or a command line are wider, because those are unreadable
+/// cut short.
+pub(crate) const CONTROL_W: f32 = 180.;
+
 /// The trigger of a dropdown: a raised button with the current value, an
-/// optional mark before it, and a chevron.
+/// optional mark before it, and a chevron, [`CONTROL_W`] wide.
 pub(crate) fn select_trigger(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -500,17 +533,16 @@ pub(crate) fn select_trigger(
 ) -> Stateful<Div> {
     h_flex()
         .id(id)
-        .h(px(26.))
-        .min_w(px(148.))
-        .max_w(px(260.))
+        .h(px(CONTROL_H))
+        .w(px(CONTROL_W))
+        .flex_shrink_0()
         .pl(px(if leading.is_some() { 8. } else { 10. }))
         .pr(px(7.))
         .gap(px(8.))
         .items_center()
         .rounded(px(6.))
-        .bg(if open { tk.k05 } else { tk.btn })
-        .shadow(tk.raised())
-        .hover(move |s| s.shadow(tk.raised_hover()))
+        .bg(if open { tk.well_hover } else { tk.well })
+        .hover(move |s| s.bg(tk.well_hover))
         .cursor_pointer()
         .text_size(fs(12.5))
         .text_color(tk.fg)
@@ -642,7 +674,9 @@ pub(crate) fn stepper(
             .text_color(tk.k6)
             .when(!enabled, |d| d.opacity(0.35))
             .when(enabled, |d| {
-                d.cursor_pointer().active(move |s| s.bg(tk.k05))
+                d.cursor_pointer()
+                    .hover(move |s| s.bg(tk.well_hover))
+                    .active(move |s| s.bg(tk.well_hover.blend(tk.k05)))
             })
             .child(glyph)
     };
@@ -652,8 +686,7 @@ pub(crate) fn stepper(
         .h(px(26.))
         .items_center()
         .rounded(px(6.))
-        .bg(tk.btn)
-        .shadow(tk.raised())
+        .bg(tk.well)
         .child(
             end("dec", "−", s.can_dec)
                 .rounded_l(px(6.))

@@ -756,7 +756,10 @@ impl Tty7App {
                 .id("shell-program-detected-trigger")
                 .flex_shrink_0()
                 .ml(px(4.))
-                .mr(px(-4.))
+                // Pulled into the field's 10px padding far enough that the
+                // chevron's centre sits 12px from the edge — where a
+                // dropdown's does, one row down.
+                .mr(px(-7.))
                 .size(px(18.))
                 .rounded(px(4.))
                 .flex()
@@ -849,7 +852,7 @@ impl Tty7App {
             let value = wd_path_input.read(cx).value();
             let error = (!crate::ui::app::wd_path_saveable(&value))
                 .then(|| t(L10nKey::SettingsWdPathInvalid).to_string());
-            let control = self.settings_checked_input(&wd_path_input, 240., error, cx);
+            let control = self.settings_checked_input(&wd_path_input, PATH_FIELD_W, error, cx);
             rows.push(
                 self.settings_row(
                     t(L10nKey::SettingsCustomPath),
@@ -936,7 +939,7 @@ impl Tty7App {
         // reads as "this is what file links do".
         let link_file_command_row = (link_file_open == LinkFileOpen::Command).then(|| {
             let control = self
-                .settings_text_input(&link_file_command_input, 240., false, cx)
+                .settings_text_input(&link_file_command_input, PATH_FIELD_W, false, cx)
                 .into_any_element();
             self.settings_row(
                 t(L10nKey::SettingsOpenFilesCommand),
