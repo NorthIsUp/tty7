@@ -158,6 +158,12 @@ impl Tty7App {
     ) -> Div {
         let tk = Tk::of(cx);
         let mut panel = kit::menu_panel(&tk);
+        // A choice menu keeps a column for its tick so the labels line up
+        // whichever one is picked. A menu of actions ticks nothing, and the
+        // same empty column left its labels 24px in from a 12px right edge.
+        let ticks = entries
+            .iter()
+            .any(|e| matches!(e, MenuEntry::Item { checked: true, .. }));
         for (i, entry) in entries.into_iter().enumerate() {
             panel = match entry {
                 MenuEntry::Item {
@@ -173,7 +179,8 @@ impl Tty7App {
                         false,
                         &tk,
                     )
-                    .child(kit::check_mark(checked, &tk))
+                    .when(ticks, |r| r.child(kit::check_mark(checked, &tk)))
+                    .when(!ticks, |r| r.pl(px(12.)))
                     .child(
                         div()
                             .flex_1()
