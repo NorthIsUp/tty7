@@ -22,8 +22,6 @@
 
 <a href="assets/tour.mp4"><img src="assets/tour.webp" alt="One-minute tour of tty7: agents across repos, one agent driving another through the CLI, the prompt editor, diffs, dragging panes, and sessions that survive quitting the app" width="900" /></a>
 
-<sub>▶ <a href="assets/tour.mp4">Watch in full quality</a></sub>
-
 </div>
 
 ## Why
