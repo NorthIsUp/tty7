@@ -1,8 +1,8 @@
 //! Settings → Mobile: switching phone access on, pairing a phone, and the
 //! phones already paired.
 //!
-//! The gateway itself runs in the local daemon (`core::mobile`), which reads
-//! `mobile_access` from the config. Everything this page shows or changes about
+//! The gateway itself is run by the local daemon (`tty7_core::daemon::mobile`),
+//! which reads `mobile_access` from the config. Everything this page shows or changes about
 //! it goes through the gateway's state directory — the files are the interface
 //! between this process and that one, as they are for `tty7-gateway` on the
 //! command line.
@@ -95,9 +95,6 @@ fn qr_image(code: &str) -> Option<Arc<gpui::Image>> {
 impl Tty7App {
     pub(crate) fn set_mobile_access(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.mobile_access = on);
-        if on {
-            crate::core::mobile::ensure_served_soon();
-        }
         if !on && let Some(s) = self.active_settings_mut() {
             s.mobile_pairing = None;
         }

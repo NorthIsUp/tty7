@@ -19,7 +19,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Run the gateway. Paired phones can reach this machine while it runs.
-    Serve,
+    Serve {
+        /// Stop when stdin closes: how a tty7 server runs its gateway.
+        #[arg(long)]
+        exit_with_stdin: bool,
+    },
     /// Show a one-time code for the tty7 app to scan.
     Pair {
         /// How long the code stays valid, in seconds.
@@ -39,7 +43,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let state = State::open_default()?;
     match cli.command {
-        Command::Serve => {
+        Command::Serve {
+            exit_with_stdin: true,
+        } => service::serve_until_stdin_closes(state),
+        Command::Serve {
+            exit_with_stdin: false,
+        } => {
             let _running = service::start(state)?;
             // The gateway runs on its own thread until the process is killed.
             loop {

@@ -21,7 +21,7 @@ use tty7_mobile_proto::{ALPN, MDNS_SERVICE, PairCode};
 
 use crate::daemon::{Daemon, hostname};
 use crate::serve::{self, Backend as _};
-use crate::state::{Reachable, State, Status};
+use crate::state::{Reachable, State, Status, failed, running};
 
 /// A gateway running on its own thread. Dropping it stops it.
 pub struct Running {
@@ -118,14 +118,14 @@ async fn run(state: State, ready: std_mpsc::Sender<Result<()>>, stop: oneshot::R
     let endpoint = match started.await {
         Ok(up) => up,
         Err(e) => {
-            let _ = state.set_status(&Status::failed(&e));
+            let _ = state.set_status(&failed(&e));
             let _ = ready.send(Err(e));
             return;
         }
     };
     let id = endpoint.id().to_string();
     log::info!("mobile gateway listening as {id}");
-    let _ = state.set_status(&Status::running(&id));
+    let _ = state.set_status(&running(&id));
     let _ = ready.send(Ok(()));
 
     let daemon = Arc::new(Daemon::default());
@@ -162,7 +162,7 @@ async fn run(state: State, ready: std_mpsc::Sender<Result<()>>, stop: oneshot::R
     }
     addrs.abort();
     endpoint.close().await;
-    let _ = state.set_status(&Status::stopped());
+    let _ = state.set_status(&Status::Stopped);
     drop(lock);
     log::info!("mobile gateway stopped");
 }
@@ -213,6 +213,18 @@ async fn bind(key: SecretKey, port: Option<u16>) -> Result<Endpoint> {
         }
     }
     anyhow::bail!("could not start: {}", failures.join("; "))
+}
+
+/// Serves until this process's stdin closes — the way a daemon runs its
+/// gateway as a child: the pipe it holds closes when it ends, however it ends,
+/// and the gateway goes with it.
+pub fn serve_until_stdin_closes(state: State) -> Result<()> {
+    let running = start(state)?;
+    let mut sink = [0u8; 256];
+    let mut stdin = std::io::stdin().lock();
+    while matches!(std::io::Read::read(&mut stdin, &mut sink), Ok(n) if n > 0) {}
+    running.stop();
+    Ok(())
 }
 
 /// Opens a pairing offer valid for `ttl`, and returns the code a phone scans

@@ -543,7 +543,7 @@ fn main() {
         .any(|arg| arg == std::ffi::OsStr::new("--daemon"));
     let mobile_helper = args
         .iter()
-        .any(|arg| arg == std::ffi::OsStr::new(crate::core::mobile::HELPER_FLAG));
+        .any(|arg| arg == std::ffi::OsStr::new(tty7_core::daemon::mobile::GATEWAY_FLAG));
     let role = match (daemon, mobile_helper) {
         (true, _) => "daemon",
         (false, true) => "mobile",
@@ -577,13 +577,18 @@ fn main() {
         return;
     }
 
+    // The daemon's mobile gateway, run by the daemon as its child: see
+    // `tty7_core::daemon::mobile`.
     if mobile_helper {
-        crate::core::mobile::run_helper();
+        let served = tty7_gateway::state::State::open_default()
+            .and_then(tty7_gateway::service::serve_until_stdin_closes);
+        if let Err(e) = served {
+            log::warn!("mobile gateway: {e:#}");
+        }
         return;
     }
 
     if daemon {
-        crate::core::mobile::supervise();
         if let Err(e) = crate::daemon::server::run_daemon() {
             log::error!("daemon exited with error: {e}");
         }
@@ -664,7 +669,6 @@ fn main() {
     } else {
         crate::daemon::spawn::restart()
     };
-    crate::core::mobile::ensure_served_soon();
     // A pathless launch that found a GUI already registered hands the request
     // to it — the GUI may be sitting in the tray with no window — and exits.
     // The forward above cannot do this: it runs before the daemon exists, and

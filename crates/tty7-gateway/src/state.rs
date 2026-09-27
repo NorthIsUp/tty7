@@ -22,7 +22,6 @@ const PAIRING_FILE: &str = "pairing.json";
 const ADDR_FILE: &str = "addr.json";
 const LOCK_FILE: &str = "serve.lock";
 const PORT_FILE: &str = "port";
-const STATUS_FILE: &str = "status.json";
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -52,33 +51,19 @@ struct Pairing {
     expires_at: u64,
 }
 
-/// How the gateway last said it was doing, for whoever shows it: the GUI's
-/// Settings. A gateway that dies without a word leaves `running` behind, so a
-/// reader checks [`State::serving`] too.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum Status {
-    Running { id: String, since: u64 },
-    Stopped,
-    Failed { error: String },
+pub use tty7_core::daemon::mobile::Status;
+
+/// The statuses a running gateway writes about itself.
+pub(crate) fn running(id: &str) -> Status {
+    Status::Running {
+        id: id.to_string(),
+        since: unix_now(),
+    }
 }
 
-impl Status {
-    pub fn running(id: &str) -> Status {
-        Status::Running {
-            id: id.to_string(),
-            since: unix_now(),
-        }
-    }
-
-    pub fn stopped() -> Status {
-        Status::Stopped
-    }
-
-    pub fn failed(e: &anyhow::Error) -> Status {
-        Status::Failed {
-            error: format!("{e:#}"),
-        }
+pub(crate) fn failed(e: &anyhow::Error) -> Status {
+    Status::Failed {
+        error: format!("{e:#}"),
     }
 }
 
@@ -95,9 +80,9 @@ pub struct Reachable {
 impl State {
     /// The state directory under tty7's config dir, created private.
     pub fn open_default() -> Result<State> {
-        let base = tty7_core::core::config::config_dir_path()
+        let dir = tty7_core::daemon::mobile::state_dir()
             .ok_or_else(|| anyhow!("could not work out tty7's config directory"))?;
-        State::open(base.join("mobile"))
+        State::open(dir)
     }
 
     pub fn open(dir: PathBuf) -> Result<State> {
@@ -243,11 +228,11 @@ impl State {
     }
 
     pub fn status(&self) -> Option<Status> {
-        read_json(&self.dir.join(STATUS_FILE)).ok().flatten()
+        read_json(&Status::path_in(&self.dir)).ok().flatten()
     }
 
     pub fn set_status(&self, status: &Status) -> Result<()> {
-        write_json(&self.dir.join(STATUS_FILE), status)
+        write_json(&Status::path_in(&self.dir), status)
     }
 
     /// Whether some process holds the serve lock right now — the one fact
@@ -411,7 +396,7 @@ mod tests {
     fn status_round_trips() {
         let (_tmp, state) = state();
         assert_eq!(state.status(), None);
-        state.set_status(&Status::running("abc")).unwrap();
+        state.set_status(&running("abc")).unwrap();
         assert!(matches!(state.status(), Some(Status::Running { id, .. }) if id == "abc"));
     }
 

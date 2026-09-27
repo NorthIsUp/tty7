@@ -1333,10 +1333,10 @@ fn strip_deleted_marker(path: String) -> String {
     }
 }
 
-/// Detaches a helper the way the daemon itself is detached, so it outlives
-/// the process that started it and has no console or window of its own. The
-/// GUI starts the mobile gateway helper through this.
-pub fn detach_helper(cmd: &mut Command) {
+/// Starts a child of the daemon the way the daemon itself was started: in no
+/// console and with no window, which on Windows is the difference between a
+/// background helper and a console flashing up. The mobile gateway is one.
+pub(crate) fn detach_child(cmd: &mut Command) {
     detach(cmd);
 }
 

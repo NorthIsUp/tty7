@@ -594,6 +594,9 @@ fn run_with(registry: Arc<Registry>, alone: bool) -> anyhow::Result<()> {
 
     crate::daemon::pidfile::write_current();
 
+    // Phone access, when it is switched on: see `daemon::mobile`.
+    crate::daemon::mobile::supervise();
+
     #[cfg(unix)]
     serve_sigterm(registry.clone());
 
