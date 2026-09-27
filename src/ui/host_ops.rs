@@ -5,7 +5,7 @@ use std::hash::Hash;
 use gpui::{App, Context, Window};
 use gpui_component::WindowExt as _;
 
-use crate::ui::i18n::{L10nKey, t_fmt};
+use crate::ui::i18n::L10nKey;
 
 #[allow(unused_imports)]
 pub use tty7_core::host::{
@@ -276,12 +276,14 @@ impl HostOps {
         );
     }
 
+    /// Every context handed here is already a sentence about what failed —
+    /// "Could not delete a.txt" — so it is the toast's title, and the reason
+    /// sits under it. Run together as `{context}: {error}` on one plain line
+    /// the two read as a log entry, with nothing to mark it as a failure.
     pub fn notify_err(window: &mut Window, cx: &mut App, context: &str, err: &std::io::Error) {
         window.push_notification(
-            t_fmt(
-                L10nKey::HostOpsError,
-                &[("context", context), ("error", &explain_io(err))],
-            ),
+            gpui_component::notification::Notification::error(explain_io(err))
+                .title(context.to_string()),
             cx,
         );
     }

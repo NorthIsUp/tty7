@@ -1035,8 +1035,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::FileTreePlaceholderFolderName => "文件夹名",
         L10nKey::FileTreePlaceholderNewName => "新名称",
         L10nKey::FileTreeDeleteTitle => "删除“{name}”？",
-        L10nKey::FileTreeDeleteFolderBody => "该文件夹及其中的所有内容都将被删除。",
-        L10nKey::FileTreeDeleteFileBody => "该文件将被删除。",
+        L10nKey::FileTreeDeleteFolderBody => "该文件夹及其中的所有内容都将被删除，此操作无法撤销。",
+        L10nKey::FileTreeDeleteFileBody => "此操作无法撤销。",
         L10nKey::SftpDeleteFolderBody => {
             "该文件夹及其中所有内容将在 {host} 上被删除。远端没有回收站。"
         }
@@ -1419,7 +1419,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshPromptConnect => "连接",
         L10nKey::SshPromptUnlock => "解锁",
         L10nKey::SshPromptSubmit => "提交",
-        L10nKey::HostOpsError => "{context}：{error}",
         L10nKey::GitOpFailed => "git {op} 失败",
         L10nKey::IoDenied => "没有权限。",
         L10nKey::IoGone => "文件或目录已不存在。",

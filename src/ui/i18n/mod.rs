@@ -1298,7 +1298,6 @@ l10n_keys! {
     SshPromptConnect,
     SshPromptUnlock,
     SshPromptSubmit,
-    HostOpsError,
     GitOpFailed,
     IoDenied,
     IoGone,
@@ -1784,7 +1783,6 @@ mod tests {
             L10nKey::Ok,
             // Pure templates: every word in them is a placeholder.
             L10nKey::AppCmdShellTitle,
-            L10nKey::HostOpsError,
             L10nKey::SftpTransferProgress,
             // Product names.
             L10nKey::SettingsServer,

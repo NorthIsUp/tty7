@@ -1147,8 +1147,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::FileTreePlaceholderFolderName => "フォルダ名",
         L10nKey::FileTreePlaceholderNewName => "新しい名前",
         L10nKey::FileTreeDeleteTitle => "「{name}」を削除しますか？",
-        L10nKey::FileTreeDeleteFolderBody => "フォルダとその中のすべての項目が削除されます",
-        L10nKey::FileTreeDeleteFileBody => "ファイルが削除されます",
+        L10nKey::FileTreeDeleteFolderBody => {
+            "フォルダとその中のすべての項目が削除されます。この操作は元に戻せません。"
+        }
+        L10nKey::FileTreeDeleteFileBody => "この操作は元に戻せません。",
         L10nKey::SftpDeleteFolderBody => {
             "{host} 上でフォルダとその中身がすべて削除されます。リモート側にゴミ箱はありません。"
         }
@@ -1579,7 +1581,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshPromptConnect => "接続",
         L10nKey::SshPromptUnlock => "ロック解除",
         L10nKey::SshPromptSubmit => "送信",
-        L10nKey::HostOpsError => "{context}: {error}",
         L10nKey::GitOpFailed => "git {op} に失敗しました",
         L10nKey::IoDenied => "権限がありません。",
         L10nKey::IoGone => "もう存在しません。",

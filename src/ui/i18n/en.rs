@@ -1102,8 +1102,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::FileTreePlaceholderFolderName => "folder name",
         L10nKey::FileTreePlaceholderNewName => "new name",
         L10nKey::FileTreeDeleteTitle => "Delete \"{name}\"?",
-        L10nKey::FileTreeDeleteFolderBody => "The folder and everything inside it will be deleted.",
-        L10nKey::FileTreeDeleteFileBody => "The file will be deleted.",
+        L10nKey::FileTreeDeleteFolderBody => {
+            "The folder and everything inside it will be deleted. This can't be undone."
+        }
+        L10nKey::FileTreeDeleteFileBody => "This can't be undone.",
         L10nKey::SftpDeleteFolderBody => {
             "The folder and everything inside it will be deleted on {host}. There is no trash on the far side."
         }
@@ -1536,7 +1538,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SshPromptConnect => "Connect",
         L10nKey::SshPromptUnlock => "Unlock",
         L10nKey::SshPromptSubmit => "Submit",
-        L10nKey::HostOpsError => "{context}: {error}",
         L10nKey::GitOpFailed => "git {op} failed",
         L10nKey::IoDenied => "You do not have permission.",
         L10nKey::IoGone => "It is not there any more.",
