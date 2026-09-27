@@ -207,6 +207,10 @@ pub(crate) struct FileTreeState {
     repo_roots: ByHost<PathBuf, PathBuf>,
     repo_root_loads: InFlight<DirKey>,
     search: SearchState,
+    /// Every file under the project, for the search's Files tab
+    /// (`ui::search::files`). Kept here, beside the tree it is a flat copy of,
+    /// so it outlives the search it was walked for.
+    pub(crate) quick_open: crate::ui::search::FileIndexStore,
     pub(crate) show_hidden: bool,
     pub(crate) editing: Option<TreeEdit>,
     editing_subs: Vec<Subscription>,
@@ -250,6 +254,7 @@ impl FileTreeState {
             repo_roots: ByHost::default(),
             repo_root_loads: InFlight::default(),
             search: SearchState::default(),
+            quick_open: Default::default(),
             show_hidden: false,
             editing: None,
             editing_subs: Vec::new(),

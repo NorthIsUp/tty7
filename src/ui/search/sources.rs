@@ -8,6 +8,7 @@ use gpui::{App, SharedString};
 
 use super::SearchTab;
 use super::command::{CommandGroup, CommandKind, Item};
+use super::files::{FileList, Files};
 use super::score::{frecency_bonus, item_score};
 use crate::core::config::Config;
 use crate::core::ssh_profile::parse_quick_connect;
@@ -57,6 +58,12 @@ pub(crate) trait Source {
     /// typed. Empty is fine: the tab then shows only once a query finds it.
     fn highlights(&self, cx: &App) -> Vec<Item>;
 
+    /// Whether the All tab shows this tab before anything is typed. Every tab
+    /// with anything in it does, unless what it would show is only filler.
+    fn on_the_empty_all_tab(&self) -> bool {
+        true
+    }
+
     /// Rows answering `query`, best first, each with the score that put it
     /// there. The All tab compares these scores across tabs, so every source
     /// scores with [`item_score`] and only nudges it.
@@ -80,6 +87,9 @@ pub(crate) struct Catalog {
     pub sessions: Vec<Item>,
     /// How many of `sessions` lead the list because they ran here.
     pub sessions_here: usize,
+    /// The project's files, from the window's last walk of it. A fresh walk
+    /// may land after the search opens (`Tty7App::refresh_file_index`).
+    pub files: FileList,
 }
 
 impl Catalog {
@@ -98,6 +108,7 @@ impl Catalog {
             hosts,
             sessions: Vec::new(),
             sessions_here: 0,
+            files: FileList::default(),
         }
     }
 
@@ -111,6 +122,7 @@ impl Catalog {
                 here: self.sessions_here,
             })),
             SearchTab::Hosts => Some(Box::new(Hosts(&self.hosts))),
+            SearchTab::Files => Some(Box::new(Files(&self.files))),
         }
     }
 
@@ -138,7 +150,7 @@ impl Catalog {
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing
             // wanted is the tab you were just in.
-            let mut sources: Vec<_> = tabs.collect();
+            let mut sources: Vec<_> = tabs.filter(|s| s.on_the_empty_all_tab()).collect();
             sources.sort_by_key(|s| s.tab() != SearchTab::Terminals);
             return sources
                 .into_iter()
@@ -678,6 +690,70 @@ mod tests {
             assert!(matches!(kinds[0], CommandKind::QuickConnect(_)));
             assert!(matches!(kinds[1], CommandKind::SaveQuickConnect(_)));
             assert!(matches!(kinds[2], CommandKind::ConnectSavedProfile(_)));
+        });
+    }
+
+    fn with_files(paths: &[&str]) -> Catalog {
+        let mut catalog = Catalog::new(
+            vec![Item::new("Split Right", CommandKind::SplitRight)],
+            vec![terminal("main shell", "here")],
+            Vec::new(),
+        );
+        let root = std::path::PathBuf::from("/repo");
+        let files = paths.iter().map(|p| root.join(p)).collect();
+        catalog.files = FileList::Ready(std::sync::Arc::new(super::super::files::build_index(
+            &[root],
+            files,
+            false,
+        )));
+        catalog
+    }
+
+    /// Files join the All tab once something is typed, under their own
+    /// header, and stay out of it before — a sample of the project is not an
+    /// answer to anything.
+    #[gpui::test]
+    fn files_are_on_the_all_tab_only_once_a_query_finds_them(cx: &mut TestAppContext) {
+        with_config(cx);
+        let catalog = with_files(&["src/main.rs", "src/ui/app.rs"]);
+        cx.update(|cx| {
+            // No dot in it: `main.rs` also reads as a host name, and a typed
+            // address leads the All tab whatever else matches.
+            let sections = catalog.sections(SearchTab::All, "ui/app", cx);
+            assert_eq!(sections[0].title.as_deref(), Some("Files"));
+            assert_eq!(row_titles(&sections[0]), vec!["app.rs"]);
+
+            let empty = catalog.sections(SearchTab::All, "", cx);
+            let headers: Vec<_> = empty.iter().filter_map(|s| s.title.clone()).collect();
+            assert!(
+                !headers.iter().any(|h| h == "Files"),
+                "no files before a query: {headers:?}"
+            );
+
+            // The tab itself shows some before anything is typed.
+            let own = catalog.sections(SearchTab::Files, "", cx);
+            assert_eq!(own[0].rows.len(), 2);
+        });
+    }
+
+    /// `name:line:column` opens the file there, and says so on the row.
+    #[gpui::test]
+    fn a_file_query_with_a_line_opens_on_that_line(cx: &mut TestAppContext) {
+        with_config(cx);
+        let catalog = with_files(&["src/main.rs"]);
+        cx.update(|cx| {
+            let sections = catalog.sections(SearchTab::Files, "main.rs:120:4", cx);
+            let item = sections[0].rows[0].item().expect("a file row");
+            assert_eq!(
+                item.kind,
+                CommandKind::OpenFile {
+                    path: "/repo/src/main.rs".into(),
+                    line: Some(120),
+                    column: Some(4),
+                }
+            );
+            assert_eq!(item.subtitle.as_deref(), Some("src"));
+            assert_eq!(item.note.as_deref(), Some("line 120"));
         });
     }
 

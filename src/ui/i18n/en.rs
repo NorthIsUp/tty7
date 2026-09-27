@@ -125,10 +125,21 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabActions => "Actions",
         L10nKey::SearchTabTerminals => "Terminals",
         L10nKey::SearchTabHosts => "Hosts",
-        L10nKey::SearchPlaceholderAll => "Search actions, terminals and hosts…",
+        L10nKey::SearchPlaceholderAll => "Search files, actions, terminals and hosts…",
         L10nKey::SearchPlaceholderActions => "Search actions…",
         L10nKey::SearchPlaceholderTerminals => "Search open tabs, shells and agents…",
         L10nKey::SearchPlaceholderHosts => "Search hosts, or type user@host to connect…",
+        L10nKey::SearchTabFiles => "Files",
+        L10nKey::SearchPlaceholderFiles => "Go to a file by name — add :line to jump to it…",
+        L10nKey::SearchFilesNoRoots => "No project to search",
+        L10nKey::SearchFilesNoRootsHint => {
+            "Files are found in the project your terminal is in. cd into one to search it."
+        }
+        L10nKey::SearchFilesIndexing => "Indexing files…",
+        L10nKey::SearchFilesFailed => "The project's files could not be listed.",
+        L10nKey::SearchFilesGoToLine => "line {line}",
+        L10nKey::SearchFilesCapped => "Large project — only the first {count} files are searched",
+        L10nKey::CmdGoToFile => "Go to File…",
         L10nKey::SearchTabSessions => "Sessions",
         L10nKey::SearchPlaceholderSessions => "Search past agent sessions…",
         L10nKey::SearchSessionsEmptyHint => {

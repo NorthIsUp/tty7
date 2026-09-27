@@ -443,6 +443,14 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
             "TogglePalette",
             per_platform("secondary-p", "secondary-shift-p"),
         ),
+        // VS Code's ⌘P, which here is already Search Everywhere. ⌘O instead:
+        // it is "Open…" in every Mac app, and nothing in the table or the
+        // terminal holds it. Off macOS the obvious chords are gone — Ctrl+P
+        // and Ctrl+O are bytes the shell is owed, Ctrl+Shift+P is Search
+        // Everywhere and Ctrl+Shift+O the workspace switcher — so it ships
+        // unbound there, like `NewWindow`, rather than on a chord nobody would
+        // guess. The Files tab is a Tab press away inside the search either way.
+        ("QuickOpenFile", per_platform("secondary-o", "")),
         (
             "ReopenClosedTab",
             per_platform("secondary-shift-t", "alt-shift-t"),
@@ -910,6 +918,7 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
             CommandGroup::Application,
             t(L10nKey::AppMenuSearchEverywhere).to_string(),
         ),
+        "QuickOpenFile" => (CommandGroup::View, t(L10nKey::CmdGoToFile).to_string()),
         "NewWindow" => (
             CommandGroup::Application,
             t(L10nKey::CmdNewWindow).to_string(),
@@ -1492,6 +1501,7 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "DecreaseFontSize" => KeyBinding::new(keystroke, DecreaseFontSize, None),
         "ResetFontSize" => KeyBinding::new(keystroke, ResetFontSize, None),
         "TogglePalette" => KeyBinding::new(keystroke, TogglePalette, None),
+        "QuickOpenFile" => KeyBinding::new(keystroke, QuickOpenFile, None),
         "ReopenClosedTab" => KeyBinding::new(keystroke, ReopenClosedTab, None),
         "ToggleMaximizePane" => KeyBinding::new(keystroke, ToggleMaximizePane, None),
         "ToggleFullscreen" => KeyBinding::new(keystroke, ToggleFullscreen, None),

@@ -73,6 +73,7 @@ actions!(
         DecreaseFontSize,
         ResetFontSize,
         TogglePalette,
+        QuickOpenFile,
         ReopenClosedTab,
         ToggleMaximizePane,
         ToggleFullscreen,

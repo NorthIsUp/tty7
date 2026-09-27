@@ -5740,6 +5740,7 @@ impl Tty7App {
         let (sessions, here) = self.search_sessions(last, window, cx);
         catalog.sessions = sessions;
         catalog.sessions_here = here;
+        catalog.files = self.file_list_now(cx);
         catalog
     }
 
@@ -6003,6 +6004,7 @@ impl Tty7App {
         self.search_sub = Some(cx.subscribe_in(&view, window, Self::on_search_event));
         self.search = Some(view.clone());
         self.refresh_search_sessions(view, window, cx);
+        self.refresh_file_index(window, cx);
         cx.notify();
     }
 
@@ -6284,6 +6286,10 @@ impl Tty7App {
             // Both are the search's own, and handled inside it.
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
+            QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            OpenFile { path, line, column } => {
+                self.open_indexed_file(&path, line, column, window, cx)
+            }
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
             ResumeSession {
                 agent,
@@ -9159,6 +9165,9 @@ impl Render for Tty7App {
                         this.toggle_search(window, cx)
                     }),
                 )
+                .on_action(cx.listener(|this, _: &QuickOpenFile, window, cx| {
+                    this.quick_open_file(window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
                     this.reopen_closed_tab(window, cx)
                 }))

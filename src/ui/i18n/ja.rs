@@ -126,10 +126,23 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTabActions => "アクション",
         L10nKey::SearchTabTerminals => "ターミナル",
         L10nKey::SearchTabHosts => "ホスト",
-        L10nKey::SearchPlaceholderAll => "アクション、ターミナル、ホストを検索…",
+        L10nKey::SearchPlaceholderAll => "ファイル、アクション、ターミナル、ホストを検索…",
         L10nKey::SearchPlaceholderActions => "アクションを検索…",
         L10nKey::SearchPlaceholderTerminals => "開いているタブ、シェル、エージェントを検索…",
         L10nKey::SearchPlaceholderHosts => "ホストを検索、または user@host を入力して接続…",
+        L10nKey::SearchTabFiles => "ファイル",
+        L10nKey::SearchPlaceholderFiles => "名前でファイルに移動（:行番号 でその行へ）…",
+        L10nKey::SearchFilesNoRoots => "検索するプロジェクトがありません",
+        L10nKey::SearchFilesNoRootsHint => {
+            "ファイルはターミナルのいるプロジェクトから探します。プロジェクトに cd すると検索できます。"
+        }
+        L10nKey::SearchFilesIndexing => "ファイルをインデックス中…",
+        L10nKey::SearchFilesFailed => "このプロジェクトのファイルを一覧できませんでした。",
+        L10nKey::SearchFilesGoToLine => "{line} 行目",
+        L10nKey::SearchFilesCapped => {
+            "大きなプロジェクトのため、最初の {count} 件のファイルのみ検索します"
+        }
+        L10nKey::CmdGoToFile => "ファイルに移動…",
         L10nKey::SearchTabSessions => "セッション",
         L10nKey::SearchPlaceholderSessions => "過去のエージェントセッションを検索…",
         L10nKey::SearchSessionsEmptyHint => {
