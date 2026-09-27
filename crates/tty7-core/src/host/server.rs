@@ -700,6 +700,10 @@ fn run_request(
         }
 
         ControlRequest::Shells => (ReplyOk::Shells(h.shells()?), Vec::new()),
+        ControlRequest::AgentSessions { known_dirs } => (
+            ReplyOk::AgentSessions(h.agent_sessions(&paths(&known_dirs))?),
+            Vec::new(),
+        ),
 
         ControlRequest::WatchOpen { dirs } => {
             let id = conn.open_watch(req_id, &paths(&dirs))?;

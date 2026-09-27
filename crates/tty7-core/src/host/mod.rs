@@ -371,6 +371,17 @@ pub trait Host: Send + Sync + 'static {
 
     fn shells(&self) -> io::Result<ShellInventory>;
 
+    /// Past coding-agent sessions on this host, most recent first.
+    /// `known_dirs` are directories open on it (see
+    /// [`crate::core::agent_history::scan`]). A host that cannot look has
+    /// none to offer.
+    fn agent_sessions(
+        &self,
+        _known_dirs: &[PathBuf],
+    ) -> io::Result<Vec<crate::core::agent_history::PastSession>> {
+        Ok(Vec::new())
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;
 
     fn is_connected(&self) -> bool {

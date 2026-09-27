@@ -1,3 +1,4 @@
+pub mod agent_history;
 pub mod agent_hooks;
 pub mod cli_agent;
 pub mod clipboard;

@@ -417,6 +417,18 @@ impl Host for RemoteHost {
         }
     }
 
+    fn agent_sessions(
+        &self,
+        known_dirs: &[PathBuf],
+    ) -> io::Result<Vec<crate::core::agent_history::PastSession>> {
+        match self.call(ControlRequest::AgentSessions {
+            known_dirs: wire_paths(known_dirs),
+        })? {
+            ReplyOk::AgentSessions(sessions) => Ok(sessions),
+            other => Err(wrong_shape("a list of agent sessions", &other)),
+        }
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         let id = match self.call(ControlRequest::WatchOpen {
             dirs: wire_paths(dirs),
@@ -1214,6 +1226,39 @@ mod tests {
         assert_eq!(inv.shells[0].program, "/usr/bin/zsh");
         assert_eq!(inv.shells[0].args, ["--no-rcs"]);
         assert!(!inv.shells[0].args_are_tty7_defaults);
+    }
+
+    #[test]
+    fn agent_sessions_come_from_the_peer() {
+        use crate::core::agent_history::PastSession;
+        use crate::core::cli_agent::CLIAgent;
+        let session = PastSession {
+            agent: CLIAgent::Codex,
+            id: "0199-abc".into(),
+            cwd: Some(PathBuf::from("/home/me/repo")),
+            title: "add a retry".into(),
+            branch: Some("main".into()),
+            updated: 42,
+        };
+        let reply = session.clone();
+        let (host, seen) = host_with_peer('/', move |req| match req {
+            ControlRequest::AgentSessions { .. } => Some((
+                ControlReply::Ok(ReplyOk::AgentSessions(vec![reply.clone()])),
+                vec![],
+            )),
+            other => panic!("unexpected request {other:?}"),
+        });
+
+        let found = host
+            .agent_sessions(&[PathBuf::from("/home/me/repo")])
+            .unwrap();
+        assert_eq!(
+            seen.recv().unwrap(),
+            ControlRequest::AgentSessions {
+                known_dirs: vec!["/home/me/repo".into()],
+            }
+        );
+        assert_eq!(found, vec![session]);
     }
 
     #[test]

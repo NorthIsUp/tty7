@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -422,6 +422,11 @@ pub struct Config {
     /// "New Agent Tab" opens.
     #[serde(default)]
     pub agent_frecency: HashMap<String, ProfileUsage>,
+    /// Past agent sessions taken out of the search's Sessions tab, as
+    /// `<agent slug>:<session id>`. Only the listing forgets them; the
+    /// agent's own history is not touched.
+    #[serde(default)]
+    pub hidden_agent_sessions: BTreeSet<String>,
     #[serde(default = "default_true")]
     pub restore_agent_sessions: bool,
     /// Give each pane its own shell history instead of one file every pane
@@ -819,6 +824,7 @@ impl Default for Config {
             agent_commands: HashMap::new(),
             agent_launch: HashMap::new(),
             agent_frecency: HashMap::new(),
+            hidden_agent_sessions: BTreeSet::new(),
             restore_agent_sessions: true,
             per_pane_history: false,
             quarantined: false,

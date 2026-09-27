@@ -58,7 +58,10 @@ use super::protocol::{MAX_FRAME, read_frame, write_frame};
 /// by id (`TabSetGroup` carries a `GroupId`, not a string), the groups
 /// themselves live on the workspace and move as `WorkspaceSetGroups` and
 /// `LayoutDelta::GroupsChanged`, and a v10 peer can decode none of that.
-pub const CONTROL_VERSION: u32 = 11;
+///
+/// v12 adds `AgentSessions`: the search's Sessions tab in a remote workspace
+/// lists the coding-agent sessions of the machine the workspace is on.
+pub const CONTROL_VERSION: u32 = 12;
 
 const DIALECT_MARKER: &str = "speaks control v";
 
@@ -235,6 +238,12 @@ pub enum ControlRequest {
     },
 
     Shells,
+
+    /// Past coding-agent sessions on this machine. `known_dirs` are the
+    /// client's open directories there, which place Cursor's chats.
+    AgentSessions {
+        known_dirs: Vec<String>,
+    },
 
     WatchOpen {
         dirs: Vec<String>,
@@ -427,7 +436,7 @@ impl ControlRequest {
             // Past the host's own time budget (`ContentLimits::max_millis`),
             // so a search that ran long still gets to say what it found.
             SearchContent { .. } => Duration::from_secs(30),
-            Shells => Duration::from_secs(20),
+            Shells | AgentSessions { .. } => Duration::from_secs(20),
             WorkspaceAttach { .. } | WorkspaceDetach { .. } => Duration::from_secs(10),
             GuiOpen { .. } => Duration::from_secs(5),
             MachineGet
@@ -495,6 +504,7 @@ pub enum ReplyOk {
     Output(Output),
     WatchId(u64),
     Shells(ShellInventory),
+    AgentSessions(Vec<crate::core::agent_history::PastSession>),
     Attached { took_over_from: Option<String> },
     MachineTree(Box<Machine>),
     WorkspaceTree(Box<crate::core::machine::Workspace>),

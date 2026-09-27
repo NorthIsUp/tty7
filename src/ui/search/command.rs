@@ -121,6 +121,19 @@ pub enum CommandKind {
         session_id: String,
         cwd: Option<std::path::PathBuf>,
     },
+    /// A past agent session, branched into a new tab where it ran.
+    ForkSession {
+        agent: CLIAgent,
+        session_id: String,
+        cwd: Option<std::path::PathBuf>,
+    },
+    CopySessionId(String),
+    /// Leave a past session out of the Sessions tab from now on. Its files
+    /// are the agent's and stay where they are.
+    HideSession {
+        agent: CLIAgent,
+        session_id: String,
+    },
     ConnectSavedProfile(Uuid),
     EditSavedProfile(Uuid),
     /// Open the shell the window's inventory lists under this label, as the
@@ -247,6 +260,9 @@ impl CommandKind {
             | SetTheme(_)
             | GoToTab { .. }
             | ResumeSession { .. }
+            | ForkSession { .. }
+            | CopySessionId(_)
+            | HideSession { .. }
             | ConnectSavedProfile(_)
             | EditSavedProfile(_)
             | OpenShell(_)
@@ -378,6 +394,9 @@ impl CommandKind {
             | SetTheme(_)
             | GoToTab { .. }
             | ResumeSession { .. }
+            | ForkSession { .. }
+            | CopySessionId(_)
+            | HideSession { .. }
             | ConnectSavedProfile(_)
             | EditSavedProfile(_)
             | OpenShell(_)
@@ -768,6 +787,55 @@ impl Item {
                 Item::new(title, CommandKind::SetTheme(i))
             })
             .collect()
+    }
+
+    /// What can be done with the past session `kind` resumes: the list its
+    /// row opens. `None` for any other row.
+    pub fn session_actions(kind: &CommandKind, cx: &App) -> Option<Vec<Item>> {
+        let CommandKind::ResumeSession {
+            agent,
+            session_id,
+            cwd,
+        } = kind
+        else {
+            return None;
+        };
+        let launch = &cx.global::<Config>().agent_launch;
+        let mut out = vec![
+            Item::localized(L10nKey::SessionActionResume, kind.clone())
+                .with_subtitle(t(L10nKey::SessionActionResumeSubtitle)),
+        ];
+        if crate::ui::agent_launch::fork_line(*agent, session_id, launch).is_some() {
+            out.push(
+                Item::localized(
+                    L10nKey::CmdForkSession,
+                    CommandKind::ForkSession {
+                        agent: *agent,
+                        session_id: session_id.clone(),
+                        cwd: cwd.clone(),
+                    },
+                )
+                .with_subtitle(t(L10nKey::CmdForkSessionSubtitle)),
+            );
+        }
+        out.push(
+            Item::localized(
+                L10nKey::CmdCopySessionId,
+                CommandKind::CopySessionId(session_id.clone()),
+            )
+            .with_subtitle(session_id.clone()),
+        );
+        out.push(
+            Item::localized(
+                L10nKey::SessionActionHide,
+                CommandKind::HideSession {
+                    agent: *agent,
+                    session_id: session_id.clone(),
+                },
+            )
+            .with_subtitle(t(L10nKey::SessionActionHideSubtitle)),
+        );
+        Some(out)
     }
 
     /// Row of the preset already in use, so the theme picker can open on it
