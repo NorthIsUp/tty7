@@ -513,7 +513,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsOn => "オン",
         L10nKey::SettingsOff => "オフ",
         L10nKey::SettingsShell => "シェル",
-        L10nKey::SettingsShellIntro => "新しいターミナルで起動するプログラム。空欄なら {default}",
+        L10nKey::SettingsShellIntro => "新しいターミナルで起動するプログラム。空欄なら{default}を使います。",
         L10nKey::SettingsProgram => "シェルプログラム",
         L10nKey::SettingsProgramDesc => "PATH 上の名前か絶対パス。例: zsh、fish",
         L10nKey::SettingsArguments => "シェル引数",

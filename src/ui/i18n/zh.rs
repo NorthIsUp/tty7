@@ -453,7 +453,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsOn => "开",
         L10nKey::SettingsOff => "关",
         L10nKey::SettingsShell => "Shell",
-        L10nKey::SettingsShellIntro => "新终端启动的程序，留空则使用 {default}。",
+        L10nKey::SettingsShellIntro => "新终端启动的程序，留空则使用{default}。",
         L10nKey::SettingsProgram => "Shell 程序",
         L10nKey::SettingsProgramDesc => "PATH 中的命令名或绝对路径，如 zsh、fish。",
         L10nKey::SettingsArguments => "Shell 参数",
