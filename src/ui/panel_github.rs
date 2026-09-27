@@ -38,18 +38,10 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let target = self.github_target(window, cx);
-        let refresh_repo = match &target {
-            GhTarget::Ready { repo, .. } => Some(repo.clone()),
-            _ => None,
-        };
-        let refresh = self.github_refresh_tile(refresh_repo, cx);
-        let title = self.panel_title(
-            t(L10nKey::PanelGitHubTitle),
-            None,
-            Some(refresh),
-            window,
-            cx,
-        );
+        // No trailing tile: on macOS that would add a "GitHub" heading row no
+        // other tab has, just to hold ↻. Refresh sits with the repository's
+        // other actions instead — in the repo row, and in a detail's header.
+        let title = self.panel_title(t(L10nKey::PanelGitHubTitle), None, None, window, cx);
         let (repo, remotes, chosen) = match target {
             GhTarget::NoPane => {
                 let body = self.panel_empty(
@@ -148,7 +140,11 @@ impl Tty7App {
             .into_any_element()
     }
 
-    fn github_refresh_tile(&self, repo: Option<RepoKey>, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn github_refresh_tile(
+        &self,
+        repo: Option<RepoKey>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let busy = self.github.connecting
             || self.github.lists.values().any(|l| l.loading)
             || self.github.details.values().any(|d| d.loading);
@@ -269,6 +265,7 @@ impl Tty7App {
                     .text_color(muted),
             )
             .child(picker)
+            .child(self.github_refresh_tile(Some(repo.clone()), cx))
             .child(
                 github_tile(
                     "panel-github-open-repo",

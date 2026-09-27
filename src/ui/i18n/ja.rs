@@ -93,7 +93,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchFiles => "ファイルを検索…",
         L10nKey::PanelSearchPlaceholder => "ファイル内を検索…",
         L10nKey::PanelSearchWholeWord => "単語単位で検索",
-        L10nKey::PanelSearchIdle => "{root} 以下のすべてのファイルの内容を検索します。",
+        L10nKey::PanelSearchIdle => "次のフォルダー内のすべてのファイルの内容を検索します：",
         L10nKey::PanelSearchNoFolder => "検索するフォルダーがありません",
         L10nKey::PanelSearchNoFolderHint => "アクティブなタブのプロジェクト内を検索します。",
         L10nKey::PanelSearchSshPane => "SSH ペインのファイルの内容は検索できません",

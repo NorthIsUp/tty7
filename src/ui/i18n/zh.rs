@@ -85,7 +85,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchFiles => "搜索文件…",
         L10nKey::PanelSearchPlaceholder => "在文件中搜索…",
         L10nKey::PanelSearchWholeWord => "全字匹配",
-        L10nKey::PanelSearchIdle => "搜索 {root} 下所有文件的内容。",
+        L10nKey::PanelSearchIdle => "搜索以下目录中所有文件的内容：",
         L10nKey::PanelSearchNoFolder => "没有可搜索的文件夹。",
         L10nKey::PanelSearchNoFolderHint => "搜索范围是当前标签页所在的项目。",
         L10nKey::PanelSearchSshPane => "无法搜索 SSH 窗格中的文件内容。",

@@ -205,9 +205,19 @@ impl Tty7App {
         let query = self.panel_search.query(cx);
         if query.pattern.is_empty() {
             self.panel_search_sync(None, cx);
+            // `~/…`, the way the Info tab spells the working directory: a
+            // full `/Users/…` path broke across the narrow column mid-name.
+            let home = self
+                .tabs
+                .get(self.active)
+                .and_then(|tab| tab.detail_pane(window, cx))
+                .and_then(|leaf| leaf.read(cx).display_home(cx));
             let root = roots
                 .iter()
-                .map(|r| r.to_string_lossy().into_owned())
+                .map(|r| {
+                    crate::ui::path_display::abbreviate_home(&r.to_string_lossy(), home.as_deref())
+                        .into_owned()
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             return Body::Idle(root);
@@ -283,6 +293,7 @@ impl Tty7App {
 
     fn panel_search_toggles(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.panel_search;
+        let muted = cx.theme().muted_foreground;
         let toggle = |id: &'static str,
                       label: &'static str,
                       tip: L10nKey,
@@ -293,6 +304,9 @@ impl Tty7App {
                 .ghost()
                 .xsmall()
                 .selected(on)
+                // Off reads as a hint of what can be turned on, not as three
+                // words in body ink beside the query.
+                .when(!on, |b| b.text_color(muted))
                 .tooltip(t(tip))
                 .on_click(cx.listener(move |this, _, _window, cx| {
                     flip(&mut this.panel_search);
@@ -361,9 +375,11 @@ impl Tty7App {
                 None,
                 cx,
             )),
+            // The path on a line of its own: run into the sentence, a narrow
+            // column broke it at a slash, mid-name.
             Body::Idle(root) => rows.push(note(
-                t_fmt(L10nKey::PanelSearchIdle, &[("root", &root)]),
-                None,
+                t(L10nKey::PanelSearchIdle).into(),
+                Some(root),
                 None,
                 cx,
             )),

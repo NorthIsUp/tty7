@@ -92,7 +92,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchFiles => "Search files…",
         L10nKey::PanelSearchPlaceholder => "Search in files…",
         L10nKey::PanelSearchWholeWord => "Match whole word",
-        L10nKey::PanelSearchIdle => "Search the contents of every file under {root}.",
+        L10nKey::PanelSearchIdle => "Search the contents of every file under:",
         L10nKey::PanelSearchNoFolder => "No folder to search.",
         L10nKey::PanelSearchNoFolderHint => {
             "Search looks through the project the active tab is in."

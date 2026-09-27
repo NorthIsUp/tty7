@@ -59,7 +59,7 @@ impl Tty7App {
             },
             |d| d.item.html_url.clone(),
         );
-        let pinned = vec![self.github_back_row(number, is_pr, url, cx)];
+        let pinned = vec![self.github_back_row(repo, number, is_pr, url, cx)];
 
         let Some(detail) = detail else {
             let body = match error {
@@ -96,6 +96,7 @@ impl Tty7App {
 
     fn github_back_row(
         &self,
+        repo: &RepoKey,
         number: u64,
         is_pr: bool,
         url: String,
@@ -141,6 +142,7 @@ impl Tty7App {
                     .text_color(muted)
                     .child(format!("#{number}")),
             )
+            .child(self.github_refresh_tile(Some(repo.clone()), cx))
             .child(
                 github_tile(
                     "panel-github-open-item",
