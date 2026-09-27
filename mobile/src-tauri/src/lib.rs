@@ -254,9 +254,19 @@ async fn pane_open(
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     state.panes.lock().await.insert(handle, input_tx);
 
+    // A write that fails is said on the pane's channel, and the handle goes,
+    // so the next key is refused too rather than queued behind a dead stream.
+    let refused = on_output.clone();
+    let app_state = state.inner().clone();
     tokio::spawn(async move {
         while let Some(bytes) = input_rx.recv().await {
-            if keys.input(&bytes).await.is_err() {
+            if let Err(e) = keys.input(&bytes).await {
+                app_state.panes.lock().await.remove(&handle);
+                let event = PaneEvent::Error {
+                    message: format!("typing didn't reach the computer: {}", err(e)),
+                };
+                let json = serde_json::to_string(&event).expect("events serialize");
+                let _ = refused.send(InvokeResponseBody::Json(json));
                 return;
             }
         }

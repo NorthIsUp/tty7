@@ -111,6 +111,9 @@ impl Backend for FakeMachine {
     }
 
     fn send_input(&self, _machine: Option<&str>, _pane_id: u64, bytes: &[u8]) -> io::Result<()> {
+        if bytes == b"refuse" {
+            return Err(io::Error::other("the daemon hung up"));
+        }
         let typed = self.typed.lock().unwrap();
         typed
             .as_ref()
@@ -294,6 +297,32 @@ async fn a_paired_phone_reads_the_tree_and_drives_a_pane() {
         .err()
         .expect("no such pane");
     assert!(err.to_string().contains("no such pane 99"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typing_that_fails_is_reported_not_dropped() {
+    let rig = Rig::new().await;
+    let session = within(rig.paired()).await;
+    let (mut keys, mut screen) = within(session.pane(None, 1)).await.unwrap();
+    within(screen.next()).await.unwrap(); // size
+    within(screen.next()).await.unwrap(); // prompt
+
+    keys.input(b"refuse").await.unwrap();
+    let Some(PaneItem::Event(PaneEvent::Error { message })) = within(screen.next()).await.unwrap()
+    else {
+        panic!("expected the failure to be reported");
+    };
+    assert!(message.contains("the daemon hung up"), "{message}");
+
+    // Keys after it go nowhere, but the stream stays up: its end would say
+    // the pane closed, which it did not.
+    keys.input(b"ls\r").await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), screen.next())
+            .await
+            .is_err(),
+        "nothing more arrives"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

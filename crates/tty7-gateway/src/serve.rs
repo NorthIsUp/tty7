@@ -349,12 +349,16 @@ async fn pane_stream(
     backend: Arc<dyn Backend>,
 ) -> io::Result<()> {
     let (down_tx, mut down) = mpsc::channel::<Down>(PANE_BACKLOG);
+    // Weak, so the stream still ends when the pane's feed does.
+    let refused = down_tx.downgrade();
     std::thread::Builder::new()
         .name(format!("gateway-pane-{pane_id}"))
         .spawn(move || read_pane(feed, down_tx))?;
 
     // Keystrokes go through one thread so they reach the pane in the order
-    // they were typed; each `send_input` is its own daemon round trip.
+    // they were typed; each `send_input` is its own daemon round trip. One
+    // that fails is said to the phone, which would otherwise go on showing a
+    // live pane while what it types goes nowhere.
     let (input_tx, input_rx) = std_mpsc::channel::<Vec<u8>>();
     std::thread::Builder::new()
         .name(format!("gateway-input-{pane_id}"))
@@ -362,6 +366,10 @@ async fn pane_stream(
             for bytes in input_rx {
                 if let Err(e) = backend.send_input(machine.as_deref(), pane_id, &bytes) {
                     log::debug!("mobile gateway: input to pane {pane_id}: {e}");
+                    let message = format!("typing didn't reach the pane: {e}");
+                    if let Some(down) = refused.upgrade() {
+                        let _ = down.blocking_send(Down::Event(PaneEvent::Error { message }));
+                    }
                     return;
                 }
             }
@@ -370,10 +378,11 @@ async fn pane_stream(
     loop {
         tokio::select! {
             frame = read_frame(&mut recv) => match frame? {
+                // Once typing has failed, the phone has been told; later
+                // keys are dropped rather than ending the stream, which would
+                // read as the pane closing.
                 Some(Frame::Bytes(bytes)) => {
-                    if input_tx.send(bytes).is_err() {
-                        return Ok(());
-                    }
+                    let _ = input_tx.send(bytes);
                 }
                 // No upstream messages yet; one from a newer app is ignored
                 // rather than fatal, so the terminal keeps working.
