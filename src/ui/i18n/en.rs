@@ -52,12 +52,12 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsMobileAccessDesc => {
             "Phones you pair can see this machine's panes and type into them, even with every window closed. Connections are end-to-end encrypted."
         }
-        L10nKey::SettingsMobileStatus => "Status",
-        L10nKey::SettingsMobileStatusRunning => "Running — paired phones can reach this machine",
         L10nKey::SettingsMobileStatusStarting => "Starting…",
-        L10nKey::SettingsMobileStatusOff => "Off",
         L10nKey::SettingsMobileStatusFailed => "Not running: {error}",
-        L10nKey::SettingsMobileStatusElsewhere => "Running in a separate tty7-gateway process",
+        L10nKey::SettingsMobileStartFailed => "Phone access could not start: {error}",
+        L10nKey::SettingsMobileNoAnswer => {
+            "the tty7 server did not start it. Restart the server in Settings → About, then try again."
+        }
         L10nKey::SettingsMobilePair => "Pair a phone",
         L10nKey::SettingsMobileShowCode => "Show code",
         L10nKey::SettingsMobilePairDesc => "Shows a one-time code for the tty7 app on your phone.",

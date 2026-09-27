@@ -48,12 +48,12 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsMobileAccessDesc => {
             "配对过的手机可以查看并操作这台电脑上的窗格，关掉所有窗口也可以。连接端到端加密。"
         }
-        L10nKey::SettingsMobileStatus => "状态",
-        L10nKey::SettingsMobileStatusRunning => "运行中，配对过的手机可以连到这台电脑",
         L10nKey::SettingsMobileStatusStarting => "正在启动…",
-        L10nKey::SettingsMobileStatusOff => "已关闭",
         L10nKey::SettingsMobileStatusFailed => "未运行：{error}",
-        L10nKey::SettingsMobileStatusElsewhere => "由单独的 tty7-gateway 进程运行",
+        L10nKey::SettingsMobileStartFailed => "手机访问没能启动：{error}",
+        L10nKey::SettingsMobileNoAnswer => {
+            "tty7 server 没有启动它。请在 设置 → 关于 中重启 server 后再试。"
+        }
         L10nKey::SettingsMobilePair => "配对手机",
         L10nKey::SettingsMobileShowCode => "显示配对码",
         L10nKey::SettingsMobilePairDesc => "生成一个一次性配对码，给手机上的 tty7 app 用。",

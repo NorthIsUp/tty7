@@ -107,5 +107,10 @@ impl Render for SettingsWindow {
             // ⌘, lands here while this window has focus; it is already open.
             .on_action(cx.listener(|_, _: &OpenSettings, window, _| window.activate_window()))
             .when_some(page.flatten(), |root, page| root.child(page))
+            // The window is a `Root` like the workspace's, and like it has to
+            // draw its own notifications: without this layer a toast pushed
+            // from Settings — a failed switch, "Set as Default Terminal" — was
+            // queued and never shown.
+            .children(gpui_component::Root::render_notification_layer(window, cx))
     }
 }

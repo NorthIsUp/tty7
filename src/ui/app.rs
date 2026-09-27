@@ -6687,6 +6687,7 @@ impl Tty7App {
             mobile_pairing: None,
             mobile_paired: None,
             mobile_copied: false,
+            mobile_starting: false,
             ssh_filter,
             ssh_collapsed_groups: std::collections::HashSet::new(),
             agent_hooks_host: crate::ui::host_ops::HostId::LOCAL,

@@ -54,14 +54,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsMobileAccessDesc => {
             "ペアリングしたスマートフォンから、このマシンのペインを表示して入力できます。ウインドウをすべて閉じていても使えます。通信はエンドツーエンドで暗号化されます。"
         }
-        L10nKey::SettingsMobileStatus => "状態",
-        L10nKey::SettingsMobileStatusRunning => {
-            "実行中 — ペアリング済みのスマートフォンから接続できます"
-        }
         L10nKey::SettingsMobileStatusStarting => "起動しています…",
-        L10nKey::SettingsMobileStatusOff => "オフ",
         L10nKey::SettingsMobileStatusFailed => "実行されていません: {error}",
-        L10nKey::SettingsMobileStatusElsewhere => "別の tty7-gateway プロセスで実行中",
+        L10nKey::SettingsMobileStartFailed => {
+            "スマートフォンからのアクセスを開始できませんでした: {error}"
+        }
+        L10nKey::SettingsMobileNoAnswer => {
+            "tty7 サーバーが起動しませんでした。設定 → 情報 でサーバーを再起動してから、もう一度お試しください。"
+        }
         L10nKey::SettingsMobilePair => "スマートフォンをペアリング",
         L10nKey::SettingsMobileShowCode => "コードを表示",
         L10nKey::SettingsMobilePairDesc => {

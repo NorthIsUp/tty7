@@ -21,8 +21,10 @@ const PAIR_TTL: Duration = Duration::from_secs(600);
 /// How often an open pairing looks for the phone that used it.
 const PAIR_POLL: Duration = Duration::from_secs(1);
 const QR_SIZE: f32 = 208.;
-/// The desktop's own "running" green, from the agent status dots.
-const RUNNING: u32 = 0x22C55E;
+/// How long switching phone access on may take before it counts as failed:
+/// the daemon notices within a couple of seconds, and a gateway binds in one.
+const START_TIMEOUT: Duration = Duration::from_secs(15);
+const START_POLL: Duration = Duration::from_millis(500);
 
 /// A pairing code on screen.
 pub(crate) struct Pairing {
@@ -33,12 +35,13 @@ pub(crate) struct Pairing {
     until: Instant,
 }
 
-enum Health {
+/// What the switch shows: whether phones can actually reach this machine,
+/// not merely whether they were asked to be allowed.
+enum Access {
     Off,
     Starting,
-    Running,
-    /// A `tty7-gateway serve` holds the state directory, not the daemon.
-    Elsewhere,
+    On,
+    /// Asked for, and the daemon could not start it: shown off, with why.
     Failed(String),
 }
 
@@ -49,16 +52,17 @@ fn gateway_state(on: bool) -> Option<State> {
     (on || dir.is_dir()).then(State::open_default)?.ok()
 }
 
-fn health(on: bool, state: Option<&State>) -> Health {
-    let Some(state) = state else {
-        return Health::Off;
-    };
-    match (on, state.serving(), state.status()) {
-        (true, true, _) => Health::Running,
-        (false, true, _) => Health::Elsewhere,
-        (true, false, Some(Status::Failed { error })) => Health::Failed(error),
-        (true, false, _) => Health::Starting,
-        (false, false, _) => Health::Off,
+fn access(on: bool, starting: bool, state: Option<&State>) -> Access {
+    let serving = state.is_some_and(State::serving);
+    match (on, serving, starting) {
+        (false, _, _) => Access::Off,
+        (true, true, _) => Access::On,
+        (true, false, true) => Access::Starting,
+        (true, false, false) => match state.and_then(State::status) {
+            Some(Status::Failed { error }) => Access::Failed(error),
+            // The daemon has not got to it yet, or is between retries.
+            _ => Access::Starting,
+        },
     }
 }
 
@@ -93,19 +97,68 @@ fn qr_image(code: &str) -> Option<Arc<gpui::Image>> {
 }
 
 impl Tty7App {
-    pub(crate) fn set_mobile_access(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.update_config(cx, |cfg| cfg.mobile_access = on);
-        if !on && let Some(s) = self.active_settings_mut() {
-            s.mobile_pairing = None;
+    /// Switching phone access on is a request to the daemon, so the switch
+    /// holds at "starting" until a gateway is actually serving. If none comes
+    /// up, the switch goes back off and says why, rather than stay on over
+    /// a gateway that is not there.
+    pub(crate) fn set_mobile_access(
+        &mut self,
+        on: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !on {
+            self.update_config(cx, |cfg| cfg.mobile_access = false);
+            if let Some(s) = self.active_settings_mut() {
+                s.mobile_pairing = None;
+                s.mobile_starting = false;
+            }
+            cx.notify();
+            return;
         }
-        // The daemon picks the switch up within a couple of seconds; keep the
-        // status line honest while it does.
-        cx.spawn(async move |this, cx| {
-            for _ in 0..10 {
-                smol::Timer::after(Duration::from_secs(1)).await;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
-                    return;
-                }
+        // A failure from an earlier attempt must not be mistaken for this
+        // one's. Nothing is serving, so the file is nobody's to keep.
+        if let Some(state) = gateway_state(true)
+            && !state.serving()
+        {
+            let _ = state.set_status(&Status::Stopped);
+        }
+        self.update_config(cx, |cfg| cfg.mobile_access = true);
+        if let Some(s) = self.active_settings_mut() {
+            s.mobile_starting = true;
+        }
+        cx.notify();
+
+        let deadline = Instant::now() + START_TIMEOUT;
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                smol::Timer::after(START_POLL).await;
+                let state = gateway_state(true);
+                let failure = match state.as_ref() {
+                    Some(state) if state.serving() => None,
+                    Some(state) => match state.status() {
+                        Some(Status::Failed { error }) => Some(error),
+                        _ if Instant::now() >= deadline => {
+                            Some(t(L10nKey::SettingsMobileNoAnswer).to_string())
+                        }
+                        _ => continue,
+                    },
+                    None => Some(t(L10nKey::SettingsMobileNoAnswer).to_string()),
+                };
+                let _ = this.update_in(cx, |this, window, cx| {
+                    if let Some(s) = this.active_settings_mut() {
+                        s.mobile_starting = false;
+                    }
+                    if let Some(error) = failure {
+                        this.update_config(cx, |cfg| cfg.mobile_access = false);
+                        window.push_notification(
+                            t_fmt(L10nKey::SettingsMobileStartFailed, &[("error", &error)]),
+                            cx,
+                        );
+                    }
+                    cx.notify();
+                });
+                return;
             }
         })
         .detach();
@@ -189,32 +242,24 @@ impl Tty7App {
         let tk = Tk::of(cx);
         let on = cx.global::<Config>().mobile_access;
         let state = gateway_state(on);
-        let health = health(on, state.as_ref());
-        let running = matches!(health, Health::Running | Health::Elsewhere);
+        let starting = self.active_settings().is_some_and(|s| s.mobile_starting);
+        let access = access(on, starting, state.as_ref());
+        let serving = state.as_ref().is_some_and(State::serving);
 
-        let access = self.settings_switch("mobile-access", on, cx, |this, on, _, cx| {
-            this.set_mobile_access(on, cx)
-        });
-        let (dot, status) = match &health {
-            Health::Off => (tk.k35, t(L10nKey::SettingsMobileStatusOff).to_string()),
-            Health::Starting => (
-                tk.warn,
-                t(L10nKey::SettingsMobileStatusStarting).to_string(),
-            ),
-            Health::Running => (
-                gpui::rgb(RUNNING).into(),
-                t(L10nKey::SettingsMobileStatusRunning).to_string(),
-            ),
-            Health::Elsewhere => (
-                gpui::rgb(RUNNING).into(),
-                t(L10nKey::SettingsMobileStatusElsewhere).to_string(),
-            ),
-            Health::Failed(error) => (
-                tk.danger,
-                t_fmt(L10nKey::SettingsMobileStatusFailed, &[("error", error)]),
-            ),
+        let switch = kit::switch("mobile-access")
+            .checked(matches!(access, Access::On | Access::Starting))
+            .disabled(matches!(access, Access::Starting))
+            .on_click(
+                cx.listener(|this, on: &bool, window, cx| this.set_mobile_access(*on, window, cx)),
+            )
+            .into_any_element();
+        let access_desc = match &access {
+            Access::Off | Access::On => t(L10nKey::SettingsMobileAccessDesc).to_string(),
+            Access::Starting => t(L10nKey::SettingsMobileStatusStarting).to_string(),
+            Access::Failed(error) => {
+                t_fmt(L10nKey::SettingsMobileStatusFailed, &[("error", error)])
+            }
         };
-        let status_dot = div().size(px(8.)).rounded_full().bg(dot).into_any_element();
 
         let pairing = self
             .active_settings()
@@ -227,9 +272,9 @@ impl Tty7App {
                 cx,
                 |this, _, cx| this.start_mobile_pairing(cx),
             )
-            .disabled(!running || pairing.is_some())
+            .disabled(!serving || pairing.is_some())
             .into_any_element();
-        let pair_desc = match (running, &paired) {
+        let pair_desc = match (serving, &paired) {
             (_, Some(name)) => t_fmt(L10nKey::SettingsMobilePaired, &[("name", name)]),
             (true, None) => t(L10nKey::SettingsMobilePairDesc).to_string(),
             (false, None) => t(L10nKey::SettingsMobilePairNeedsAccess).to_string(),
@@ -238,17 +283,9 @@ impl Tty7App {
         let access_group = self.settings_group(
             None,
             None,
-            [
-                self.settings_row(
-                    t(L10nKey::SettingsMobileAccess),
-                    t(L10nKey::SettingsMobileAccessDesc),
-                    access,
-                    cx,
-                )
-                .into_any_element(),
-                self.settings_row(t(L10nKey::SettingsMobileStatus), status, status_dot, cx)
-                    .into_any_element(),
-            ],
+            [self
+                .settings_row(t(L10nKey::SettingsMobileAccess), access_desc, switch, cx)
+                .into_any_element()],
             cx,
         );
 

@@ -1223,6 +1223,8 @@ pub(crate) struct SettingsState {
     /// The phone the last pairing on screen ended with, said once.
     pub(crate) mobile_paired: Option<String>,
     pub(crate) mobile_copied: bool,
+    /// Phone access was just switched on and no gateway is serving yet.
+    pub(crate) mobile_starting: bool,
     pub(crate) ssh_filter: Entity<InputState>,
     pub(crate) ssh_collapsed_groups: std::collections::HashSet<String>,
     pub(crate) agent_hooks_host: HostId,
