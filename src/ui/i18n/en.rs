@@ -212,9 +212,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsCursorShape => "Cursor shape",
         L10nKey::SettingsCursorShapeDesc => "How the terminal cursor is drawn.",
         L10nKey::SettingsPromptCursorShape => "Prompt cursor shape",
-        L10nKey::SettingsPromptCursorShapeDesc => {
-            "The cursor at the shell prompt. Follow uses the cursor shape above everywhere."
-        }
+        L10nKey::SettingsPromptCursorShapeDesc => "The cursor at the shell prompt.",
         L10nKey::SettingsCursorBlink => "Cursor blink",
         L10nKey::SettingsCursorBlinkDesc => "Pulse the cursor while the terminal is focused.",
         L10nKey::SettingsLanguage => "Language",
@@ -656,9 +654,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsDiffPreviewFromCounts => "Open diff preview from sidebar counts",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "Click a row's +N −N to open its diff.",
         L10nKey::SettingsSshTabTitle => "SSH tab title",
-        L10nKey::SettingsSshTabTitleDesc => {
-            "Dynamic follows the remote title; the others pin it to the host."
-        }
+        L10nKey::SettingsSshTabTitleDesc => "What an SSH tab is named after.",
         L10nKey::SettingsSshTabTitleDynamic => "Dynamic",
         L10nKey::SettingsSshTabTitleProfileName => "Profile name",
         L10nKey::SettingsSshTabTitleHostname => "Hostname",

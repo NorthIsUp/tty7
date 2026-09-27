@@ -217,9 +217,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsCursorShape => "カーソルの形状",
         L10nKey::SettingsCursorShapeDesc => "ターミナルカーソルの描画方法",
         L10nKey::SettingsPromptCursorShape => "プロンプトのカーソル形状",
-        L10nKey::SettingsPromptCursorShapeDesc => {
-            "シェルプロンプトでのカーソル。「追従」は上のカーソル形状をどこでも使う"
-        }
+        L10nKey::SettingsPromptCursorShapeDesc => "シェルプロンプトでのカーソル",
         L10nKey::SettingsCursorBlink => "カーソルの点滅",
         L10nKey::SettingsCursorBlinkDesc => {
             "ターミナルがフォーカスされている間、カーソルを点滅させる"
@@ -651,9 +649,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDiffPreviewFromCounts => "サイドバーのカウントから Diff プレビューを開く",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "行の +N −N をクリックして Diff を開きます",
         L10nKey::SettingsSshTabTitle => "SSH タブのタイトル",
-        L10nKey::SettingsSshTabTitleDesc => {
-            "「動的」はリモートのタイトルに従い、ほかはホストに固定します"
-        }
+        L10nKey::SettingsSshTabTitleDesc => "SSH タブの名前の付け方",
         L10nKey::SettingsSshTabTitleDynamic => "動的",
         L10nKey::SettingsSshTabTitleProfileName => "プロファイル名",
         L10nKey::SettingsSshTabTitleHostname => "ホスト名",

@@ -1484,7 +1484,13 @@ impl Tty7App {
                     .when(folded, |bar| {
                         bar.child(div().flex_shrink_0().child(count_label))
                     })
-                    .children(self.header_actions(group_ix, group_key.clone(), hover_group, cx));
+                    .children(self.header_actions(
+                        group_ix,
+                        group_key.clone(),
+                        hover_group,
+                        rail_fill,
+                        cx,
+                    ));
                 // Renaming is offered on a menu rather than a double click:
                 // the first click of a double would fold the group, so the
                 // name would be edited on a box that just shut. An auto group
@@ -1939,10 +1945,12 @@ impl Tty7App {
         group_ix: usize,
         key: Option<GroupKey>,
         hover: SharedString,
+        // The rail's own fill, so the buttons cover what they sit over
+        // without a patch of another grey around them.
+        backing: gpui::Hsla,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let key = key?;
-        let backing = crate::ui::theme::workspace_surface_color(cx);
         let mut fade = backing;
         fade.a = 0.;
         let muted = cx.theme().muted_foreground;
@@ -2013,7 +2021,8 @@ impl Tty7App {
             h_flex()
                 .absolute()
                 .right(px(4.))
-                .bottom(px(2.))
+                // Centred on the heading's line: 16px of buttons in `HEADER_HEIGHT`.
+                .top(px((HEADER_HEIGHT - 16.) / 2.))
                 .opacity(0.)
                 .group_hover(hover, |s| s.opacity(1.))
                 .child(div().w(px(10.)).h(px(16.)).bg(linear_gradient(

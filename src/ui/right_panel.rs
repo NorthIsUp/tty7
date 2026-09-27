@@ -11,7 +11,6 @@ use crate::core::config::{Config, RightPanelTab};
 use crate::daemon::protocol::{ManagedForward, PaneProcs, PortProbe};
 use crate::ui::app::{
     CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS, Tty7App, tile_trailing_inset,
-    tile_trailing_inset_sm,
 };
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::scrollbar::with_vertical_scrollbar;
@@ -811,8 +810,9 @@ impl Tty7App {
         self.panel_search_with(input, None, cx)
     }
 
-    /// [`Self::panel_search`] with a tile at its far end, inset the way the
-    /// branch row's tile is so the two stack in one column.
+    /// [`Self::panel_search`] with a tile at its far end. The tile sits
+    /// inside the same `CONTENT_INSET` as the well, so its edge lines up with
+    /// the commit row's above it.
     pub(crate) fn panel_search_with(
         &self,
         input: &gpui::Entity<gpui_component::input::InputState>,
@@ -856,7 +856,7 @@ impl Tty7App {
                             .child(Input::new(input).appearance(false).xsmall().cleanable(true)),
                     ),
             )
-            .when(has_trailing, |row| row.pr(px(tile_trailing_inset_sm())))
+            .when(has_trailing, |row| row.gap(px(6.)))
             .children(trailing)
             .into_any_element()
     }

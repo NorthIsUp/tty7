@@ -199,9 +199,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsCursorShape => "光标形状",
         L10nKey::SettingsCursorShapeDesc => "终端光标的绘制方式。",
         L10nKey::SettingsPromptCursorShape => "提示符光标形状",
-        L10nKey::SettingsPromptCursorShapeDesc => {
-            "shell 提示符处的光标。跟随表示各处都用上面的光标形状。"
-        }
+        L10nKey::SettingsPromptCursorShapeDesc => "shell 提示符处的光标。",
         L10nKey::SettingsCursorBlink => "光标闪烁",
         L10nKey::SettingsCursorBlinkDesc => "终端获得焦点时让光标闪烁。",
         L10nKey::SettingsLanguage => "语言",
@@ -579,7 +577,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDiffPreviewFromCounts => "从侧栏计数打开 diff 预览",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "点击行上的 +N −N 打开 diff。",
         L10nKey::SettingsSshTabTitle => "SSH 标签页标题",
-        L10nKey::SettingsSshTabTitleDesc => "“动态”跟随远端标题；另外两项固定为主机。",
+        L10nKey::SettingsSshTabTitleDesc => "SSH 标签页以什么命名。",
         L10nKey::SettingsSshTabTitleDynamic => "动态",
         L10nKey::SettingsSshTabTitleProfileName => "配置名称",
         L10nKey::SettingsSshTabTitleHostname => "主机名",
