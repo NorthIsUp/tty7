@@ -4303,7 +4303,11 @@ impl Tty7App {
             return;
         }
         match self.tabs[index].pane.close_leaf(view.entity_id()) {
-            CloseOutcome::RemoveSelf => self.close_tab(index, window, cx),
+            // Not the asking close: the pane is already gone, so there is no
+            // tab left to keep open if the answer were Cancel. Unsaved editor
+            // files it had are handed to the tab in front instead (see
+            // `editor_sync`).
+            CloseOutcome::RemoveSelf => self.close_tab_inner(index, true, window, cx),
             CloseOutcome::NotFound => {}
             CloseOutcome::Collapsed => {
                 kill_pane_off_thread(view.read(cx).pane_route(), view.read(cx).pane_id, cx);
@@ -4552,13 +4556,19 @@ impl Tty7App {
             }
             return;
         }
+        let merged_id = moved.tree_id.get();
         let host = &mut self.tabs[self.active];
-        if host.code.is_none() {
-            host.code = moved.code;
+        match (host.code.as_deref_mut(), moved.code) {
+            (None, code) => host.code = code,
+            // Both had an editor: the files come along into this tab's strip
+            // rather than being dropped with the tab that brought them.
+            (Some(code), Some(theirs)) => code.adopt(&theirs.files),
+            (Some(_), None) => {}
         }
         if host.diff_overlay.is_none() {
             host.diff_overlay = moved.diff_overlay;
         }
+        self.editor_forget_tab(merged_id, cx);
         if self
             .renaming
             .as_ref()
@@ -5130,6 +5140,7 @@ impl Tty7App {
         }
         self.maximized = None;
         let closing = self.tabs[index].tree_id.get();
+        self.editor_close_tab_files(index, cx);
         self.editor_forget_tab(closing, cx);
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);

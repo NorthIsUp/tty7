@@ -193,6 +193,21 @@ impl TabCode {
         self.active = at;
     }
 
+    /// Lists a buffer at the end of the strip without bringing it forward —
+    /// for files arriving in the background: a restore, a merge, a rescue.
+    fn append(&mut self, id: BufferId) {
+        if !self.files.contains(&id) {
+            self.files.push(id);
+        }
+    }
+
+    /// Lists another strip's files after this one's, in their order.
+    pub(crate) fn adopt(&mut self, ids: &[BufferId]) {
+        for id in ids {
+            self.append(*id);
+        }
+    }
+
     /// Takes a buffer out of the strip. The neighbour that slides into its
     /// place comes forward, so closing tabs one after another walks along the
     /// strip rather than jumping about.
@@ -1062,22 +1077,13 @@ impl Tty7App {
             return;
         };
         let code = t.code.get_or_insert_with(|| Box::new(TabCode::new()));
-        let before = code.active;
-        code.show(id);
         if !front {
             // Listed, not brought forward: the one in front stays in front.
-            if let Some(pos) = code.files.iter().position(|f| *f == id)
-                && pos <= before
-                && code.files.len() > 1
-            {
-                code.active = before + 1;
-            } else {
-                code.active = before;
-            }
-            code.active = code.active.min(code.files.len().saturating_sub(1));
+            code.append(id);
             cx.notify();
             return;
         }
+        code.show(id);
         code.visible = true;
         if tab_ix == self.active {
             self.editor.bar = None;
@@ -1658,6 +1664,9 @@ impl Tty7App {
         let rx = cx.prompt_for_new_path(&dir, suggested.to_str());
         cx.spawn_in(window, async move |app, cx| {
             let Ok(Ok(Some(path))) = rx.await else {
+                // Cancelled: a close that was waiting for this save must not
+                // go ahead on some later, unrelated one.
+                let _ = app.update(cx, |app, _cx| app.editor_saves_failed(id));
                 return;
             };
             let _ = app.update_in(cx, |app, window, cx| {
@@ -1778,6 +1787,10 @@ impl Tty7App {
     }
 
     fn editor_close_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(BarKind::SaveAs { id, .. }) = self.editor.bar.as_ref().map(|b| &b.kind) {
+            let id = *id;
+            self.editor_saves_failed(id);
+        }
         self.editor.bar = None;
         self.focus_editor(window, cx);
         cx.notify();
@@ -1945,6 +1958,9 @@ impl Tty7App {
 
     /// Forgets a buffer everywhere, edits and all.
     fn editor_drop_buffer(&mut self, id: BufferId, cx: &mut Context<Self>) {
+        // Whatever was waiting on this buffer to be saved is not going to
+        // see that happen now.
+        self.editor_saves_failed(id);
         for code in self.tabs.iter_mut().filter_map(|t| t.code.as_deref_mut()) {
             code.forget(id);
         }
@@ -2286,13 +2302,21 @@ impl Tty7App {
     /// that exits, a tab dragged into another, a workspace switch, a server
     /// restart — because this sees all of them, including ones added later.
     pub(crate) fn editor_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A tab that left and came back under the same id — a server restart
+        // rebuilds every tab that way — gets its files back like a relaunch.
+        if self.editor.restored.len() > self.tabs.len() {
+            let live: HashSet<TabId> = self.tabs.iter().map(|t| t.tree_id.get()).collect();
+            self.editor.restored.retain(|id| live.contains(id));
+        }
         self.editor_adopt_orphans(window, cx);
         self.editor_restore_active(window, cx);
         self.editor_record_sessions(cx);
     }
 
     fn editor_adopt_orphans(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.editor.buffers.is_empty() {
+        // No tabs at all is the gap in the middle of a server restart or a
+        // workspace switch, not a verdict on the buffers: wait for the tabs.
+        if self.editor.buffers.is_empty() || self.tabs.is_empty() {
             return;
         }
         let shown: HashSet<BufferId> = self
@@ -2441,6 +2465,26 @@ impl Tty7App {
         for (tab_id, state) in changed {
             self.editor.recorded.insert(tab_id, state.clone());
             editor_session::put(cx, tab_id, state);
+        }
+    }
+
+    /// A tab is being closed: the files only it showed go with it. Unsaved
+    /// ones were asked about before the close got here — except when a shell
+    /// exiting took the tab, which cannot ask; those stay, and are handed to
+    /// the tab in front.
+    pub(crate) fn editor_close_tab_files(&mut self, tab_ix: usize, cx: &mut Context<Self>) {
+        let Some(ids) = self
+            .tabs
+            .get(tab_ix)
+            .and_then(|t| t.code.as_deref())
+            .map(|c| c.files.clone())
+        else {
+            return;
+        };
+        for id in ids {
+            if self.buffer_refs(id) == 1 && self.buffer(id).is_some_and(|b| !b.dirty) {
+                self.editor_drop_buffer(id, cx);
+            }
         }
     }
 
@@ -3236,5 +3280,23 @@ mod tests {
         assert!(code.forget(ids[0]));
         assert_eq!(code.active_id(), Some(ids[3]));
         assert!(!code.forget(ids[0]));
+    }
+
+    #[test]
+    fn files_arriving_in_the_background_keep_their_order_and_the_front_file() {
+        let ids: Vec<BufferId> = (1..=4u64).map(gpui::EntityId::from).collect();
+        let mut code = TabCode::new();
+        code.show(ids[0]);
+        // A restore lists files in the order they were recorded; showing each
+        // beside the active one would have reversed them.
+        code.adopt(&ids[1..]);
+        assert_eq!(code.files, ids);
+        assert_eq!(code.active_id(), Some(ids[0]));
+        code.adopt(&ids[2..3]);
+        assert_eq!(
+            code.files.len(),
+            4,
+            "a file already listed is not listed twice"
+        );
     }
 }
