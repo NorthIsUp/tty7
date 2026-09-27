@@ -548,15 +548,18 @@ fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
 /// and never looking for a log. What SQLite would read as URI syntax in the
 /// path — `%`, `?`, `#` — is escaped.
 fn immutable_uri(path: &Path) -> String {
-    format!(
-        "file:{}?immutable=1",
-        // `%` first: it is the escape the other two are spelled in.
-        path.to_string_lossy()
-            .replace('\\', "/")
-            .replace('%', "%25")
-            .replace('?', "%3f")
-            .replace('#', "%23")
-    )
+    // `%` first: it is the escape the other two are spelled in.
+    let path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('%', "%25")
+        .replace('?', "%3f")
+        .replace('#', "%23");
+    // An empty authority and an absolute path: `file:///C:/x` on Windows,
+    // where SQLite drops the `/` before the drive letter; `file:C:/x` would
+    // not name that file.
+    let slash = if path.starts_with('/') { "" } else { "/" };
+    format!("file://{slash}{path}?immutable=1")
 }
 
 /// OpenCode's databases: `$OPENCODE_DB`, else every `opencode*.db` in its
