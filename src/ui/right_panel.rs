@@ -584,11 +584,7 @@ impl Tty7App {
                     .items_center()
                     .pl(px(TAB_ROW_LEAD))
                     .relative()
-                    .children(self.right_panel_tabs(
-                        width - TAB_ROW_LEAD - PANEL_CHROME_W,
-                        window,
-                        cx,
-                    ))
+                    .children(self.right_panel_tabs(cx))
                     .child(div().flex_1())
                     // Navigation controls stay visible on both sidebars —
                     // here at the panel row's smaller size.
@@ -730,15 +726,7 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_trailing = trailing.is_some();
-        let tabs = (!cfg!(target_os = "macos")).then(|| {
-            let width = self.right_panel_px(window, cx);
-            let trailing_w = match has_trailing {
-                true => 2. * TILE_SIZE_SM + 6.,
-                false => 0.,
-            };
-            let avail = width - TAB_ROW_LEAD - tile_trailing_inset() - trailing_w;
-            self.right_panel_tabs(avail, window, cx)
-        });
+        let tabs = (!cfg!(target_os = "macos")).then(|| self.right_panel_tabs(cx));
         if tabs.is_none() && !has_trailing {
             return div().flex_none().into_any_element();
         }

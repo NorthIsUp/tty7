@@ -654,37 +654,20 @@ const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey, &str); 5] = [
 /// The glyph each tab draws, in px.
 const RIGHT_PANEL_TAB_ICON: f32 = 15.;
 
-fn right_panel_tab_size(window: &Window) -> f32 {
-    window.rem_size().as_f32() * crate::ui::right_panel::TAB_TEXT
-}
-
-fn right_panel_tab_font(cx: &gpui::App) -> gpui::Font {
-    gpui::Font {
-        family: cx.theme().font_family.clone(),
-        features: Default::default(),
-        fallbacks: None,
-        // The current tab's weight, which is the widest any label is drawn at.
-        weight: FontWeight::MEDIUM,
-        style: Default::default(),
-    }
-}
-
 /// What the bare tab glyphs take, padding included. The panel's floor is
 /// built on it, so the chrome tiles beside them always fit.
 pub(crate) fn right_panel_tab_labels_w(_window: &Window, _cx: &gpui::App) -> f32 {
     RIGHT_PANEL_TABS.len() as f32 * (RIGHT_PANEL_TAB_ICON + 2. * (TAB_OUTER_PAD + TAB_INNER_PAD))
 }
 
-/// Right panel tab geometry: each label's click target reaches half the 18px
-/// gap to its neighbour, there is no pill inside it, and the Changes count
-/// hangs 5px off its label.
+/// Right panel tab geometry: each tab's click target reaches this far past
+/// its pill, so neighbouring pills sit twice this apart.
 pub(crate) const TAB_OUTER_PAD: f32 = 2.;
 /// The selected tab's pill reaches this far past its glyph.
 const TAB_INNER_PAD: f32 = 5.;
 /// The pill's height and corner.
 const TAB_PILL_H: f32 = 24.;
 const TAB_PILL_RADIUS: f32 = 6.;
-const TAB_COUNT_GAP: f32 = 5.;
 
 /// How wide the two chrome tiles at the trailing end of the title bar are, with
 /// the padding around them.
@@ -1295,41 +1278,13 @@ impl Tty7App {
             )
     }
 
-    /// The right panel's word tabs, laid out in `avail` px.
+    /// The right panel's tabs: a glyph each, named in a tooltip.
     ///
-    /// A label is never elided — "C…" is not a tab anyone can read — so when
-    /// the row runs short the Changes count is what gives way: it repeats what
-    /// the panel body says, the label does not. `right_panel::MIN_WIDTH` is
-    /// what guarantees the three bare labels always fit.
-    pub(crate) fn right_panel_tabs(
-        &self,
-        avail: f32,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
+    /// No count on Changes: a number beside one glyph of five read as a badge
+    /// on that tab alone, and the Changes tab itself leads with the same count
+    /// under its own heading.
+    pub(crate) fn right_panel_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let active_tab = self.right_panel_tab;
-        // The count the source control tile carries. It reads the same status
-        // the panel draws, so the badge and the group headers can never
-        // disagree — and it counts entries, not files, because a path that is
-        // both staged and modified is two things to do, which is what the
-        // groups show.
-        let changed = self
-            .scm
-            .active_repo()
-            .and_then(|repo| crate::terminal::git_data::status_of(cx, repo.host, &repo.root))
-            .map(|status| status.entries.len())
-            .filter(|n| *n > 0);
-        let size = right_panel_tab_size(window);
-        let font = right_panel_tab_font(cx);
-        let ts = window.text_system();
-        let labels_w = right_panel_tab_labels_w(window, cx);
-        let changed = changed.filter(|n| {
-            let regular = gpui::Font {
-                weight: FontWeight::NORMAL,
-                ..font.clone()
-            };
-            labels_w + TAB_COUNT_GAP + measure_text(ts, &regular, size, &n.to_string()) <= avail
-        });
         let body_ink = cx.theme().foreground;
         let selected_fill = cx.global::<crate::ui::presets::Surfaces>().sidebar.selected;
         RIGHT_PANEL_TABS
@@ -1344,10 +1299,6 @@ impl Tty7App {
                 let ink = match current {
                     true => body_ink,
                     false => cx.theme().muted_foreground,
-                };
-                let count = match tab {
-                    RightPanelTab::Scm => changed,
-                    _ => None,
                 };
                 div()
                     .id(("right-panel-tab", tab as usize))
@@ -1367,13 +1318,7 @@ impl Tty7App {
                             .px(px(TAB_INNER_PAD))
                             .rounded(px(TAB_PILL_RADIUS))
                             .when(current, |pill| pill.bg(gpui::rgb(selected_fill)))
-                            .gap(px(TAB_COUNT_GAP))
                             .items_center()
-                            .text_size(gpui::rems(crate::ui::right_panel::TAB_TEXT))
-                            .font_weight(match current {
-                                true => FontWeight::MEDIUM,
-                                false => FontWeight::NORMAL,
-                            })
                             .text_color(ink)
                             .hover(move |s| s.text_color(body_ink))
                             .child(
@@ -1382,16 +1327,7 @@ impl Tty7App {
                                     .path(icon)
                                     .size(px(RIGHT_PANEL_TAB_ICON))
                                     .text_color(ink),
-                            )
-                            .when_some(count, |row, n| {
-                                row.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .font_weight(FontWeight::NORMAL)
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(n.to_string()),
-                                )
-                            }),
+                            ),
                     )
                     .tooltip(move |window, cx| Tooltip::new(t(label_key)).build(window, cx))
                     // Another tab switches to it; the current one puts the panel
