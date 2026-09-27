@@ -1360,13 +1360,26 @@ pub(crate) fn key_tokens(spec: &str) -> Vec<String> {
         }
         break;
     }
+    // macOS names modifiers in one fixed order — ⌃ ⌥ ⇧ ⌘ — whatever order a
+    // binding was written in; `secondary-shift-o` read `⌘ ⇧ O` here while the
+    // menu bar said `⇧⌘O` for the same key.
+    #[cfg(target_os = "macos")]
+    tokens.sort_by_key(|glyph| {
+        ["fn", "⌃", "⌥", "⇧", "⌘"]
+            .iter()
+            .position(|g| g == glyph)
+            .unwrap_or(usize::MAX)
+    });
     tokens.push(key_glyph(rest));
     tokens
 }
 
 fn key_glyph(key: &str) -> String {
     match key {
-        "enter" | "return" => "⏎".into(),
+        // The glyph every hint in the app already draws for Return; this one
+        // alone said `⏎`, so the same key looked different in a row's
+        // shortcut and in the footer under it.
+        "enter" | "return" => "↵".into(),
         "tab" => "⇥".into(),
         "space" => "Space".into(),
         "escape" | "esc" => "⎋".into(),
@@ -1720,8 +1733,11 @@ mod tests {
     #[test]
     fn key_tokens_maps_modifiers_to_glyphs() {
         assert_eq!(key_tokens("secondary-t"), vec![SECONDARY, "T"]);
+        #[cfg(target_os = "macos")]
+        assert_eq!(key_tokens("secondary-shift-d"), vec![SHIFT, SECONDARY, "D"]);
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(key_tokens("secondary-shift-d"), vec![SECONDARY, SHIFT, "D"]);
-        assert_eq!(key_tokens("secondary-enter"), vec![SECONDARY, "⏎"]);
+        assert_eq!(key_tokens("secondary-enter"), vec![SECONDARY, "↵"]);
     }
 
     #[test]
@@ -1820,7 +1836,7 @@ mod tests {
                 "{key} does not reach InsertNewline in a terminal"
             );
         }
-        assert_eq!(key_tokens("shift-enter"), vec![SHIFT, "⏎"]);
+        assert_eq!(key_tokens("shift-enter"), vec![SHIFT, "↵"]);
     }
 
     #[test]

@@ -149,8 +149,8 @@ impl SearchDelegate {
                     .text_size(rems(ROW_META))
                     .text_color(muted)
                     .child(hint)
-                    .child(keycap(
-                        crate::ui::keymap::key_tokens(EDIT_GESTURE).join(""),
+                    .child(crate::ui::dialog::chord(
+                        crate::ui::keymap::key_tokens(EDIT_GESTURE),
                         cx,
                     )),
             );

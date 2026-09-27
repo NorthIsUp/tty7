@@ -189,6 +189,16 @@ pub(crate) fn keycap(label: impl Into<SharedString>, cx: &App) -> gpui::AnyEleme
         .into_any_element()
 }
 
+/// A key combination as one cap per key — `⌘` `T`, never `⌘T` in one. The
+/// way Search Everywhere and the shortcut editor spell a chord; the home page
+/// and the switcher's footer had each packed theirs into a single cap.
+pub(crate) fn chord(tokens: impl IntoIterator<Item = impl Into<SharedString>>, cx: &App) -> Div {
+    h_flex()
+        .flex_shrink_0()
+        .gap(px(3.))
+        .children(tokens.into_iter().map(|t| keycap(t, cx)))
+}
+
 /// What a button is asking for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tone {
