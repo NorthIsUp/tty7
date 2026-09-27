@@ -189,7 +189,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsNavInput => "キーボードとマウス",
         L10nKey::SettingsNavSsh => "SSH",
         L10nKey::SettingsNavAgents => "連携",
-        L10nKey::SettingsNavWindowTabs => "ウィンドウとタブ",
         L10nKey::SettingsNavKeybindings => "キーボードショートカット",
         L10nKey::SettingsNavAbout => "情報",
         L10nKey::SettingsHeader => "設定",
@@ -652,13 +651,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSidebarGroupingDesc => {
             "固定していないタブを git リポジトリごと、SSH タブをホストごとにまとめます"
         }
-        L10nKey::SettingsDiffPreviewFromCounts => "サイドバーのカウントから Diff プレビューを開く",
-        L10nKey::SettingsDiffPreviewFromCountsDesc => "行の +N −N をクリックして Diff を開きます",
-        L10nKey::SettingsSshTabTitle => "SSH タブのタイトル",
-        L10nKey::SettingsSshTabTitleDesc => "SSH タブの名前の付け方",
-        L10nKey::SettingsSshTabTitleDynamic => "動的",
-        L10nKey::SettingsSshTabTitleProfileName => "プロファイル名",
-        L10nKey::SettingsSshTabTitleHostname => "ホスト名",
         L10nKey::DocumentDock => "ターミナルの隣にドック",
         L10nKey::DocumentFill => "ウィンドウ全体",
         L10nKey::SettingsNotifications => "通知",
@@ -882,9 +874,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchDetectUrlsKeywords => {
             "リンク ハイパーリンク クリック可能 開く detect urls links hyperlink clickable open"
         }
-        L10nKey::SettingsSearchDiffPreviewFromCountsKeywords => {
-            "diff オーバーレイ プレビュー サイドバー カウント git 変更 クリック ブランチ 行数 diff preview overlay sidebar counts git changes"
-        }
         L10nKey::SettingsSearchDimInactivePanesKeywords => {
             "非アクティブ ペイン 暗く フォーカス 分割 fade unfocused inactive split pane focus opacity highlight active dimming"
         }
@@ -1027,9 +1016,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
             "タブ グループ 自動 リポジトリ git ssh ホスト 固定 未分類 サイドバー sidebar auto grouping tabs repo repository pinned pin host ungrouped"
-        }
-        L10nKey::SettingsSearchSshTabTitleKeywords => {
-            "SSH タブ タイトル 名前 ホスト ホスト名 プロファイル エイリアス 固定 ssh tab title name host hostname profile alias pin"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "ダブルクリック 単語 url パス 選択 セマンティック 括弧 メール smart selection double click word url path bracket email"

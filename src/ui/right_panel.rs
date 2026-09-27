@@ -910,9 +910,7 @@ impl Tty7App {
         // its ports. Worked out once, by the same call the watch uses.
         let ctx = self.pane_forward_ctx(window, cx);
         let mut pane_id: Option<u64> = None;
-        // Where the `changes` row's counts lead. Same source as the sidebar's,
-        // and gated on the same setting, so turning the preview off turns it
-        // off in both places rather than in one of them.
+        // Where the `changes` row's counts lead. Same source as the sidebar's.
         let mut diff_target: Option<(crate::ui::host_ops::HostId, PathBuf)> = None;
         let mut git: Option<crate::terminal::git_status::GitStatus> = None;
 
@@ -920,11 +918,9 @@ impl Tty7App {
             if let Some(leaf) = tab.detail_pane(window, cx) {
                 let view = leaf.read(cx);
                 pane_id = Some(view.pane_id);
-                diff_target = crate::ui::tab_sidebar::diff_click_cwd(
-                    cx.global::<Config>(),
-                    view.git_status_cwd()
-                        .map(|cwd| (view.host_id(), cwd.to_path_buf())),
-                );
+                diff_target = view
+                    .git_status_cwd()
+                    .map(|cwd| (view.host_id(), cwd.to_path_buf()));
                 if let Some(cwd) = view.effective_cwd() {
                     let home = view.display_home(cx);
                     // Whether this pane's paths are this machine's decides

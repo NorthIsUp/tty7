@@ -184,7 +184,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsNavInput => "Keyboard & Mouse",
         L10nKey::SettingsNavSsh => "SSH",
         L10nKey::SettingsNavAgents => "Integrations",
-        L10nKey::SettingsNavWindowTabs => "Window & Tabs",
         L10nKey::SettingsNavKeybindings => "Keyboard shortcuts",
         L10nKey::SettingsNavAbout => "About",
         L10nKey::SettingsHeader => "SETTINGS",
@@ -657,13 +656,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSidebarGroupingDesc => {
             "Group unpinned tabs by git repository, SSH tabs by host."
         }
-        L10nKey::SettingsDiffPreviewFromCounts => "Open diff preview from sidebar counts",
-        L10nKey::SettingsDiffPreviewFromCountsDesc => "Click a row's +N −N to open its diff.",
-        L10nKey::SettingsSshTabTitle => "SSH tab title",
-        L10nKey::SettingsSshTabTitleDesc => "What an SSH tab is named after.",
-        L10nKey::SettingsSshTabTitleDynamic => "Dynamic",
-        L10nKey::SettingsSshTabTitleProfileName => "Profile name",
-        L10nKey::SettingsSshTabTitleHostname => "Hostname",
         L10nKey::DocumentDock => "Dock beside terminal",
         L10nKey::DocumentFill => "Fill window",
         L10nKey::SettingsNotifications => "Notifications",
@@ -875,9 +867,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "theme duplicate edit colors folder yaml import background image wallpaper"
         }
         L10nKey::SettingsSearchDetectUrlsKeywords => "links hyperlink clickable open",
-        L10nKey::SettingsSearchDiffPreviewFromCountsKeywords => {
-            "diff overlay preview sidebar counts git changes click branch lines"
-        }
         L10nKey::SettingsSearchDimInactivePanesKeywords => {
             "fade unfocused inactive split pane focus opacity highlight active dimming"
         }
@@ -986,9 +975,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
             "tabs group grouping auto repo repository git ssh host pinned pin ungrouped header sidebar flat folder"
-        }
-        L10nKey::SettingsSearchSshTabTitleKeywords => {
-            "ssh tab title name host hostname profile alias pin fixed osc remote"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "double click word url path select semantic bracket email"

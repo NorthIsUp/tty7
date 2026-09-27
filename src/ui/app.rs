@@ -670,10 +670,7 @@ impl Tab {
             // name tty7 chose for it deliberately, and `stated_title` hands
             // those up as the title the pane is showing.
             title: crate::terminal::view::DEFAULT_TITLE.to_string(),
-            // On the title's rung, not a new one above it: a name given to the
-            // tab still beats an SSH host pinned by Settings (#726), and the
-            // pinned host beats everything the pane could say about itself.
-            osc_title: leaf.tab_title(cx),
+            osc_title: leaf.stated_title().map(str::to_string),
             cwd: leaf.cwd().map(|p| p.display().to_string()),
             agent: leaf.agent(),
             status: leaf.agent_session().map(|s| s.status),
@@ -3493,18 +3490,6 @@ impl Tty7App {
         self.update_config(cx, |cfg| cfg.sidebar_auto_grouping = on);
     }
 
-    pub(crate) fn set_sidebar_diff_preview(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.update_config(cx, |cfg| cfg.sidebar_diff_preview = on);
-    }
-
-    pub(crate) fn set_ssh_tab_title(
-        &mut self,
-        mode: crate::core::config::SshTabTitle,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_config(cx, |cfg| cfg.ssh_tab_title = mode);
-    }
-
     pub(crate) fn toggle_tab_sidebar(&mut self, cx: &mut Context<Self>) {
         let next = match cx.global::<Config>().tab_bar_position {
             TabBarPosition::Top => TabBarPosition::Left,
@@ -6322,10 +6307,6 @@ impl Tty7App {
             L10nKey::SettingsSidebarGrouping => {
                 self.set_sidebar_auto_grouping(defaults.sidebar_auto_grouping, cx)
             }
-            L10nKey::SettingsDiffPreviewFromCounts => {
-                self.set_sidebar_diff_preview(defaults.sidebar_diff_preview, cx)
-            }
-            L10nKey::SettingsSshTabTitle => self.set_ssh_tab_title(defaults.ssh_tab_title, cx),
             L10nKey::SettingsNotifyOnCommandFinish => {
                 self.set_notify_mode(defaults.notify_on_command_finish, cx)
             }

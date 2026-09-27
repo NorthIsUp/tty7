@@ -62,16 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the next connection opens the same set; a rule saved switched off is listed
   but not opened. Profiles saved before this load with every rule on.
 
-- **SSH tabs can be named after the host instead of whatever the remote shell
-  titles itself** (#726). **Settings → Window & Tabs → SSH tab title** is
-  *Dynamic* (the default, and what tty7 always did), *Profile name* — the saved
-  host's name, the alias for a `~/.ssh/config` host, the address typed for a
-  quick connect — or *Hostname*, the address dialled. Only the tab's name is
-  pinned: OSC 0/2 titles are still tracked and come back the moment it is
-  *Dynamic* again, a tab you renamed keeps its name, a split tab follows the
-  pane in front as before, and an ended session still says so. The key is
-  `ssh_tab_title` (`dynamic`, `profile-name`, `hostname`).
-
 - **Windows file paths are links** (#965). `C:\Users\me\a.png`,
   `c:/Users/me/a.png` and `\\server\share\a.png` underline and open like any
   other file path, with a `:10:2`, `(10,2)` or `#L10` location kept. The path
@@ -166,8 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tab's right-click makes a label group. Deleting a group closes nothing — its
   tabs go back to auto grouping — and dragging a tab below the pinned groups
   does the same for one tab. Groups, their order and which are folded are stored
-  with the workspace, so every window onto it agrees. **Settings → Window & Tabs
-  → Auto grouping** replaces the three-way *Sidebar grouping* choice; off,
+  with the workspace, so every window onto it agrees. **Settings → General →
+  Auto grouping** replaces the three-way *Sidebar grouping* choice; off,
   unpinned tabs sit in one flat list under the pinned groups. Scratch is now
   **Ungrouped**.
 
@@ -240,6 +230,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vi mode keeps its own insert/normal shapes.
 
 ### Removed
+
+- **The Window & Tabs settings page.** Its three tab settings — New tab
+  position, Tab bar position and Auto grouping — are a **Tabs** group on
+  **Settings → General** now, below Startup & restore.
+
+- **The *Open diff preview from sidebar counts* setting**
+  (`sidebar_diff_preview`). A tab's `+N −M` in the sidebar, and the Info
+  panel's `changes` row, always open the diff overlay; the stalls on large
+  working trees that the switch was a way around were fixed alongside it. The
+  key is ignored if a `config.json` still has it.
 
 - **The *By repo or folder* grouping mode, "Group Automatically", and groups
   stored by name.** A folder you want grouped is pinned instead, and dragging a

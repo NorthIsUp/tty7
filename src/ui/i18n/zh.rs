@@ -171,7 +171,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsNavInput => "键盘与鼠标",
         L10nKey::SettingsNavSsh => "SSH",
         L10nKey::SettingsNavAgents => "集成",
-        L10nKey::SettingsNavWindowTabs => "窗口与标签页",
         L10nKey::SettingsNavKeybindings => "快捷键",
         L10nKey::SettingsNavAbout => "关于",
         L10nKey::SettingsHeader => "设置",
@@ -574,13 +573,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSidebarGroupingDesc => {
             "未固定的标签页按 git 仓库分组，SSH 标签页按主机分组。"
         }
-        L10nKey::SettingsDiffPreviewFromCounts => "从侧栏计数打开 diff 预览",
-        L10nKey::SettingsDiffPreviewFromCountsDesc => "点击行上的 +N −N 打开 diff。",
-        L10nKey::SettingsSshTabTitle => "SSH 标签页标题",
-        L10nKey::SettingsSshTabTitleDesc => "SSH 标签页标题的命名方式。",
-        L10nKey::SettingsSshTabTitleDynamic => "动态",
-        L10nKey::SettingsSshTabTitleProfileName => "配置名称",
-        L10nKey::SettingsSshTabTitleHostname => "主机名",
         L10nKey::DocumentDock => "停靠在终端旁",
         L10nKey::DocumentFill => "铺满窗口",
         L10nKey::SettingsNotifications => "通知",
@@ -784,9 +776,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchDetectUrlsKeywords => {
             "检测URL 链接 超链接 可点击 打开 detect urls links hyperlink open"
         }
-        L10nKey::SettingsSearchDiffPreviewFromCountsKeywords => {
-            "从侧栏计数打开 diff 预览 diff 预览 侧栏 git diff preview sidebar counts git changes"
-        }
         L10nKey::SettingsSearchDimInactivePanesKeywords => {
             "调暗 非活动窗格 淡化 未聚焦 分屏 高亮 active dimming pane focus"
         }
@@ -925,9 +914,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
             "自动分组 标签页 分组 仓库 git ssh 主机 固定 未分组 侧栏 sidebar auto grouping tabs repo repository pinned pin host ungrouped"
-        }
-        L10nKey::SettingsSearchSshTabTitleKeywords => {
-            "SSH 标签页 标题 名称 主机 主机名 配置 别名 固定 ssh tab title name host hostname profile alias pin"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "智能选择 双击 选择 单词 URL 路径 邮箱 括号 smart selection double click"

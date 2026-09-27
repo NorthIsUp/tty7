@@ -804,7 +804,6 @@ impl Tty7App {
                 SettingsSection::KeyboardMouse => self.render_settings_input(cx),
                 SettingsSection::Ssh => self.render_settings_ssh(cx),
                 SettingsSection::Agents => self.render_settings_agents(cx),
-                SettingsSection::WindowTabs => self.render_window_preferences(cx),
                 SettingsSection::Keybindings => self.render_settings_keybindings(cx),
                 SettingsSection::About => self.render_settings_about(cx),
             };
@@ -1373,9 +1372,6 @@ impl Tty7App {
                 }
                 SettingsSection::KeyboardMouse => {
                     self.render_settings_input(cx);
-                }
-                SettingsSection::WindowTabs => {
-                    self.render_window_preferences(cx);
                 }
                 SettingsSection::Ssh => {
                     self.render_ssh_connection_rows(cx);

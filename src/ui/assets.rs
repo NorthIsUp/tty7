@@ -79,7 +79,6 @@ fn agent_icon(path: &str) -> Option<&'static [u8]> {
         "icons/settings/search.svg" => include_bytes!("../../assets/icons/settings/search.svg"),
         "icons/settings/ssh.svg" => include_bytes!("../../assets/icons/settings/ssh.svg"),
         "icons/settings/terminal.svg" => include_bytes!("../../assets/icons/settings/terminal.svg"),
-        "icons/settings/window.svg" => include_bytes!("../../assets/icons/settings/window.svg"),
         "icons/agents/claude.svg" => include_bytes!("../../assets/icons/agents/claude.svg"),
         "icons/agents/codex.svg" => include_bytes!("../../assets/icons/agents/codex.svg"),
         "icons/agents/traecli.svg" => include_bytes!("../../assets/icons/agents/traecli.svg"),

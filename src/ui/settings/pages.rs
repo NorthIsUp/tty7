@@ -1,5 +1,5 @@
 //! The pages that are rows and nothing else: General, the text and window
-//! halves of Appearance, Terminal, Keyboard & Mouse, Window & Tabs, and About.
+//! halves of Appearance, Terminal, Keyboard & Mouse, and About.
 
 use std::rc::Rc;
 
@@ -193,6 +193,7 @@ impl Tty7App {
                 .map(IntoElement::into_any_element),
                 cx,
             ),
+            self.render_tabs_group(cx),
             self.settings_group(
                 Some(t(L10nKey::SettingsNotifications)),
                 None,
@@ -1357,7 +1358,7 @@ impl Tty7App {
         Self::settings_page(groups)
     }
 
-    pub(crate) fn render_window_preferences(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_tabs_group(&self, cx: &mut Context<Self>) -> AnyElement {
         let cfg = cx.global::<Config>();
         let new_tab_idx = match cfg.new_tab_position {
             NewTabPosition::AfterCurrent => 0,
@@ -1367,14 +1368,8 @@ impl Tty7App {
             TabBarPosition::Top => 0,
             TabBarPosition::Left => 1,
         };
-        let sidebar_diff_preview = cfg.sidebar_diff_preview;
         let sidebar_auto_grouping = cfg.sidebar_auto_grouping;
-        let ssh_tab_title_idx = match cfg.ssh_tab_title {
-            SshTabTitle::Dynamic => 0,
-            SshTabTitle::ProfileName => 1,
-            SshTabTitle::Hostname => 2,
-        };
-        let new_tab = self.settings_choice(
+        let new_tab = self.segmented(
             "wt-new-tab-pos",
             &[t(L10nKey::SettingsAfterCurrent), t(L10nKey::SettingsAtEnd)],
             new_tab_idx,
@@ -1390,7 +1385,7 @@ impl Tty7App {
                 );
             },
         );
-        let tab_bar = self.settings_choice(
+        let tab_bar = self.segmented(
             "wt-tab-bar-pos",
             &[t(L10nKey::SettingsTop), t(L10nKey::SettingsLeft)],
             tab_bar_idx,
@@ -1412,31 +1407,7 @@ impl Tty7App {
             cx,
             |this, on, _, cx| this.set_sidebar_auto_grouping(on, cx),
         );
-        let ssh_tab_title = self.settings_choice(
-            "wt-ssh-tab-title",
-            &[
-                t(L10nKey::SettingsSshTabTitleDynamic),
-                t(L10nKey::SettingsSshTabTitleProfileName),
-                t(L10nKey::SettingsSshTabTitleHostname),
-            ],
-            ssh_tab_title_idx,
-            cx,
-            |this, ix, _w, cx| {
-                let mode = match ix {
-                    0 => SshTabTitle::Dynamic,
-                    1 => SshTabTitle::ProfileName,
-                    _ => SshTabTitle::Hostname,
-                };
-                this.set_ssh_tab_title(mode, cx);
-            },
-        );
-        let diff = self.settings_switch(
-            "wt-sidebar-diff-preview",
-            sidebar_diff_preview,
-            cx,
-            |this, on, _, cx| this.set_sidebar_diff_preview(on, cx),
-        );
-        Self::settings_page([self.settings_group(
+        self.settings_group(
             Some(t(L10nKey::SettingsTabs)),
             None,
             [
@@ -1458,22 +1429,10 @@ impl Tty7App {
                     grouping,
                     cx,
                 ),
-                self.settings_row(
-                    t(L10nKey::SettingsDiffPreviewFromCounts),
-                    t(L10nKey::SettingsDiffPreviewFromCountsDesc),
-                    diff,
-                    cx,
-                ),
-                self.settings_row(
-                    t(L10nKey::SettingsSshTabTitle),
-                    t(L10nKey::SettingsSshTabTitleDesc),
-                    ssh_tab_title,
-                    cx,
-                ),
             ]
             .map(IntoElement::into_any_element),
             cx,
-        )])
+        )
     }
 
     pub(crate) fn render_settings_about(&self, cx: &mut Context<Self>) -> AnyElement {
