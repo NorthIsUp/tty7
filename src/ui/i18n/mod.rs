@@ -1621,6 +1621,8 @@ l10n_keys! {
     GitHubImage,
     GitHubComments,
     GitHubCommits,
+    GitHubOpenedAt,
+    GitHubUpdatedAt,
 }
 
 /// The source control strings that are translated but not yet displayed.

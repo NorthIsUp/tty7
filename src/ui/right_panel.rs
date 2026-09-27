@@ -31,12 +31,10 @@ fn right_panel_tabs_floor(window: &Window, cx: &gpui::App) -> f32 {
     (TAB_ROW_LEAD + crate::ui::tab_strip::right_panel_tab_labels_w(window, cx) + chrome).ceil()
 }
 
-/// The tab row's leading inset: the first label lands 22px in, and each tab's
-/// click target already reaches `TAB_OUTER_PAD` past its label.
-///
-/// The tabs sit flush against each other — no row gap — so two labels are
-/// exactly `2 × TAB_OUTER_PAD` = 18px apart, which is the whole spacing rule.
-const TAB_ROW_LEAD: f32 = 22. - crate::ui::tab_strip::TAB_OUTER_PAD;
+/// The tab row's leading inset: the selected tab's pill starts on
+/// `CONTENT_INSET`, the edge every row fill below it starts on, and each tab's
+/// click target reaches `TAB_OUTER_PAD` past its pill.
+const TAB_ROW_LEAD: f32 = crate::ui::app::CONTENT_INSET - crate::ui::tab_strip::TAB_OUTER_PAD;
 
 /// The panel toggle and the app menu where they sit in this panel's own tab
 /// row (macOS): 26px tiles, 4px apart, the last one 12px from the panel's

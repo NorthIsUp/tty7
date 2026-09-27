@@ -675,8 +675,12 @@ pub(crate) fn right_panel_tab_labels_w(_window: &Window, _cx: &gpui::App) -> f32
 /// Right panel tab geometry: each label's click target reaches half the 18px
 /// gap to its neighbour, there is no pill inside it, and the Changes count
 /// hangs 5px off its label.
-pub(crate) const TAB_OUTER_PAD: f32 = 9.;
-const TAB_INNER_PAD: f32 = 0.;
+pub(crate) const TAB_OUTER_PAD: f32 = 2.;
+/// The selected tab's pill reaches this far past its glyph.
+const TAB_INNER_PAD: f32 = 5.;
+/// The pill's height and corner.
+const TAB_PILL_H: f32 = 24.;
+const TAB_PILL_RADIUS: f32 = 6.;
 const TAB_COUNT_GAP: f32 = 5.;
 
 /// How wide the two chrome tiles at the trailing end of the title bar are, with
@@ -1324,15 +1328,16 @@ impl Tty7App {
             labels_w + TAB_COUNT_GAP + measure_text(ts, &regular, size, &n.to_string()) <= avail
         });
         let body_ink = cx.theme().foreground;
+        let selected_fill = cx.global::<crate::ui::presets::Surfaces>().sidebar.selected;
         RIGHT_PANEL_TABS
             .into_iter()
             .map(|(tab, label_key, icon)| {
                 let current = active_tab == tab;
                 // Glyphs, not words: five names do not fit the panel's 280px
                 // resting width, so each tab is an icon and says its name in a
-                // tooltip. The current one is told apart by ink alone — this is
-                // secondary navigation, not an action, so it gets neither a
-                // pill nor a bar.
+                // tooltip. Ink alone could not carry "this one" between five
+                // glyphs of one weight, so the current tab also sits on the
+                // sidebar's selected fill.
                 let ink = match current {
                     true => body_ink,
                     false => cx.theme().muted_foreground,
@@ -1355,7 +1360,10 @@ impl Tty7App {
                     .child(
                         h_flex()
                             .flex_shrink_0()
+                            .h(px(TAB_PILL_H))
                             .px(px(TAB_INNER_PAD))
+                            .rounded(px(TAB_PILL_RADIUS))
+                            .when(current, |pill| pill.bg(gpui::rgb(selected_fill)))
                             .gap(px(TAB_COUNT_GAP))
                             .items_center()
                             .text_size(gpui::rems(crate::ui::right_panel::TAB_TEXT))

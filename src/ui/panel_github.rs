@@ -20,8 +20,10 @@ use crate::ui::right_panel::{META, ROW_FILL_RADIUS, ROW_INSET, TAB_TEXT, TEXT, T
 use crate::ui::scm::path::relative_time;
 use crate::ui::scm::state::RepoKey;
 
-/// A list row: the title line and the meta line under it.
-const ROW_MIN_H: f32 = 44.;
+/// A list row: one line, the Source Control tab's row pitch.
+const ROW_H: f32 = 26.;
+/// How many label chips a hovered row shows before the age.
+const MAX_ROW_LABELS: usize = 3;
 /// The state glyph, and the column it sits in.
 const GLYPH: f32 = 14.;
 /// The pinned rows' height — the Info tab's row pitch.
@@ -415,6 +417,10 @@ impl Tty7App {
         body.into_any_element()
     }
 
+    /// One line per item: state glyph, `#number`, title. The labels and the
+    /// age of the last update wait for the pointer — the resting list reads
+    /// as a column of titles, and hovering a row answers "what labels, how
+    /// fresh" without a second line under every one of them.
     fn github_item_row(
         &self,
         slug: &RepoSlug,
@@ -427,84 +433,103 @@ impl Tty7App {
         let mono = cx.theme().mono_font_family.clone();
         let number = item.number;
         let slug = slug.clone();
-        let mut meta = format!("#{number}");
-        if !item.author.is_empty() {
-            meta.push_str(" · ");
-            meta.push_str(&item.author);
-        }
-        if item.updated_at > 0 {
-            meta.push_str(" · ");
-            meta.push_str(&relative_time(now, item.updated_at));
-        }
-        let labels = item.labels.iter().enumerate().map(|(i, label)| {
-            let name = label.name.clone();
-            div()
-                .id(SharedString::from(format!(
-                    "panel-github-label-{number}-{i}"
-                )))
+        let hovered = self.github.hovered == Some(number);
+        let title = SharedString::from(item.title.clone());
+        let labels = item
+            .labels
+            .iter()
+            .take(MAX_ROW_LABELS)
+            .enumerate()
+            .map(|(i, label)| {
+                let name = label.name.clone();
+                div()
+                    .id(SharedString::from(format!(
+                        "panel-github-label-{number}-{i}"
+                    )))
+                    .flex_none()
+                    .cursor_pointer()
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new(t(L10nKey::GitHubFilterByLabel))
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.github.label = Some(name.clone());
+                        this.github.list_scroll = gpui::ScrollHandle::new();
+                        cx.notify();
+                    }))
+                    .child(label_chip(label, cx))
+            });
+        let age = (item.updated_at > 0).then(|| relative_time(now, item.updated_at));
+        // Out of the layout at rest, so the title has the whole row to
+        // itself; on hover it takes its room from the title's tail. Built
+        // from state rather than a `group_hover` display switch: an element
+        // that is `display: none` at layout is never prepainted, and gpui
+        // panics when a hover style then asks to paint it.
+        let meta = hovered.then(|| {
+            h_flex()
                 .flex_none()
-                .cursor_pointer()
-                .tooltip(|window, cx| {
-                    gpui_component::tooltip::Tooltip::new(t(L10nKey::GitHubFilterByLabel))
-                        .build(window, cx)
-                })
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    cx.stop_propagation();
-                    this.github.label = Some(name.clone());
-                    this.github.list_scroll = gpui::ScrollHandle::new();
-                    cx.notify();
+                .items_center()
+                .gap(px(4.))
+                .children(labels)
+                .children(age.map(|age| {
+                    div()
+                        .flex_none()
+                        .text_size(rems(META))
+                        .text_color(muted)
+                        .child(age)
                 }))
-                .child(label_chip(label, cx))
         });
         h_flex()
             .id(SharedString::from(format!("panel-github-item-{number}")))
-            .items_start()
+            .items_center()
             .gap(px(8.))
-            .min_h(px(ROW_MIN_H))
+            .h(px(ROW_H))
             .w_full()
             .px(px(ROW_INSET))
-            .py(px(5.))
             .rounded(ROW_FILL_RADIUS)
             .cursor_pointer()
             .hover(|s| s.bg(gpui::rgb(sf.hover)))
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(title.clone()).build(window, cx)
+            })
+            .on_hover(cx.listener(move |this, over: &bool, _window, cx| {
+                let next = match (*over, this.github.hovered) {
+                    (true, _) => Some(number),
+                    (false, Some(n)) if n == number => None,
+                    (false, other) => other,
+                };
+                if next != this.github.hovered {
+                    this.github.hovered = next;
+                    cx.notify();
+                }
+            }))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.github_open_detail(slug.clone(), number, cx);
             }))
             .child(
                 div()
                     .flex_none()
-                    .pt(px(2.))
                     .child(state_glyph(item.state, item.is_pr, cx)),
             )
             .child(
-                v_flex()
+                div()
+                    .flex_none()
+                    .text_size(rems(META))
+                    .font_family(mono)
+                    .text_color(muted)
+                    .child(format!("#{number}")),
+            )
+            .child(
+                div()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(2.))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(rems(TEXT))
-                            .text_color(gpui::rgb(sf.text_resting))
-                            .child(item.title.clone()),
-                    )
-                    .child(
-                        h_flex()
-                            .min_w_0()
-                            .gap(px(4.))
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_size(rems(META))
-                                    .font_family(mono)
-                                    .text_color(muted)
-                                    .child(meta),
-                            )
-                            .children(labels),
-                    ),
+                    .truncate()
+                    .text_size(rems(TEXT))
+                    .text_color(gpui::rgb(sf.text_resting))
+                    .child(item.title.clone()),
             )
+            .children(meta)
             .into_any_element()
     }
 

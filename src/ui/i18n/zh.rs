@@ -1931,6 +1931,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubImage => "图片",
         L10nKey::GitHubComments => "{count} 条评论",
         L10nKey::GitHubCommits => "{count} 个提交",
+        L10nKey::GitHubOpenedAt => "创建 {when}",
+        L10nKey::GitHubUpdatedAt => "更新 {when}",
     })
 }
 

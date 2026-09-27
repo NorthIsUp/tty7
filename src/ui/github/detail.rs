@@ -17,7 +17,7 @@ use tty7_core::core::github::{Comment, Detail, PrFile, RepoSlug};
 
 use crate::ui::app::{CONTENT_INSET, Tty7App};
 use crate::ui::github::now_unix;
-use crate::ui::i18n::{L10nKey, t, t_plural};
+use crate::ui::i18n::{L10nKey, t, t_fmt, t_plural};
 use crate::ui::panel_github::{describe_error, github_tile, label_chip, state_glyph, state_label};
 use crate::ui::right_panel::{
     HEADING, META, META_MONO, ROW_FILL_RADIUS, ROW_INSET, TEXT, TEXT_INSET, git_badge,
@@ -161,12 +161,21 @@ impl Tty7App {
         let mono = theme.mono_font_family.clone();
         let item = &detail.item;
         let now = now_unix();
-        let byline = match (item.author.as_str(), item.created_at) {
-            ("", 0) => String::new(),
-            ("", at) => relative_time(now, at),
-            (author, 0) => author.to_string(),
-            (author, at) => format!("{author} · {}", relative_time(now, at)),
-        };
+        // Both times, each named: the list row shows the last update, and a
+        // bare "4d" here beside a "13h" there read as the two disagreeing.
+        let when = |key, at| t_fmt(key, &[("when", &relative_time(now, at))]);
+        let mut byline: Vec<String> = Vec::new();
+        if !item.author.is_empty() {
+            byline.push(item.author.clone());
+        }
+        if item.created_at > 0 {
+            byline.push(when(L10nKey::GitHubOpenedAt, item.created_at));
+        }
+        // An update within a minute of opening is the opening itself.
+        if item.updated_at > item.created_at + 60 {
+            byline.push(when(L10nKey::GitHubUpdatedAt, item.updated_at));
+        }
+        let byline = byline.join(" · ");
         let mut head = v_flex()
             .px(px(TEXT_INSET))
             .pt(px(4.))

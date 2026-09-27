@@ -100,6 +100,9 @@ pub(crate) struct GitHubPanelState {
     pub(crate) open: Option<(RepoSlug, u64)>,
     pub(crate) list_scroll: gpui::ScrollHandle,
     pub(crate) detail_scroll: gpui::ScrollHandle,
+    /// The list row under the pointer, by number: the one that shows its
+    /// labels and age.
+    pub(crate) hovered: Option<u64>,
 }
 
 /// What the panel can say about the active pane's repository.

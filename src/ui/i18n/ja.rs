@@ -2115,6 +2115,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubImage => "画像",
         L10nKey::GitHubComments => "{count} 件のコメント",
         L10nKey::GitHubCommits => "{count} 件のコミット",
+        L10nKey::GitHubOpenedAt => "作成 {when}",
+        L10nKey::GitHubUpdatedAt => "更新 {when}",
     })
 }
 

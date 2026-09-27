@@ -2062,6 +2062,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubImage => "image",
         L10nKey::GitHubComments => "{count} comments",
         L10nKey::GitHubCommits => "{count} commits",
+        L10nKey::GitHubOpenedAt => "opened {when}",
+        L10nKey::GitHubUpdatedAt => "updated {when}",
     }
 }
 
