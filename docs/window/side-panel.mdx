@@ -1,13 +1,13 @@
 ---
 title: "The side panel"
-description: "Info, Source Control, and Files — plus the built-in editor."
+description: "Info, Source Control, Files, and Search — plus the built-in editor."
 ---
 
-<kbd>⌘ J</kbd> opens a panel on the right of the window with three tabs. It is
-hidden by default; whichever tab you leave it on is where it opens next time.
+<kbd>⌘ J</kbd> opens a panel on the right of the window. It is hidden by
+default; whichever tab you leave it on is where it opens next time.
 
-The three icons at the top switch tabs, and clicking the lit one puts the panel
-away again.
+The icons at the top switch tabs — hover one for its name — and clicking the
+lit one puts the panel away again.
 
 <Frame caption="The Info tab beside a terminal: session, processes, listening ports">
   <img src="/images/side-panel.webp" alt="The tty7 side panel" />
@@ -59,6 +59,40 @@ while there is something in it.
 Both directions work over a [remote workspace](/remote/workspaces) too, reading
 on one machine and writing on the other, up to the size one control frame can
 carry — past that the panel tells you to use [SFTP](/remote/sftp).
+
+## Search
+
+Find in files across the project the Files tab shows: the repository root of
+each pane in the tab, or its working directory outside a repository. Opening the
+tab — from its icon, **Right Panel: Search** in Search Everywhere, or the
+`ShowRightPanelSearch` action — puts the cursor in the search field.
+
+Results arrive as you type, grouped by file with a count per file; click a
+file's row to fold it away. Each hit is its line with the matches highlighted,
+and **clicking one opens the file in the built-in editor with the cursor on that
+line and column**. <kbd>Enter</kbd> in the field searches again, for when the
+files changed underneath you.
+
+The three toggles at the end of the field:
+
+| | |
+|---|---|
+| **Aa** | Match case — off by default, so `needle` finds `Needle` |
+| **ab** | Whole word — `foo` no longer finds `foobar` or `foo_bar` |
+| **.\*** | Regular expression, in Rust [`regex`](https://docs.rs/regex) syntax. A pattern that does not parse says why in red instead of searching |
+
+What is searched is what the tree shows: a folder's `.gitignore` applies whether
+or not it is in a repository, and dot-files and dot-directories are skipped.
+Binary files and files over 1 MB are stepped past. A search stops at 2,000
+matching lines, 100 per file, 20,000 files or ten seconds, whichever comes
+first, and says so under the results — narrow the query to see the rest.
+
+In a [remote workspace](/remote/workspaces) the search runs on the remote
+machine and only the hits cross the network. A remote `tty7-server` older than
+this feature cannot search; the tab says so and asks you to update the server
+rather than showing an empty result. An SSH pane's files are browsed over
+[SFTP](/remote/sftp), which cannot search them — open the host as a remote
+workspace for that.
 
 ## The editor
 

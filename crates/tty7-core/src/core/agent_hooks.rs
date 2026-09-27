@@ -2641,6 +2641,14 @@ mod tests {
         ) -> io::Result<Vec<crate::host::SearchHit>> {
             self.0.search(roots, query, limit, max_dirs, show_hidden)
         }
+        fn search_content(
+            &self,
+            roots: &[PathBuf],
+            query: &crate::host::ContentQuery,
+            limits: &crate::host::ContentLimits,
+        ) -> io::Result<crate::host::ContentResults> {
+            self.0.search_content(roots, query, limits)
+        }
         fn write_file(&self, p: &Path, bytes: &[u8]) -> io::Result<crate::host::Meta> {
             self.0.write_file(p, bytes)
         }

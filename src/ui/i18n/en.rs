@@ -90,6 +90,33 @@ pub fn translate_en(key: L10nKey) -> &'static str {
 
         L10nKey::SearchTabs => "Search tabs…",
         L10nKey::SearchFiles => "Search files…",
+        L10nKey::PanelSearchPlaceholder => "Search in files…",
+        L10nKey::PanelSearchWholeWord => "Match whole word",
+        L10nKey::PanelSearchIdle => "Search the contents of every file under {root}.",
+        L10nKey::PanelSearchNoFolder => "No folder to search.",
+        L10nKey::PanelSearchNoFolderHint => {
+            "Search looks through the project the active tab is in."
+        }
+        L10nKey::PanelSearchSshPane => "Search can't look inside an SSH pane's files.",
+        L10nKey::PanelSearchSshPaneHint => {
+            "Open the host as a remote workspace to search it, or browse it in Files."
+        }
+        L10nKey::PanelSearchSearching => "Searching…",
+        L10nKey::PanelSearchNoMatches => "No results for “{query}”.",
+        L10nKey::PanelSearchBadPattern => "Not a valid regular expression: {e}",
+        L10nKey::PanelSearchServerTooOld => {
+            "The tty7-server on this machine is too old to search file contents."
+        }
+        L10nKey::PanelSearchServerTooOldHint => "Update the server on that host to use Search.",
+        L10nKey::PanelSearchFailed => "Search failed: {e}",
+        L10nKey::PanelSearchResultCount => "{count} results",
+        L10nKey::PanelSearchFileCount => "{count} files",
+        L10nKey::PanelSearchSummary => "{results} in {files}",
+        L10nKey::PanelSearchTruncated => {
+            "Not every match is shown. Narrow the search to see the rest."
+        }
+        L10nKey::PanelSearchLineTooltip => "Line {line}, column {column}",
+        L10nKey::PanelSearchHostGone => "The machine this project is on is not connected.",
         L10nKey::SearchThemes => "Search themes…",
         L10nKey::SearchSettings => "Search settings…",
         L10nKey::FilterHosts => "Filter hosts…",
@@ -2003,6 +2030,12 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMatchCount, "zero") => "No matches",
         (L10nKey::SettingsMatchCount, "one") => "1 match",
         (L10nKey::SettingsMatchCount, "other") => "{count} matches",
+        (L10nKey::PanelSearchResultCount, "zero") => "No results",
+        (L10nKey::PanelSearchResultCount, "one") => "1 result",
+        (L10nKey::PanelSearchResultCount, "other") => "{count} results",
+        (L10nKey::PanelSearchFileCount, "zero") => "no files",
+        (L10nKey::PanelSearchFileCount, "one") => "1 file",
+        (L10nKey::PanelSearchFileCount, "other") => "{count} files",
         (L10nKey::SettingsRestoreChanged, "zero") => "Restore changes",
         (L10nKey::SettingsRestoreChanged, "one") => "Restore 1 changed",
         (L10nKey::SettingsRestoreChanged, "other") => "Restore {count} changed",

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Find in files, in the right panel's new Search tab.** Type and the active
+  tab's project — the same roots the Files tab shows — is searched as you go,
+  with hits grouped by file, a count per file, and each match highlighted in
+  its line. Click a hit to open the file in the built-in editor at that line
+  and column; Enter searches again. Toggles for match case, whole word and
+  regular expressions sit at the end of the field. The walk honours
+  `.gitignore` with or without a repository, skips dot-directories, binary
+  files and files over 1 MB, and says so when a cap (2,000 lines, 100 per
+  file, 20,000 files, ten seconds) cut it short. In a remote workspace the
+  search runs on the remote machine through `tty7-server`; a server that
+  predates it is never sent the request — the tab asks for the server to be
+  updated instead of showing an empty result.
+
 - **Reorder the active tab from the keyboard** (`MoveTabLeft` / `MoveTabRight`).
   The tab moves one slot past its neighbour — the keyboard form of dragging it
   in the tab strip or the sidebar — and wraps past either end, so one held key

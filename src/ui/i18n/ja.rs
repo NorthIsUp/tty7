@@ -91,6 +91,33 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
 
         L10nKey::SearchTabs => "タブを検索…",
         L10nKey::SearchFiles => "ファイルを検索…",
+        L10nKey::PanelSearchPlaceholder => "ファイル内を検索…",
+        L10nKey::PanelSearchWholeWord => "単語単位で検索",
+        L10nKey::PanelSearchIdle => "{root} 以下のすべてのファイルの内容を検索します。",
+        L10nKey::PanelSearchNoFolder => "検索するフォルダーがありません",
+        L10nKey::PanelSearchNoFolderHint => "アクティブなタブのプロジェクト内を検索します。",
+        L10nKey::PanelSearchSshPane => "SSH ペインのファイルの内容は検索できません",
+        L10nKey::PanelSearchSshPaneHint => {
+            "ホストをリモートワークスペースとして開くと検索できます。ファイルタブで閲覧することもできます。"
+        }
+        L10nKey::PanelSearchSearching => "検索中…",
+        L10nKey::PanelSearchNoMatches => "「{query}」の結果はありません",
+        L10nKey::PanelSearchBadPattern => "正規表現が正しくありません: {e}",
+        L10nKey::PanelSearchServerTooOld => {
+            "このマシンの tty7-server は古いため、ファイルの内容を検索できません"
+        }
+        L10nKey::PanelSearchServerTooOldHint => {
+            "検索を使うには、そのホストのサーバーを更新してください。"
+        }
+        L10nKey::PanelSearchFailed => "検索に失敗しました: {e}",
+        L10nKey::PanelSearchResultCount => "{count} 件",
+        L10nKey::PanelSearchFileCount => "{count} 個のファイル",
+        L10nKey::PanelSearchSummary => "{files}で {results}",
+        L10nKey::PanelSearchTruncated => {
+            "一致した結果の一部だけを表示しています。検索条件を絞り込むと残りを確認できます。"
+        }
+        L10nKey::PanelSearchLineTooltip => "{line} 行目、{column} 列目",
+        L10nKey::PanelSearchHostGone => "このプロジェクトがあるマシンに接続されていません",
         L10nKey::SearchThemes => "テーマを検索…",
         L10nKey::SearchSettings => "設定を検索…",
         L10nKey::FilterHosts => "ホストを絞り込み…",
@@ -2052,6 +2079,12 @@ pub fn translate_variant_ja(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMatchCount, "zero") => "0 件",
         (L10nKey::SettingsMatchCount, "one") => "1 件",
         (L10nKey::SettingsMatchCount, "other") => "{count} 件",
+        (L10nKey::PanelSearchResultCount, "zero") => "0 件",
+        (L10nKey::PanelSearchResultCount, "one") => "1 件",
+        (L10nKey::PanelSearchResultCount, "other") => "{count} 件",
+        (L10nKey::PanelSearchFileCount, "zero") => "0 個のファイル",
+        (L10nKey::PanelSearchFileCount, "one") => "1 個のファイル",
+        (L10nKey::PanelSearchFileCount, "other") => "{count} 個のファイル",
         (L10nKey::SettingsRestoreChanged, "zero") => "変更を戻す",
         (L10nKey::SettingsRestoreChanged, "one") => "変更した 1 件を戻す",
         (L10nKey::SettingsRestoreChanged, "other") => "変更した {count} 件を戻す",

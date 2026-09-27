@@ -9900,6 +9900,7 @@ dependencies = [
  "miniz_oxide",
  "notify 8.2.0",
  "portable-pty",
+ "regex",
  "russh",
  "russh-sftp",
  "serde",

@@ -10,8 +10,8 @@ use notify::{RecursiveMode, Watcher};
 use crate::core::git;
 use crate::core::gitignore::GitignoreChain;
 use crate::host::{
-    Entry, Host, HostId, MTime, Meta, Output, SearchHit, SharedHost, ShellInventory, WatchHandle,
-    WatchSub, guard_off_ui,
+    ContentLimits, ContentQuery, ContentResults, Entry, Host, HostId, MTime, Meta, Output,
+    SearchHit, SharedHost, ShellInventory, WatchHandle, WatchSub, guard_off_ui,
 };
 
 const COALESCE_WINDOW: Duration = Duration::from_millis(100);
@@ -243,6 +243,16 @@ impl Host for LocalHost {
             }
         }
         Ok(out)
+    }
+
+    fn search_content(
+        &self,
+        roots: &[PathBuf],
+        query: &ContentQuery,
+        limits: &ContentLimits,
+    ) -> io::Result<ContentResults> {
+        guard_off_ui();
+        crate::host::content_search::search(roots, query, limits)
     }
 
     fn write_file(&self, p: &Path, bytes: &[u8]) -> io::Result<Meta> {

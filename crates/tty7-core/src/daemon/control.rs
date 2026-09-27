@@ -150,9 +150,16 @@ pub mod feature {
     /// while keeping their screens (#762). Needs both a tree and panes, so a
     /// peer serving either alone does not say it.
     pub const TAB_HIBERNATE: &str = "tab-hibernate";
+    /// The peer answers [`ControlRequest::SearchContent`] — find in files for
+    /// the right panel's Search tab. A peer without it has never heard of the
+    /// request, and sending it would take the link down, so a client asks for
+    /// the name first and tells the user the server needs updating instead.
+    pub const CONTENT_SEARCH: &str = "content-search";
 }
 
-pub use crate::host::{Entry, MTime, Meta, Output, SearchHit};
+pub use crate::host::{
+    ContentLimits, ContentQuery, ContentResults, Entry, MTime, Meta, Output, SearchHit,
+};
 
 pub use crate::core::shells::{DetectedShell, ShellInventory};
 
@@ -187,6 +194,12 @@ pub enum ControlRequest {
         limit: u64,
         max_dirs: u64,
         show_hidden: bool,
+    },
+    /// Find in files. Gated on [`feature::CONTENT_SEARCH`].
+    SearchContent {
+        roots: Vec<String>,
+        query: ContentQuery,
+        limits: ContentLimits,
     },
 
     WriteFile {
@@ -411,6 +424,9 @@ impl ControlRequest {
                 Duration::from_secs(10)
             }
             Git { .. } | GitStream { .. } | Search { .. } => Duration::from_secs(20),
+            // Past the host's own time budget (`ContentLimits::max_millis`),
+            // so a search that ran long still gets to say what it found.
+            SearchContent { .. } => Duration::from_secs(30),
             Shells => Duration::from_secs(20),
             WorkspaceAttach { .. } | WorkspaceDetach { .. } => Duration::from_secs(10),
             GuiOpen { .. } => Duration::from_secs(5),
@@ -475,6 +491,7 @@ pub enum ReplyOk {
     OptPath(Option<String>),
     FileMeta { meta: Meta },
     Hits(Vec<SearchHit>),
+    ContentHits(ContentResults),
     Output(Output),
     WatchId(u64),
     Shells(ShellInventory),
@@ -1567,6 +1584,17 @@ mod tests {
                 max_dirs: 2000,
                 show_hidden: false,
             },
+            ControlRequest::SearchContent {
+                roots: vec!["/home/me/proj".into()],
+                query: ContentQuery {
+                    pattern: r"fn \w+".into(),
+                    case_sensitive: true,
+                    whole_word: false,
+                    regex: true,
+                    show_hidden: false,
+                },
+                limits: ContentLimits::default(),
+            },
             ControlRequest::WriteFile {
                 path: "/home/me/proj/src/main.rs".into(),
             },
@@ -1648,6 +1676,17 @@ mod tests {
                 is_dir: false,
                 ignored: false,
             }])),
+            ControlReply::Ok(ReplyOk::ContentHits(ContentResults {
+                hits: vec![crate::host::ContentHit {
+                    path: PathBuf::from("/home/me/proj/src/widget.rs"),
+                    line: 12,
+                    column: 5,
+                    text: "fn widget() {".into(),
+                    ranges: vec![crate::host::ContentRange { start: 3, end: 9 }],
+                }],
+                truncated: true,
+                files_searched: 40,
+            })),
             ControlReply::Ok(ReplyOk::Output(Output {
                 status: Some(1),
                 stdout: b"?? src/new.rs\n".to_vec(),
@@ -2328,6 +2367,14 @@ mod tests {
                     show_hidden: true,
                 },
                 s(20),
+            ),
+            (
+                R::SearchContent {
+                    roots: vec![],
+                    query: ContentQuery::default(),
+                    limits: ContentLimits::default(),
+                },
+                s(30),
             ),
             (
                 R::GuiOpen {

@@ -11,7 +11,8 @@ use crate::daemon::control::{
     KEEPALIVE_PING_INTERVAL, LinkShutdown, ReplyOk,
 };
 use crate::host::{
-    Entry, Host, HostId, Meta, Output, SearchHit, SharedHost, ShellInventory, WatchHandle, WatchSub,
+    ContentLimits, ContentQuery, ContentResults, Entry, Host, HostId, Meta, Output, SearchHit,
+    SharedHost, ShellInventory, WatchHandle, WatchSub,
 };
 
 pub struct RemoteHost {
@@ -222,6 +223,41 @@ impl Host for RemoteHost {
         })? {
             ReplyOk::Hits(h) => Ok(h),
             other => Err(wrong_shape("search hits", &other)),
+        }
+    }
+
+    /// Asked only of a peer that announces [`feature::CONTENT_SEARCH`]: one
+    /// that predates the request cannot decode it, and a frame it cannot
+    /// decode takes the whole link down. Such a peer answers `Unsupported`
+    /// here without a byte on the wire, which the panel words as "update the
+    /// server" rather than as a search that found nothing.
+    ///
+    /// [`feature::CONTENT_SEARCH`]: crate::daemon::control::feature::CONTENT_SEARCH
+    fn search_content(
+        &self,
+        roots: &[PathBuf],
+        query: &ContentQuery,
+        limits: &ContentLimits,
+    ) -> io::Result<ContentResults> {
+        if !self
+            .peer()
+            .has_feature(crate::daemon::control::feature::CONTENT_SEARCH)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "the tty7-server on this host (build {}) cannot search file contents",
+                    self.peer().build
+                ),
+            ));
+        }
+        match self.call(ControlRequest::SearchContent {
+            roots: wire_paths(roots),
+            query: query.clone(),
+            limits: *limits,
+        })? {
+            ReplyOk::ContentHits(found) => Ok(found),
+            other => Err(wrong_shape("content search results", &other)),
         }
     }
 
@@ -728,6 +764,21 @@ mod tests {
     where
         F: Fn(&ControlRequest) -> Option<(ControlReply, Vec<u8>)> + Send + 'static,
     {
+        host_with_peer_announcing(separator, &[], answer)
+    }
+
+    /// [`host_with_peer`], with a peer whose hello names `extra` features on
+    /// top of the two every control peer has.
+    fn host_with_peer_announcing<F>(
+        separator: char,
+        extra: &[&str],
+        answer: F,
+    ) -> (Arc<RemoteHost>, mpsc::Receiver<ControlRequest>)
+    where
+        F: Fn(&ControlRequest) -> Option<(ControlReply, Vec<u8>)> + Send + 'static,
+    {
+        let mut hello = hello_ok(separator);
+        hello.features.extend(extra.iter().map(|f| f.to_string()));
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (seen_tx, seen_rx) = mpsc::channel();
@@ -737,9 +788,7 @@ mod tests {
                 ControlClientMsg::Hello(_) => {}
                 other => panic!("expected Hello, got {other:?}"),
             }
-            ControlServerMsg::HelloOk(hello_ok(separator))
-                .encode(&mut sock)
-                .unwrap();
+            ControlServerMsg::HelloOk(hello).encode(&mut sock).unwrap();
             sock.flush().unwrap();
             loop {
                 let (req_id, req) = match ControlClientMsg::read(&mut sock) {
@@ -1462,5 +1511,69 @@ mod tests {
             host_with_peer('/', |_| Some((ControlReply::Ok(ReplyOk::Unit), vec![])));
         let shared: SharedHost = host.into_shared();
         assert_eq!(shared.separator(), '/');
+    }
+
+    #[test]
+    fn a_peer_without_content_search_is_never_sent_the_request() {
+        let (host, seen) = host_with_peer('/', |req| {
+            panic!("an old peer was sent {req:?}");
+        });
+        let e = host
+            .search_content(
+                &[PathBuf::from("/p")],
+                &crate::host::ContentQuery {
+                    pattern: "x".into(),
+                    ..Default::default()
+                },
+                &crate::host::ContentLimits::default(),
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Unsupported);
+        assert!(
+            seen.recv_timeout(Duration::from_millis(200)).is_err(),
+            "nothing may reach a peer that cannot decode it"
+        );
+        assert!(host.is_connected(), "the link survives the refusal");
+    }
+
+    #[test]
+    fn a_peer_with_content_search_gets_one_request_carrying_the_query() {
+        let (host, seen) = host_with_peer_announcing(
+            '/',
+            &[crate::daemon::control::feature::CONTENT_SEARCH],
+            |_| {
+                Some((
+                    ControlReply::Ok(ReplyOk::ContentHits(ContentResults {
+                        hits: vec![],
+                        truncated: true,
+                        files_searched: 3,
+                    })),
+                    vec![],
+                ))
+            },
+        );
+        let query = crate::host::ContentQuery {
+            pattern: "needle".into(),
+            whole_word: true,
+            ..Default::default()
+        };
+        let found = host
+            .search_content(
+                &[PathBuf::from("/p")],
+                &query,
+                &crate::host::ContentLimits::default(),
+            )
+            .unwrap();
+        assert!(found.truncated);
+        assert_eq!(found.files_searched, 3);
+        match seen.recv().unwrap() {
+            ControlRequest::SearchContent {
+                roots, query: q, ..
+            } => {
+                assert_eq!(roots, vec!["/p".to_string()]);
+                assert_eq!(q, query);
+            }
+            other => panic!("expected SearchContent, got {other:?}"),
+        }
     }
 }

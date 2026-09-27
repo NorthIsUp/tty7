@@ -516,6 +516,11 @@ impl Tty7App {
     }
 
     pub(crate) fn set_right_panel_tab(&mut self, tab: RightPanelTab, cx: &mut Context<Self>) {
+        // Every way to the Search tab ends here, and none of them has a
+        // `Window` to move focus with; the tab takes it on its next frame.
+        if tab == RightPanelTab::Search {
+            self.panel_search.focus_pending = true;
+        }
         self.right_panel_tab = tab;
         self.right_panel_visible = true;
         self.update_config(cx, |cfg| {
@@ -593,15 +598,16 @@ impl Tty7App {
                         cx,
                     ))
                 }))
-                // Only the Files tab steps down 8px. Its first row is a filled
-                // search well whose top edge is the first thing you see, so it
-                // wants air under the tab row. Info and Source Control open on
+                // Only the Files and Search tabs step down 8px. Their first row
+                // is a filled search well whose top edge is the first thing you
+                // see, so it wants air under the tab row. Info and Source Control open on
                 // bare text centred in a 28px row, which already sits ~7px
                 // under the row's top; adding 8 more put their first line a
                 // visible step lower than the Files well beside them.
                 .children(
-                    (cfg!(target_os = "macos") && tab == RightPanelTab::Files)
-                        .then(|| div().flex_none().h(px(8.))),
+                    (cfg!(target_os = "macos")
+                        && matches!(tab, RightPanelTab::Files | RightPanelTab::Search))
+                    .then(|| div().flex_none().h(px(8.))),
                 )
                 .child(body)
                 .children(self.sftp_transfers_footer(cx))
