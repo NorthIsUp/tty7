@@ -221,11 +221,22 @@ mod tests {
     fn a_blank_variable_is_no_token_and_falls_through() {
         let mut f = Fake::new();
         f.vars.insert("GH_TOKEN", "   ");
-        f.files.push(PathBuf::from("/opt/homebrew/bin/gh"));
+        // A `gh` on PATH, spelled the way this platform spells it: the
+        // Homebrew fallbacks don't exist on Windows, so the test must not
+        // lean on them.
+        let path = if cfg!(windows) {
+            r"C:\fake\bin"
+        } else {
+            "/fake/bin"
+        };
+        f.vars.insert("PATH", path);
+        let gh = gh_candidates(Some(path)).remove(0);
+        f.files.push(gh.clone());
         f.gh_out = Some("gho_cli\n");
         let (token, source) = f.resolve().unwrap();
         assert_eq!(token.expose(), "gho_cli");
         assert_eq!(source, TokenSource::GhCli);
+        assert_eq!(*f.asked.borrow(), vec![gh]);
     }
 
     #[cfg(unix)]
