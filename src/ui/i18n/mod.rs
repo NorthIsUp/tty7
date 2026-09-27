@@ -900,6 +900,8 @@ l10n_keys! {
     PanelChangesTitle,
     PanelScmTitle,
     PanelFilesTitle,
+    PanelSearchTitle,
+    PanelGitHubTitle,
     PanelNoSession,
     PanelNoSessionHint,
     PanelNoWorkingDirectory,
@@ -1359,6 +1361,8 @@ l10n_keys! {
     CmdRightPanelInfo,
     CmdRightPanelChanges,
     CmdRightPanelFiles,
+    CmdRightPanelSearch,
+    CmdRightPanelGitHub,
     CmdChangeTheme,
     CmdResetFontSize,
     CmdEnterFullScreen,
@@ -1773,6 +1777,8 @@ mod tests {
             // The quick-launch rows, which the New Tab menu finds by typing
             // this one word into the palette in every locale.
             L10nKey::AppCmdAgentLaunchTitle,
+            // A product name, spelled the same in every language.
+            L10nKey::PanelGitHubTitle,
         ];
 
         for &key in KEPT_IN_ENGLISH {

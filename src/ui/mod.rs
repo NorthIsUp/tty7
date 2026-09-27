@@ -23,6 +23,8 @@ pub mod machine_mirror;
 pub mod notice;
 pub mod pane;
 pub mod pane_drag;
+pub mod panel_github;
+pub mod panel_search;
 pub mod path_display;
 pub mod pending_pane;
 pub mod perf;

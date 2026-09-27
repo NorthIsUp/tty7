@@ -618,11 +618,38 @@ pub(crate) fn chrome_tile(button: Button, selected: bool, cx: &gpui::App) -> But
     chrome_tile_sized(button, TILE_SIZE, TILE_GLYPH, selected, cx)
 }
 
-const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey); 3] = [
-    (RightPanelTab::Info, L10nKey::PanelInfoTitle),
-    (RightPanelTab::Scm, L10nKey::PanelChangesTitle),
-    (RightPanelTab::Files, L10nKey::PanelFilesTitle),
+/// The right panel's tabs, left to right: which pane, what its tooltip calls
+/// it, and the glyph the row draws for it.
+const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey, &str); 5] = [
+    (
+        RightPanelTab::Info,
+        L10nKey::PanelInfoTitle,
+        "icons/info.svg",
+    ),
+    (
+        RightPanelTab::Scm,
+        L10nKey::PanelChangesTitle,
+        "icons/git-branch.svg",
+    ),
+    (
+        RightPanelTab::Files,
+        L10nKey::PanelFilesTitle,
+        "icons/folder.svg",
+    ),
+    (
+        RightPanelTab::Search,
+        L10nKey::PanelSearchTitle,
+        "icons/search.svg",
+    ),
+    (
+        RightPanelTab::GitHub,
+        L10nKey::PanelGitHubTitle,
+        "icons/github.svg",
+    ),
 ];
+
+/// The glyph each tab draws, in px.
+const RIGHT_PANEL_TAB_ICON: f32 = 15.;
 
 fn right_panel_tab_size(window: &Window) -> f32 {
     window.rem_size().as_f32() * crate::ui::right_panel::TAB_TEXT
@@ -639,19 +666,10 @@ fn right_panel_tab_font(cx: &gpui::App) -> gpui::Font {
     }
 }
 
-/// What the three bare tab labels take, padding included, at the live
-/// interface size and language. The panel's floor is built on it, so a larger
-/// UI font widens the panel instead of pushing its chrome tiles off the edge.
-pub(crate) fn right_panel_tab_labels_w(window: &Window, cx: &gpui::App) -> f32 {
-    let size = right_panel_tab_size(window);
-    let font = right_panel_tab_font(cx);
-    RIGHT_PANEL_TABS
-        .iter()
-        .map(|(_, key)| {
-            measure_text(window.text_system(), &font, size, t(*key))
-                + 2. * (TAB_OUTER_PAD + TAB_INNER_PAD)
-        })
-        .sum()
+/// What the bare tab glyphs take, padding included. The panel's floor is
+/// built on it, so the chrome tiles beside them always fit.
+pub(crate) fn right_panel_tab_labels_w(_window: &Window, _cx: &gpui::App) -> f32 {
+    RIGHT_PANEL_TABS.len() as f32 * (RIGHT_PANEL_TAB_ICON + 2. * (TAB_OUTER_PAD + TAB_INNER_PAD))
 }
 
 /// Right panel tab geometry: each label's click target reaches half the 18px
@@ -1308,11 +1326,11 @@ impl Tty7App {
         let body_ink = cx.theme().foreground;
         RIGHT_PANEL_TABS
             .into_iter()
-            .map(|(tab, label_key)| {
+            .map(|(tab, label_key, icon)| {
                 let current = active_tab == tab;
-                // Words, not glyphs: three tabs is few enough to name, and a name
-                // is what a new user has to guess at when the tab is an icon. The
-                // current one is told apart by ink and weight alone — this is
+                // Glyphs, not words: five names do not fit the panel's 280px
+                // resting width, so each tab is an icon and says its name in a
+                // tooltip. The current one is told apart by ink alone — this is
                 // secondary navigation, not an action, so it gets neither a
                 // pill nor a bar.
                 let ink = match current {
@@ -1347,7 +1365,13 @@ impl Tty7App {
                             })
                             .text_color(ink)
                             .hover(move |s| s.text_color(body_ink))
-                            .child(div().flex_shrink_0().child(t(label_key)))
+                            .child(
+                                gpui::svg()
+                                    .flex_shrink_0()
+                                    .path(icon)
+                                    .size(px(RIGHT_PANEL_TAB_ICON))
+                                    .text_color(ink),
+                            )
                             .when_some(count, |row, n| {
                                 row.child(
                                     div()
@@ -1358,6 +1382,7 @@ impl Tty7App {
                                 )
                             }),
                     )
+                    .tooltip(move |window, cx| Tooltip::new(t(label_key)).build(window, cx))
                     // Another tab switches to it; the current one puts the panel
                     // away, the way an activity bar behaves everywhere else.
                     // (These only exist while the panel is open, so

@@ -1153,6 +1153,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelChangesTitle => "Changes",
         L10nKey::PanelScmTitle => "Changes",
         L10nKey::PanelFilesTitle => "Files",
+        L10nKey::PanelSearchTitle => "Search",
+        L10nKey::PanelGitHubTitle => "GitHub",
         L10nKey::PanelNoSession => "No active session.",
         L10nKey::PanelNoSessionHint => {
             "Open a tab to see its shell, directory, and processes here."
@@ -1598,6 +1600,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdRightPanelInfo => "Right Panel: Info",
         L10nKey::CmdRightPanelChanges => "Right Panel: Changes",
         L10nKey::CmdRightPanelFiles => "Right Panel: Files",
+        L10nKey::CmdRightPanelSearch => "Right Panel: Search",
+        L10nKey::CmdRightPanelGitHub => "Right Panel: GitHub",
         L10nKey::CmdChangeTheme => "Change Theme…",
         L10nKey::CmdResetFontSize => "Reset Font Size",
         L10nKey::CmdEnterFullScreen => "Enter Full Screen",

@@ -194,6 +194,8 @@ impl CommandKind {
             // even though the panel is now called Source Control.
             ShowRightPanel(RightPanelTab::Scm) => "right-panel-changes",
             ShowRightPanel(RightPanelTab::Files) => "right-panel-files",
+            ShowRightPanel(RightPanelTab::Search) => "right-panel-search",
+            ShowRightPanel(RightPanelTab::GitHub) => "right-panel-github",
             ClearTerminal => "clear-scrollback",
             FindInTerminal => "find",
             FindNext => "find-next",
@@ -320,6 +322,8 @@ impl CommandKind {
                 RightPanelTab::Info => "ShowRightPanelInfo",
                 RightPanelTab::Scm => "ShowRightPanelChanges",
                 RightPanelTab::Files => "ShowRightPanelFiles",
+                RightPanelTab::Search => "ShowRightPanelSearch",
+                RightPanelTab::GitHub => "ShowRightPanelGitHub",
             },
             ClearTerminal => "ClearScrollback",
             FindInTerminal => "FindInTerminal",
@@ -638,6 +642,14 @@ impl Item {
                 L10nKey::CmdRightPanelFiles,
                 ShowRightPanel(RightPanelTab::Files),
             ),
+            Item::localized(
+                L10nKey::CmdRightPanelSearch,
+                ShowRightPanel(RightPanelTab::Search),
+            ),
+            Item::localized(
+                L10nKey::CmdRightPanelGitHub,
+                ShowRightPanel(RightPanelTab::GitHub),
+            ),
             Item::localized(L10nKey::CmdChangeTheme, OpenThemePicker),
             Item::localized(L10nKey::CmdResetFontSize, ResetFontSize),
             Item::localized(L10nKey::CmdEnterFullScreen, ToggleFullscreen),
@@ -792,6 +804,8 @@ mod tests {
             CommandKind::Quit,
             CommandKind::ShowRightPanel(RightPanelTab::Info),
             CommandKind::ShowRightPanel(RightPanelTab::Files),
+            CommandKind::ShowRightPanel(RightPanelTab::Search),
+            CommandKind::ShowRightPanel(RightPanelTab::GitHub),
         ] {
             let id = kind.id().expect("static command has an id");
             assert!(seen.insert(id), "duplicate command id {id:?}");

@@ -1197,6 +1197,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelChangesTitle => "変更",
         L10nKey::PanelScmTitle => "変更",
         L10nKey::PanelFilesTitle => "ファイル",
+        L10nKey::PanelSearchTitle => "検索",
+        L10nKey::PanelGitHubTitle => "GitHub",
         L10nKey::PanelNoSession => "アクティブなセッションがありません",
         L10nKey::PanelNoSessionHint => {
             "タブを開くと、そのシェル、ディレクトリ、プロセスがここに表示されます"
@@ -1639,6 +1641,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRightPanelInfo => "右パネル: 情報",
         L10nKey::CmdRightPanelChanges => "右パネル: 変更",
         L10nKey::CmdRightPanelFiles => "右パネル: ファイル",
+        L10nKey::CmdRightPanelSearch => "右パネル: 検索",
+        L10nKey::CmdRightPanelGitHub => "右パネル: GitHub",
         L10nKey::CmdChangeTheme => "テーマを変更…",
         L10nKey::CmdResetFontSize => "フォントサイズをリセット",
         L10nKey::CmdEnterFullScreen => "全画面表示",

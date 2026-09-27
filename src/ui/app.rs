@@ -9061,6 +9061,12 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &ShowRightPanelFiles, _window, cx| {
                     this.set_right_panel_tab(crate::core::config::RightPanelTab::Files, cx)
                 }))
+                .on_action(cx.listener(|this, _: &ShowRightPanelSearch, _window, cx| {
+                    this.set_right_panel_tab(crate::core::config::RightPanelTab::Search, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShowRightPanelGitHub, _window, cx| {
+                    this.set_right_panel_tab(crate::core::config::RightPanelTab::GitHub, cx)
+                }))
                 .on_action(
                     cx.listener(|this, _: &ScmToggleGraph, _window, cx| this.scm_toggle_graph(cx)),
                 )

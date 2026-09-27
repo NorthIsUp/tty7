@@ -547,6 +547,8 @@ impl Tty7App {
             RightPanelTab::Info => self.render_panel_info(window, cx),
             RightPanelTab::Scm => self.render_panel_scm(window, cx),
             RightPanelTab::Files => self.render_panel_files(window, cx),
+            RightPanelTab::Search => self.render_panel_search(window, cx),
+            RightPanelTab::GitHub => self.render_panel_github(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(window, cx);
 

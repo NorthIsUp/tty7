@@ -1511,13 +1511,18 @@ pub enum RightPanelTab {
     /// The source control panel. Renamed from `Changes` in place rather than
     /// added alongside it: `rename` works in both directions, so a config
     /// written by this version still says `"changes"` and an older build reads
-    /// it back unchanged. A fourth variant could not do that — the old build
-    /// would fall through `de_lenient` to `Info` and kick anyone who rolled
-    /// back off the panel they were sitting on. 260px has no room for a fourth
-    /// tab tile either.
+    /// it back unchanged.
     #[serde(rename = "changes", alias = "scm", alias = "git")]
     Scm,
     Files,
+    /// Project-wide content search. Added as a tab of its own, which costs a
+    /// rolled-back build one thing: it does not know `"search"`, falls through
+    /// `de_lenient` to `Info`, and opens there. Nothing else is lost.
+    Search,
+    /// The bound GitHub repository's issues and pull requests. Same rollback
+    /// cost as `Search`.
+    #[serde(rename = "github")]
+    GitHub,
 }
 
 /// What opens when a file link in the grid is clicked.
