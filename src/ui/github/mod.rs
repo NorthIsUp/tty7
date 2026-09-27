@@ -39,6 +39,11 @@ use crate::ui::scm::state::RepoKey;
 /// How old a cached list or detail may get before a render revalidates it.
 pub(crate) const STALE_AFTER: Duration = Duration::from_secs(120);
 
+/// How far a list reads on by itself through pages that filter down to
+/// nothing (a pull-request-heavy repository's `/issues`), before it leaves
+/// the rest to "load more".
+const EMPTY_PAGES_FOLLOWED: u32 = 5;
+
 /// A transport, signed in or not.
 #[derive(Clone)]
 pub(crate) struct Connection {
@@ -297,6 +302,7 @@ impl Tty7App {
                 };
                 entry.loading = false;
                 entry.loaded = true;
+                let mut follow = None;
                 match result {
                     Ok(got) => {
                         let items = if page <= 1 {
@@ -313,6 +319,12 @@ impl Tty7App {
                             }
                             items
                         };
+                        // Nothing of this kind on the pages read so far, but
+                        // more pages: read on (a few, not the whole history)
+                        // rather than say the repository has none.
+                        if items.is_empty() && page < EMPTY_PAGES_FOLLOWED {
+                            follow = got.next_page;
+                        }
                         entry.items = Arc::new(items);
                         entry.next_page = got.next_page;
                         entry.error = None;
@@ -322,6 +334,9 @@ impl Tty7App {
                         log::warn!("github: listing {}: {e}", q.slug.full());
                         entry.error = Some(e);
                     }
+                }
+                if let Some(next) = follow {
+                    this.github_fetch_list(q.clone(), next, cx);
                 }
                 cx.notify();
             });

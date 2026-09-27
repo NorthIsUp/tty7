@@ -235,10 +235,16 @@ impl Tty7App {
         // Until the answer for this query arrives, the last one stays on
         // screen under a "Searching…" summary rather than blinking out on
         // every keystroke. A state with no hits to keep says "Searching…" on
-        // its own.
+        // its own. Only hits from the same host are kept: a row opens its
+        // path on the active host, so another machine's hits would open the
+        // wrong file (or none) there.
         let Some(landed) = run.landed().filter(|l| Some(&l.key) == run.wanted()) else {
             return match run.landed() {
-                Some(l) if matches!(l.outcome, Outcome::Found(_)) && !l.groups.is_empty() => {
+                Some(l)
+                    if matches!(l.outcome, Outcome::Found(_))
+                        && !l.groups.is_empty()
+                        && run.wanted().is_some_and(|w| w.host == l.key.host) =>
+                {
                     Body::Results
                 }
                 _ => Body::Searching,

@@ -375,7 +375,9 @@ impl Tty7App {
             let (text, hint) = describe_error(err, authenticated);
             body = body.child(self.panel_empty(&text, hint.as_deref(), cx));
         }
-        if items.is_empty() {
+        // An empty page with more behind it is not "no issues": `/issues`
+        // pages filtered to one kind can come back empty (see `api::list`).
+        if items.is_empty() && next_page.is_none() {
             if error.is_none() {
                 let text = if loaded && !loading {
                     match query.kind {
