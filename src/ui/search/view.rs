@@ -343,6 +343,9 @@ pub struct SearchView {
     /// Preset index the theme picker is currently previewing, so the same
     /// theme is not re-applied on every redundant selection event.
     previewing: Option<usize>,
+    /// How many session lists have arrived since the search opened. A test
+    /// waits on it: the scan runs on a real thread and lands when it lands.
+    sessions_landed: usize,
     _sub: Subscription,
 }
 
@@ -373,6 +376,7 @@ impl SearchView {
             tab,
             parked_query: None,
             previewing: None,
+            sessions_landed: 0,
             _sub,
         }
     }
@@ -459,6 +463,7 @@ impl SearchView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sessions_landed += 1;
         let mut catalog = (*self.catalog).clone();
         catalog.sessions = sessions;
         catalog.sessions_here = here;
@@ -1027,9 +1032,18 @@ mod tests {
         app.update_in(&mut vcx, |app, window, cx| {
             app.open_search(SearchTab::Sessions, "", window, cx)
         });
-        // Whatever this machine's own scan finds lands first, and is replaced.
-        vcx.run_until_parked();
+        // This machine's own scan runs on a real thread. Let it land before
+        // replacing what it found, or it lands afterwards and replaces ours.
         let view = open(&app, &mut vcx);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while view.read_with(&vcx, |view, _| view.sessions_landed) == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the scan never landed"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            vcx.run_until_parked();
+        }
         view.update_in(&mut vcx, |view, window, cx| {
             view.set_sessions(vec![past_session("a"), past_session("b")], 0, window, cx)
         });
@@ -1048,7 +1062,7 @@ mod tests {
             },
             CommandKind::CopySessionId("a".into()),
         ] {
-            assert!(actions.contains(&wanted), "{wanted:?} in {actions:?}");
+            assert!(actions.contains(&wanted));
         }
 
         vcx.simulate_input("remove");
@@ -1065,7 +1079,7 @@ mod tests {
             );
         });
         let left = row_kinds(&view, &mut vcx);
-        assert_eq!(left.len(), 1, "{left:?}");
+        assert_eq!(left.len(), 1);
         assert!(
             matches!(&left[0], CommandKind::ResumeSession { session_id, .. } if session_id == "b")
         );
