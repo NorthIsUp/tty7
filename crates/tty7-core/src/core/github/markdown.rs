@@ -148,7 +148,7 @@ fn sanitize_text(text: &str, image_label: &str, own_block: bool) -> String {
             && let Some((alt, url, len)) = inline_image(rest)
             && is_github_hosted(url)
         {
-            out.push_str(&image(alt, url));
+            out.push_str(&image(alt, &escape_destination(url)));
             i += len;
             continue;
         }
@@ -179,7 +179,18 @@ fn sanitize_text(text: &str, image_label: &str, own_block: bool) -> String {
             };
             out.push_str(&target[..lead]);
             if is_safe_target(url) {
-                out.push_str(&body[..len.min(body.len())]);
+                // Copied, not scanned, so nothing in it may read as markup
+                // of its own: were the parser to end the link elsewhere
+                // (an unbalanced `(`, a title left open), a `![…](…)` or a
+                // tag inside the URL would come alive unsanitized.
+                let pointy = body.starts_with('<');
+                if pointy {
+                    out.push('<');
+                }
+                out.push_str(&neutralize_markup(url));
+                if pointy && len <= body.len() && body[..len].ends_with('>') {
+                    out.push('>');
+                }
             } else {
                 out.push('#');
             }
@@ -188,7 +199,7 @@ fn sanitize_text(text: &str, image_label: &str, own_block: bool) -> String {
         }
         if rest.starts_with('<') {
             // `<img …>` → a link to what it would have loaded.
-            if starts_with_tag(rest, "img") {
+            if starts_with_tag(rest, "img") || starts_with_tag(rest, "image") {
                 let end = rest.find('>').map_or(rest.len(), |e| e + 1);
                 let tag = &rest[..end];
                 let src = attr(tag, "src").unwrap_or_default();
@@ -196,9 +207,9 @@ fn sanitize_text(text: &str, image_label: &str, own_block: bool) -> String {
                 let label = alt.as_deref().unwrap_or(image_label);
                 let label = label.replace(['[', ']'], "");
                 if is_github_hosted(&src) {
-                    out.push_str(&image(&label, &src.replace(' ', "%20")));
+                    out.push_str(&image(&label, &escape_destination(&src)));
                 } else if is_safe_target(&src) && !src.is_empty() {
-                    out.push_str(&format!("[{label}]({})", src.replace(' ', "%20")));
+                    out.push_str(&format!("[{label}]({})", escape_destination(&src)));
                 } else {
                     out.push_str(&format!("[{label}](#)"));
                 }
@@ -287,7 +298,7 @@ fn attr(tag: &str, name: &str) -> Option<String> {
         let before_ok = lower[..at]
             .chars()
             .last()
-            .is_some_and(|c| c.is_whitespace());
+            .is_some_and(|c| c.is_whitespace() || c == '/');
         let after = lower[from..].trim_start();
         if !before_ok || !after.starts_with('=') {
             continue;
@@ -395,9 +406,17 @@ pub fn is_github_hosted(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
-    // Userinfo or a port would make the "host" above something else.
-    if host.contains(['@', ':']) {
+    // The authority ends at the first of these for a URL parser (`\\` counts
+    // as `/` in an `https` URL), so `https://evil.io?.githubusercontent.com`
+    // is evil.io.
+    let (host, path) = rest.split_at(rest.find(['/', '?', '#', '\\']).unwrap_or(rest.len()));
+    // Only plain DNS characters: userinfo, a port, an entity or a percent
+    // escape would each make the "host" above something else.
+    if host.is_empty()
+        || !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    {
         return false;
     }
     let host = host.to_ascii_lowercase();
@@ -417,15 +436,169 @@ pub fn is_github_hosted(url: &str) -> bool {
 /// Relative targets and fragments carry no scheme and so cannot name a program;
 /// they are kept. Whitespace and control characters are stripped first, the
 /// way a browser does, so ` jav\tascript:` is judged as `javascript:`.
+///
+/// Character references are decoded before judging too — both the Markdown
+/// and the HTML parser decode them in a URL, so `file&#58;///x` is `file:///x`
+/// by the time it is opened. An `&` still standing before the path, after
+/// that, is a reference this decoder does not know, and is not guessed at.
 pub fn is_safe_target(url: &str) -> bool {
-    let cleaned: String = url
-        .chars()
-        .filter(|c| !c.is_whitespace() && !c.is_control())
-        .collect();
-    match scheme(&cleaned) {
-        None => !cleaned.contains(':') || cleaned.starts_with(['/', '#', '?', '.']),
-        Some(s) => matches!(s.to_ascii_lowercase().as_str(), "http" | "https" | "mailto"),
+    let judge = |url: &str| {
+        let cleaned: String = url
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_control())
+            .collect();
+        let head = &cleaned[..cleaned.find(['/', '?', '#']).unwrap_or(cleaned.len())];
+        if head.contains('&') {
+            return false;
+        }
+        match scheme(&cleaned) {
+            None => !cleaned.contains(':') || cleaned.starts_with(['/', '#', '?', '.']),
+            Some(s) => matches!(s.to_ascii_lowercase().as_str(), "http" | "https" | "mailto"),
+        }
+    };
+    judge(&decode_char_refs(url))
+}
+
+/// Decode the character references a parser would decode in a URL: numeric
+/// ones (with or without the `;`, as HTML allows) and the few named ones that
+/// spell URL syntax or whitespace. Anything else is left as written.
+fn decode_char_refs(s: &str) -> String {
+    const NAMED: [(&str, char); 10] = [
+        ("colon", ':'),
+        ("Tab", '\t'),
+        ("NewLine", '\n'),
+        ("sol", '/'),
+        ("quest", '?'),
+        ("num", '#'),
+        ("period", '.'),
+        ("amp", '&'),
+        ("lpar", '('),
+        ("rpar", ')'),
+    ];
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 1..];
+        if let Some(num) = tail.strip_prefix('#') {
+            let (hex, digits) = match num.strip_prefix(['x', 'X']) {
+                Some(h) => (true, h),
+                None => (false, num),
+            };
+            let n = digits
+                .find(|c: char| {
+                    !(if hex {
+                        c.is_ascii_hexdigit()
+                    } else {
+                        c.is_ascii_digit()
+                    })
+                })
+                .unwrap_or(digits.len());
+            if n > 0 {
+                let ch = u32::from_str_radix(&digits[..n], if hex { 16 } else { 10 })
+                    .ok()
+                    .and_then(char::from_u32)
+                    .unwrap_or('\u{FFFD}');
+                out.push(ch);
+                let mut used = 1 + usize::from(hex) + n;
+                if tail[used..].starts_with(';') {
+                    used += 1;
+                }
+                rest = &tail[used..];
+                continue;
+            }
+        } else {
+            let n = tail
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(tail.len());
+            if tail[n..].starts_with(';')
+                && let Some((_, ch)) = NAMED.iter().find(|(name, _)| *name == &tail[..n])
+            {
+                out.push(*ch);
+                rest = &tail[n + 1..];
+                continue;
+            }
+        }
+        out.push('&');
+        rest = tail;
     }
+    out.push_str(rest);
+    out
+}
+
+/// `url` percent-encoded where Markdown would read it as syntax — the link's
+/// own end, a nested image or link, a tag, an escape, a code span — for
+/// writing as an inline link's destination.
+fn escape_destination(url: &str) -> String {
+    let mut out = String::with_capacity(url.len());
+    for c in url.chars() {
+        match c {
+            ' ' | '(' | ')' | '<' | '>' | '[' | ']' | '\\' | '`' | '"' | '\'' => {
+                out.push_str(&format!("%{:02X}", c as u32));
+            }
+            c if c.is_whitespace() || c.is_control() => {
+                let mut buf = [0u8; 4];
+                for b in c.encode_utf8(&mut buf).bytes() {
+                    out.push_str(&format!("%{b:02X}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// [`escape_destination`]'s lighter cousin for a destination copied from the
+/// source as written: only what could open markup of its own is encoded, so
+/// a URL with balanced parentheses (`…/Foo_(bar)`) still reads the same.
+fn neutralize_markup(url: &str) -> String {
+    let mut out = String::with_capacity(url.len());
+    for c in url.chars() {
+        match c {
+            '<' | '>' | '[' | ']' => out.push_str(&format!("%{:02X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Whether a fragment of raw HTML, as the Markdown parser hands it over, is
+/// one [`sanitize`] could have produced: no `<img>` (every one is rewritten
+/// into Markdown, and the HTML parser reads `<image>` as `<img>`), and every
+/// `href`/`src` a target [`is_safe_target`] allows.
+///
+/// For checking what the parser actually saw, after the fact — the rewrite is
+/// line-based, and a construct it reads differently from the parser (a code
+/// span that is really inside a tag, a fence the parser does not accept)
+/// would otherwise slip through.
+pub fn html_is_safe(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    if lower.contains("<img") || lower.contains("<image") {
+        return false;
+    }
+    for name in ["href", "src"] {
+        let mut from = 0;
+        while let Some(pos) = lower[from..].find(name) {
+            let at = from + pos;
+            from = at + name.len();
+            let after = &html[from..];
+            let Some(value) = after.trim_start().strip_prefix('=') else {
+                continue;
+            };
+            let value = value.trim_start();
+            let value = match value.chars().next() {
+                Some(q @ ('"' | '\'')) => value[1..].split(q).next().unwrap_or(""),
+                _ => value
+                    .split(|c: char| c.is_whitespace() || c == '>')
+                    .next()
+                    .unwrap_or(""),
+            };
+            if !is_safe_target(value) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -567,6 +740,83 @@ mod tests {
         assert!(is_safe_target("HTTPS://x.io"));
         assert!(is_safe_target("./a:b"));
         assert!(is_safe_target("/abs/path"));
+    }
+
+    #[test]
+    fn a_host_is_what_a_url_parser_would_call_the_host() {
+        for no in [
+            "https://evil.io?.githubusercontent.com/a.png",
+            "https://evil.io#.githubusercontent.com/a.png",
+            "https://evil.io\\.githubusercontent.com/a.png",
+            "https://evil.io&#47;.githubusercontent.com/a.png",
+            "https://evil.io%2F.githubusercontent.com/a.png",
+            "https://x.githubusercontent.com:8443/a.png",
+        ] {
+            assert!(!is_github_hosted(no), "{no}");
+        }
+        assert!(is_github_hosted(
+            "https://camo.githubusercontent.com/abc?x=1#y"
+        ));
+    }
+
+    #[test]
+    fn an_image_url_cannot_smuggle_a_second_image() {
+        // `)` in an attribute value would close the Markdown image early and
+        // open a new one from the rest of the value.
+        let out = s(r#"<img src="https://x.githubusercontent.com/a)![](https://evil.io/p.png">"#);
+        assert!(!out.contains("![](https://evil"), "{out}");
+        assert!(out.contains("/a%29!%5B%5D%28https://evil.io"), "{out}");
+        // A kept link target cannot hide an image in itself either.
+        let out = s("[x](https://ok.io/![b](https://evil.io/p.png) \"open title");
+        assert!(!out.contains("![b]"), "{out}");
+    }
+
+    #[test]
+    fn the_html_parsers_image_alias_is_an_image_too() {
+        assert_eq!(
+            s(r#"<image src="https://x.io/a.png">"#),
+            "[image](https://x.io/a.png)"
+        );
+        assert_eq!(
+            s("<IMAGE SRC=https://x.io/a.png>"),
+            "[image](https://x.io/a.png)"
+        );
+    }
+
+    #[test]
+    fn character_references_do_not_disguise_a_scheme() {
+        for no in [
+            "file&#58;///System/Applications/Calculator.app",
+            "file&#x3A;///x",
+            "file&#x3a///x",
+            "file&colon;///x",
+            "jav&Tab;ascript:alert(1)",
+            "&#x66;ile:///x",
+            "&unknown;:x",
+        ] {
+            assert!(!is_safe_target(no), "{no}");
+        }
+        assert!(is_safe_target("https://x.io/?a=1&b=2"));
+        assert!(is_safe_target("https://x.io/a&amp;b"));
+        assert_eq!(
+            s("[x](file&#58;///System/Applications/Calculator.app)"),
+            "[x](#)"
+        );
+        assert_eq!(
+            s(r#"<a href="file&#58;///x">x</a>"#),
+            r##"<a href="#">x</a>"##
+        );
+    }
+
+    #[test]
+    fn html_left_standing_is_checked_as_the_parser_sees_it() {
+        assert!(html_is_safe(r#"<a href="https://ok.io">"#));
+        assert!(html_is_safe("<details><summary>x</summary>"));
+        assert!(!html_is_safe(r#"<img src="https://x.io/a.png">"#));
+        assert!(!html_is_safe(r#"<IMAGE src="https://x.io/a.png">"#));
+        assert!(!html_is_safe(r#"<a href='file:///x'>"#));
+        assert!(!html_is_safe(r#"<a/href=file:///x>"#));
+        assert!(!html_is_safe(r#"<a href="file&#58;///x">"#));
     }
 
     #[test]

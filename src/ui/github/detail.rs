@@ -507,9 +507,51 @@ fn markdown_block(id: String, source: &str, empty: &str, cx: &gpui::App) -> AnyE
         .child(
             gpui_component::text::TextView::markdown(SharedString::from(id), safe)
                 .style(panel_markdown_style(cx))
-                .selectable(true),
+                .selectable(true)
+                // The rewrite above works on lines of source; this checks what
+                // the parser actually made of them. A block holding anything
+                // the rewrite should have removed is drawn as its plain source
+                // instead, so a construct the two read differently can never
+                // load a third-party image or hand the OS a `file:` link.
+                .markdown_block_parser(|node, parse| {
+                    (!renders_safely(node)).then(|| {
+                        let text = parse.node_source(node).unwrap_or_default().to_string();
+                        gpui_component::text::MarkdownNode::new(UNSAFE_BLOCK, text.clone())
+                            .text(text)
+                    })
+                })
+                .markdown_block_renderer(UNSAFE_BLOCK, |node, _window, cx| {
+                    div()
+                        .text_color(cx.theme().muted_foreground)
+                        .whitespace_normal()
+                        .child(node.data::<String>().cloned().unwrap_or_default())
+                }),
         )
         .into_any_element()
+}
+
+/// The custom block a Markdown block that failed [`renders_safely`] becomes.
+const UNSAFE_BLOCK: &str = "tty7-github-unsafe-block";
+
+/// Whether `node` and everything under it is what
+/// `core::github::markdown::sanitize` promises: images only from GitHub's own
+/// hosts, links (and link definitions) only to web and mail targets, and raw
+/// HTML with no `<img>` or unsafe `href`/`src`.
+fn renders_safely(node: &gpui_component::text::markdown_ast::Node) -> bool {
+    use gpui_component::text::markdown_ast::Node;
+    use tty7_core::core::github::markdown::{html_is_safe, is_github_hosted, is_safe_target};
+    let here = match node {
+        Node::Image(image) => is_github_hosted(&image.url),
+        // Never written by the rewrite (it makes every `![…][…]` a link).
+        Node::ImageReference(_) => false,
+        Node::Link(link) => is_safe_target(&link.url),
+        Node::Definition(def) => is_safe_target(&def.url),
+        Node::Html(html) => html_is_safe(&html.value),
+        _ => true,
+    };
+    here && node
+        .children()
+        .is_none_or(|children| children.iter().all(renders_safely))
 }
 
 #[allow(clippy::too_many_arguments)]
