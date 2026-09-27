@@ -114,7 +114,7 @@ impl Tty7App {
 
         // The rows, in the palette's groups.
         let mut grouped: Vec<(
-            crate::ui::palette::CommandGroup,
+            crate::ui::search::CommandGroup,
             Vec<(String, Vec<String>, String)>,
         )> = Vec::new();
         for (action, keys) in effective {
@@ -131,7 +131,7 @@ impl Tty7App {
             }
         }
         grouped.sort_by_key(|(g, _)| {
-            crate::ui::palette::CommandGroup::ORDER
+            crate::ui::search::CommandGroup::ORDER
                 .iter()
                 .position(|o| o == g)
                 .unwrap_or(usize::MAX)

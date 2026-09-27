@@ -94,8 +94,27 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchThemes => "テーマを検索…",
         L10nKey::SearchSettings => "設定を検索…",
         L10nKey::FilterHosts => "ホストを絞り込み…",
-        L10nKey::SearchCommandsOrHost => "コマンドを検索するか、user@host を入力して接続…",
         L10nKey::SearchTheme => "検索…",
+        L10nKey::SearchTabAll => "すべて",
+        L10nKey::SearchTabActions => "アクション",
+        L10nKey::SearchTabTerminals => "ターミナル",
+        L10nKey::SearchTabHosts => "ホスト",
+        L10nKey::SearchPlaceholderAll => "アクション、ターミナル、ホストを検索…",
+        L10nKey::SearchPlaceholderActions => "アクションを検索…",
+        L10nKey::SearchPlaceholderTerminals => "開いているタブ、シェル、エージェントを検索…",
+        L10nKey::SearchPlaceholderHosts => "ホストを検索、または user@host を入力して接続…",
+        L10nKey::SearchTabSessions => "セッション",
+        L10nKey::SearchPlaceholderSessions => "過去のエージェントセッションを検索…",
+        L10nKey::SearchSessionsEmptyHint => {
+            "このコンピューター上の Claude Code と Codex のセッションがここに表示されます。"
+        }
+        L10nKey::SearchSectionSessionsHere => "{dir} 内",
+        L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::AppSessionNotResumable => "{name} は ID によるセッション再開に対応していません。",
+        L10nKey::AppSessionDirectoryGone => "セッションのディレクトリが存在しません: {path}",
+        L10nKey::SearchMoreIn => "{tab} にさらに {count} 件",
+        L10nKey::SearchNoResults => "結果がありません",
+        L10nKey::SearchSectionNewTerminal => "新しいターミナル",
         L10nKey::SearchWorkspacesAndMachines => "ワークスペース、タブ、マシンを検索…",
         L10nKey::SearchFonts => "フォントを検索…",
         L10nKey::SearchFind => "検索…",
@@ -106,7 +125,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::HomeNewTab => "新規タブ",
         L10nKey::HomeReopenClosedTab => "閉じたタブをもう一度開く",
         L10nKey::HomeSwitchWorkspace => "ワークスペースを切り替える…",
-        L10nKey::HomeCommandPalette => "コマンドパレット…",
+        L10nKey::HomeSearchEverywhere => "どこでも検索…",
         L10nKey::HomeSplitRight => "右に分割",
         L10nKey::HomeSplitDown => "下に分割",
         L10nKey::HomeSettings => "設定…",
@@ -117,7 +136,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::Refreshing => "更新中…",
         L10nKey::Binary => "バイナリファイル",
         L10nKey::Delete => "削除",
-        L10nKey::NoMatchingCommands => "一致するコマンドがありません",
         L10nKey::ConnectSshHint => "SSH で接続するには user@host を入力してください",
         L10nKey::EditHint => "編集",
         L10nKey::OpenFileFromTree => "ファイルツリーからファイルを開く",
@@ -198,6 +216,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsCursor => "カーソル",
         L10nKey::SettingsCursorShape => "カーソルの形状",
         L10nKey::SettingsCursorShapeDesc => "ターミナルカーソルの描画方法",
+        L10nKey::SettingsPromptCursorShape => "プロンプトのカーソル形状",
+        L10nKey::SettingsPromptCursorShapeDesc => {
+            "シェルプロンプトでのカーソル。「追従」は上のカーソル形状をどこでも使う"
+        }
         L10nKey::SettingsCursorBlink => "カーソルの点滅",
         L10nKey::SettingsCursorBlinkDesc => {
             "ターミナルがフォーカスされている間、カーソルを点滅させる"
@@ -622,10 +644,19 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsTabBarPositionDesc => {
             "タブを上部の横一列または左側の縦サイドバーとして表示"
         }
-        L10nKey::SettingsSidebarGrouping => "サイドバーのグループ化",
-        L10nKey::SettingsSidebarGroupingDesc => "git リポジトリごとにまとめ、他はスクラッチへ",
+        L10nKey::SettingsSidebarGrouping => "自動グループ化",
+        L10nKey::SettingsSidebarGroupingDesc => {
+            "固定していないタブを git リポジトリごと、SSH タブをホストごとにまとめます"
+        }
         L10nKey::SettingsDiffPreviewFromCounts => "サイドバーのカウントから Diff プレビューを開く",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "行の +N −N をクリックして Diff を開きます",
+        L10nKey::SettingsSshTabTitle => "SSH タブのタイトル",
+        L10nKey::SettingsSshTabTitleDesc => {
+            "「動的」はリモートのタイトルに従い、ほかはホストに固定します"
+        }
+        L10nKey::SettingsSshTabTitleDynamic => "動的",
+        L10nKey::SettingsSshTabTitleProfileName => "プロファイル名",
+        L10nKey::SettingsSshTabTitleHostname => "ホスト名",
         L10nKey::DocumentDock => "ターミナルの隣にドック",
         L10nKey::DocumentFill => "ウィンドウ全体",
         L10nKey::SettingsNotifications => "通知",
@@ -646,9 +677,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAtEnd => "末尾",
         L10nKey::SettingsTop => "上部",
         L10nKey::SettingsLeft => "左側",
-        L10nKey::SettingsByRepo => "リポジトリ別",
-        L10nKey::SettingsByRepoOrFolder => "リポジトリ／フォルダ別",
-        L10nKey::SettingsFlat => "フラット表示",
         L10nKey::SettingsPreset => "プリセット",
         L10nKey::SettingsPresetDesc => "tmux はペイン・タブ操作をプレフィックスキーに（Ctrl-B C）",
         L10nKey::SettingsPrefix => "プレフィックスキー",
@@ -793,6 +821,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentCrush => "Crush",
         L10nKey::SettingsAgentCodeBuddy => "CodeBuddy",
         L10nKey::SettingsAgentCursorCli => "Cursor CLI",
+        L10nKey::SettingsAgentPrimeAgent => "Prime Agent",
+        L10nKey::SettingsAgentAntigravity => "Antigravity",
         L10nKey::SettingsSearchAboutKeywords => {
             "バージョン ライセンス クレジット ビルド 更新 確認 github about version license credits update check"
         }
@@ -840,6 +870,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchCursorShapeKeywords => {
             "カーソル 形状 ブロック バー アンダーライン ビーム cursor shape caret block bar underline beam"
+        }
+        L10nKey::SettingsSearchPromptCursorShapeKeywords => {
+            "プロンプト カーソル 形状 ブロック バー 下線 prompt cursor shape caret block bar underline beam"
         }
         L10nKey::SettingsSearchCustomThemesKeywords => {
             "テーマ 複製 編集 色 フォルダ 背景画像 壁紙 yaml インポート custom themes duplicate edit colors folder import background image wallpaper"
@@ -945,6 +978,12 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchCursorCliKeywords => {
             "エージェント 統合 フック インストール cursor cursor-agent agent integration hooks install"
         }
+        L10nKey::SettingsSearchPrimeAgentKeywords => {
+            "エージェント 統合 拡張 インストール prime prime-agent primeintellect agent integration extension install"
+        }
+        L10nKey::SettingsSearchAntigravityKeywords => {
+            "エージェント 統合 フック インストール antigravity agy google agent integration hooks install"
+        }
         L10nKey::SettingsSearchPiKeywords => {
             "エージェント 統合 拡張 インストール pi agent integration extension install"
         }
@@ -985,7 +1024,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "トレイ メニューバー ステータス アイコン エージェント 通知 システム tray icon menu bar status system attention"
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
-            "タブ グループ リポジトリ git スクラッチ ヘッダー サイドバー フラット フォルダ ディレクトリ sidebar grouping tabs repo repository git scratch header flat folder directory"
+            "タブ グループ 自動 リポジトリ git ssh ホスト 固定 未分類 サイドバー sidebar auto grouping tabs repo repository pinned pin host ungrouped"
+        }
+        L10nKey::SettingsSearchSshTabTitleKeywords => {
+            "SSH タブ タイトル 名前 ホスト ホスト名 プロファイル エイリアス 固定 ssh tab title name host hostname profile alias pin"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "ダブルクリック 単語 url パス 選択 セマンティック 括弧 メール smart selection double click word url path bracket email"
@@ -1069,6 +1111,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshEditProfile => "接続を編集…",
         L10nKey::ForwardTooltipAdd => "フォワードを追加",
         L10nKey::ForwardTooltipRemove => "削除",
+        L10nKey::ForwardTooltipTurnOn => "オンにする",
+        L10nKey::ForwardTooltipTurnOff => "オフにする — ルールは残ります",
+        L10nKey::ForwardSwitchFailed => "フォワードを切り替えられませんでした — {error}",
+        L10nKey::SettingsFwdEnabled => "接続時にこのルールを開く",
         L10nKey::ForwardLocal => "ローカル",
         L10nKey::ForwardRemote => "リモート",
         L10nKey::ForwardDynamic => "ダイナミック",
@@ -1104,6 +1150,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::FileTreeContextOpen => "開く",
         L10nKey::FileTreeContextCdHere => "ここで cd",
+        L10nKey::FileTreeContextPinAsGroup => "グループとして固定",
         L10nKey::FileTreeContextInsertPath => "ターミナルにパスを挿入",
         L10nKey::FileTreeContextAttachAgent => "エージェントをアタッチ",
         L10nKey::FileTreeContextNewFile => "新しいファイル",
@@ -1272,6 +1319,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmShowMore => "続きを表示",
         L10nKey::ScmShowLess => "折りたたむ",
         L10nKey::ScmCommitNotFound => "このリポジトリにそのコミットはありません。",
+        L10nKey::ScmFilterChanges => "変更ファイルを絞り込む…",
+        L10nKey::ScmViewAsTree => "ツリーで表示",
+        L10nKey::ScmViewAsList => "リストで表示",
+        L10nKey::ScmNoMatchingChanges => "条件に一致する変更ファイルはありません。",
         L10nKey::ScmTooManyChanges => {
             "変更が多いため、{total} 件のうち先頭 {shown} 件のみ表示しています。"
         }
@@ -1533,6 +1584,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdNewWindow => "新しいウィンドウ",
         L10nKey::CmdNewWorktreeTab => "新しいワークツリータブ…",
         L10nKey::CmdNewWorktreeTabSubtitle => "新しいブランチでの独立したチェックアウト",
+        L10nKey::CmdNewGroup => "新規グループ",
+        L10nKey::CmdNewGroupSubtitle => "サイドバーに空の固定グループを作成",
+        L10nKey::CmdOpenFolderAsGroup => "フォルダをグループとして開く…",
+        L10nKey::CmdOpenFolderAsGroupSubtitle => "フォルダを固定し、そこで開いたタブをまとめる",
         L10nKey::CmdRenameTab => "タブの名前を変更…",
         L10nKey::CmdSplitRight => "右に分割",
         L10nKey::CmdSplitDown => "下に分割",
@@ -1551,14 +1606,20 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdSwapPanePrevious => "前のペインと入れ替え",
         L10nKey::CmdNextTab => "次のタブ",
         L10nKey::CmdPreviousTab => "前のタブ",
+        L10nKey::CmdMoveTabLeft => "タブを左へ移動",
+        L10nKey::CmdMoveTabRight => "タブを右へ移動",
         L10nKey::CmdRecentTabSwitcher => "最近のタブを切り替える",
         L10nKey::CmdRecentTabSwitcherReverse => "最近のタブを切り替える（逆順）",
         L10nKey::CmdCopyWorkingDirectory => "作業ディレクトリをコピー",
         L10nKey::CmdCopySessionId => "セッション ID をコピー",
         L10nKey::CmdCopySessionIdSubtitle => "コーディングエージェント自身のセッション ID",
+        L10nKey::CmdNewAgentTab => "新しいエージェントタブ",
+        L10nKey::CmdNewAgentTabSubtitle => "最後に使ったコーディングエージェントを新しいタブで開く",
         L10nKey::CmdForkSession => "セッションをフォーク",
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
+        L10nKey::CmdHibernateTab => "タブを休止",
+        L10nKey::CmdHibernateTabSubtitle => "プロセスを停止してメモリを解放。選択すると復帰",
         L10nKey::CmdClosePaneTab => "ペイン / タブを閉じる",
         L10nKey::CmdCloseWindow => "ウィンドウを閉じる",
         L10nKey::CmdCloseWindowSubtitle => "シェルは実行を継続",
@@ -1724,8 +1785,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNoUncommittedChanges => {
             "{cwd} に未コミットの変更はありません（または git リポジトリではありません）"
         }
-        L10nKey::AppCmdSshProfileTitle => "SSH: {title}",
-        L10nKey::AppCmdSwitchToTab => "タブに切り替え: {label}",
+        L10nKey::AppCmdAgentLaunchTitle => "Agent: {name}",
+        L10nKey::AppNoAgentOnPath => "このマシンの PATH にコーディングエージェントが見つかりません",
+        L10nKey::AppNoAgentSeenHere => {
+            "このワークスペースではまだコーディングエージェントが実行されていません — 一度手動で起動すると、ここに表示されます"
+        }
+        L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
+        L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
+        L10nKey::AppCmdShellTitle => "Shell: {title}",
         L10nKey::AppPlaceholderDescription => "説明",
         L10nKey::AppPlaceholderSshQuickConnect => "user@host  または  user@host:port",
         L10nKey::AppPlaceholderLoginShell => "ログインシェル",
@@ -1838,6 +1905,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CursorShapeBlock => "ブロック",
         L10nKey::CursorShapeBar => "バー",
         L10nKey::CursorShapeUnderline => "下線",
+        L10nKey::PromptCursorShapeFollow => "追従",
         L10nKey::PaletteTryDifferentSearch => "別のキーワードを試してください。",
         L10nKey::CompletionListingRemote => "リモートを一覧しています…",
         L10nKey::CompletionRemoteListingFailed => "リモートの一覧に失敗しました — {error}",
@@ -1885,6 +1953,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuCopyWorkingDirectory => "作業ディレクトリをコピー",
         L10nKey::AppMenuCopySessionId => "セッション ID をコピー",
         L10nKey::AppMenuForkSession => "セッションをフォーク",
+        L10nKey::AppMenuSaveAgentLaunchArgs => "現在の起動引数をデフォルトに設定",
         L10nKey::AppMenuClosePaneTab => "閉じる",
         L10nKey::AppMenuCloseOtherTabs => "他のタブを閉じる",
         L10nKey::AppMenuCloseTabsRight => "右側のタブを閉じる",
@@ -1901,7 +1970,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuFind => "検索…",
         L10nKey::AppMenuFindNext => "次を検索",
         L10nKey::AppMenuFindPrevious => "前を検索",
-        L10nKey::AppMenuCommandPalette => "コマンドパレット…",
+        L10nKey::AppMenuSearchEverywhere => "どこでも検索…",
         L10nKey::AppMenuIncreaseFontSize => "フォントサイズを拡大",
         L10nKey::AppMenuDecreaseFontSize => "フォントサイズを縮小",
         L10nKey::AppMenuResetFontSize => "フォントサイズをリセット",
@@ -1914,6 +1983,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuZoomPane => "ペインを拡大",
         L10nKey::AppMenuClearScrollback => "スクロールバックをクリア",
         L10nKey::AppMenuOpenLink => "開く",
+        L10nKey::AppMenuOpenLinkWithDefaultApp => "既定のアプリで開く",
         L10nKey::AppMenuRevealInFinder => "Finder に表示",
         L10nKey::AppMenuRevealInFolder => "含まれるフォルダーを開く",
         L10nKey::AppMenuCopyLinkPath => "パスをコピー",
@@ -1943,15 +2013,24 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::TabMenuLocalShells => "ローカル",
         L10nKey::TabMenuAddHost => "SSH ホストを追加…",
         L10nKey::TabMenuAllHosts => "すべての SSH ホスト…",
+        L10nKey::TabMenuLaunchAgent => "エージェントを起動…",
+        L10nKey::TabMenuOtherShells => "その他のシェル…",
         L10nKey::TabMenuSplitHint => "{key} を押しながら選ぶと分割",
         L10nKey::TabUnnamedShell => "シェル {n}",
         L10nKey::ShellDefault => "デフォルト",
-        L10nKey::SidebarScratchGroup => "スクラッチ",
+        L10nKey::SidebarUngroupedGroup => "未分類",
         L10nKey::SidebarMoveToGroup => "グループへ移動",
         L10nKey::SidebarNewGroup => "新規グループ…",
-        L10nKey::SidebarAutoGroup => "自動グループ化に戻す",
         L10nKey::SidebarNewGroupName => "新規グループ",
         L10nKey::SidebarRenameGroup => "グループ名を変更",
+        L10nKey::SidebarPinGroup => "グループを固定",
+        L10nKey::SidebarUnpinGroup => "固定を解除",
+        L10nKey::SidebarGroupNewTab => "新規タブ",
+        L10nKey::SidebarSetGroupFolder => "フォルダを設定…",
+        L10nKey::SidebarUseCurrentTabFolder => "現在のタブのフォルダを使用",
+        L10nKey::SidebarClearGroupFolder => "フォルダを解除",
+        L10nKey::SidebarDeleteGroup => "グループを削除",
+        L10nKey::SidebarDropToPin => "ここにドロップして固定",
         L10nKey::TabContextCloseTab => "タブを閉じる",
         L10nKey::TabContextCloseTabsBelow => "下のタブを閉じる",
         L10nKey::AppAgentHooksOpFailed => "失敗: {error}",
@@ -1962,6 +2041,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsNoneLower => "なし",
         L10nKey::SettingsSearchCommandLineToolTitle => "コマンドラインツール",
         L10nKey::TabContextMarkUnread => "未読としてマーク",
+        L10nKey::TabContextHibernate => "休止",
+        L10nKey::TabContextWake => "復帰",
+        L10nKey::TabTooltipAsleep => "休止中 — 選択すると復帰",
+        L10nKey::TabWakeFailed => "タブを復帰できませんでした：どのペインも起動できません",
     })
 }
 

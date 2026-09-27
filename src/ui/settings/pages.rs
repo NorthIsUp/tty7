@@ -303,6 +303,7 @@ impl Tty7App {
         };
         let cfg = cx.global::<Config>();
         let cursor_style = cfg.cursor_style;
+        let prompt_cursor_style = cfg.prompt_cursor_style;
         let cursor_blink = cfg.cursor_blink;
         let font_thicken = cfg.font_thicken;
         let font_family = cfg.font_family.clone();
@@ -417,6 +418,24 @@ impl Tty7App {
                 this.set_cursor_style(style, cx);
             },
         );
+        let prompt_cursor_idx = PROMPT_CURSOR_SHAPES
+            .iter()
+            .position(|s| *s == prompt_cursor_style)
+            .unwrap_or(0);
+        let prompt_cursor_labels = prompt_cursor_shape_labels();
+        let prompt_cursor_labels: Vec<&str> =
+            prompt_cursor_labels.iter().map(String::as_str).collect();
+        let prompt_cursor_style_control = self.segmented(
+            "prompt-cursor-style",
+            &prompt_cursor_labels,
+            prompt_cursor_idx,
+            cx,
+            |this, ix, _w, cx| {
+                if let Some(style) = PROMPT_CURSOR_SHAPES.get(ix) {
+                    this.set_prompt_cursor_style(*style, cx);
+                }
+            },
+        );
         let blink = self.settings_switch("cursor-blink", cursor_blink, cx, |this, on, _, cx| {
             this.set_cursor_blink(on, cx)
         });
@@ -507,6 +526,12 @@ impl Tty7App {
                         t(L10nKey::SettingsCursorShape),
                         t(L10nKey::SettingsCursorShapeDesc),
                         cursor_style_control,
+                        cx,
+                    ),
+                    self.settings_row(
+                        t(L10nKey::SettingsPromptCursorShape),
+                        t(L10nKey::SettingsPromptCursorShapeDesc),
+                        prompt_cursor_style_control,
                         cx,
                     ),
                     self.settings_row(
@@ -1343,10 +1368,11 @@ impl Tty7App {
             TabBarPosition::Left => 1,
         };
         let sidebar_diff_preview = cfg.sidebar_diff_preview;
-        let grouping_idx = match cfg.sidebar_grouping {
-            crate::core::config::SidebarGrouping::Repo => 0,
-            crate::core::config::SidebarGrouping::RepoOrDirectory => 1,
-            crate::core::config::SidebarGrouping::None => 2,
+        let sidebar_auto_grouping = cfg.sidebar_auto_grouping;
+        let ssh_tab_title_idx = match cfg.ssh_tab_title {
+            SshTabTitle::Dynamic => 0,
+            SshTabTitle::ProfileName => 1,
+            SshTabTitle::Hostname => 2,
         };
         let new_tab = self.segmented(
             "wt-new-tab-pos",
@@ -1380,22 +1406,28 @@ impl Tty7App {
                 );
             },
         );
-        let grouping = self.segmented(
-            "wt-sidebar-grouping",
+        let grouping = self.settings_switch(
+            "wt-sidebar-auto-grouping",
+            sidebar_auto_grouping,
+            cx,
+            |this, on, _, cx| this.set_sidebar_auto_grouping(on, cx),
+        );
+        let ssh_tab_title = self.segmented(
+            "wt-ssh-tab-title",
             &[
-                t(L10nKey::SettingsByRepo),
-                t(L10nKey::SettingsByRepoOrFolder),
-                t(L10nKey::SettingsFlat),
+                t(L10nKey::SettingsSshTabTitleDynamic),
+                t(L10nKey::SettingsSshTabTitleProfileName),
+                t(L10nKey::SettingsSshTabTitleHostname),
             ],
-            grouping_idx,
+            ssh_tab_title_idx,
             cx,
             |this, ix, _w, cx| {
-                let grouping = match ix {
-                    0 => crate::core::config::SidebarGrouping::Repo,
-                    1 => crate::core::config::SidebarGrouping::RepoOrDirectory,
-                    _ => crate::core::config::SidebarGrouping::None,
+                let mode = match ix {
+                    0 => SshTabTitle::Dynamic,
+                    1 => SshTabTitle::ProfileName,
+                    _ => SshTabTitle::Hostname,
                 };
-                this.set_sidebar_grouping(grouping, cx);
+                this.set_ssh_tab_title(mode, cx);
             },
         );
         let diff = self.settings_switch(
@@ -1430,6 +1462,12 @@ impl Tty7App {
                     t(L10nKey::SettingsDiffPreviewFromCounts),
                     t(L10nKey::SettingsDiffPreviewFromCountsDesc),
                     diff,
+                    cx,
+                ),
+                self.settings_row(
+                    t(L10nKey::SettingsSshTabTitle),
+                    t(L10nKey::SettingsSshTabTitleDesc),
+                    ssh_tab_title,
                     cx,
                 ),
             ]

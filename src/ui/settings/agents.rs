@@ -28,6 +28,8 @@ fn cli_agent(agent: HookAgent) -> crate::core::cli_agent::CLIAgent {
         HookAgent::Crush => C::Crush,
         HookAgent::CodeBuddy => C::CodeBuddy,
         HookAgent::Cursor => C::Cursor,
+        HookAgent::PrimeAgent => C::PrimeAgent,
+        HookAgent::Antigravity => C::Antigravity,
     }
 }
 

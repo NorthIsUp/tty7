@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use crate::core::config::{
     BellMode, Config, CursorStyle, LinkFileOpen, MouseZoomModifier, NewTabPosition, NotifyMode,
-    TabBarPosition, UI_FONT_SIZE_DEFAULT, UpdateChannel, WindowBackdrop,
+    PromptCursorStyle, SshTabTitle, TabBarPosition, UI_FONT_SIZE_DEFAULT, UpdateChannel,
+    WindowBackdrop,
 };
 use crate::core::keychain::{
     CredentialRef, CredentialStore as _, OsCredentialStore, key_account_from_contents,
@@ -402,6 +403,11 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: Appearance,
+            title: SettingsPromptCursorShape,
+            keywords: SettingsSearchPromptCursorShapeKeywords,
+        },
+        SearchEntry {
+            section: Appearance,
             title: SettingsCursorBlink,
             keywords: SettingsSearchCursorBlinkKeywords,
         },
@@ -622,6 +628,16 @@ fn settings_search_entries() -> &'static [SearchEntry] {
             keywords: SettingsSearchCursorCliKeywords,
         },
         SearchEntry {
+            section: Agents,
+            title: SettingsAgentPrimeAgent,
+            keywords: SettingsSearchPrimeAgentKeywords,
+        },
+        SearchEntry {
+            section: Agents,
+            title: SettingsAgentAntigravity,
+            keywords: SettingsSearchAntigravityKeywords,
+        },
+        SearchEntry {
             section: General,
             title: SettingsStartupWindow,
             keywords: SettingsSearchStartupWindowKeywords,
@@ -660,6 +676,11 @@ fn settings_search_entries() -> &'static [SearchEntry] {
             section: WindowTabs,
             title: SettingsDiffPreviewFromCounts,
             keywords: SettingsSearchDiffPreviewFromCountsKeywords,
+        },
+        SearchEntry {
+            section: WindowTabs,
+            title: SettingsSshTabTitle,
+            keywords: SettingsSearchSshTabTitleKeywords,
         },
         SearchEntry {
             section: General,
@@ -709,17 +730,46 @@ fn settings_search_entries() -> &'static [SearchEntry] {
     ]
 }
 
+/// The cursor shapes' labels: block, bar, underline.
+pub(crate) fn cursor_shape_labels() -> Vec<String> {
+    [
+        L10nKey::CursorShapeBlock,
+        L10nKey::CursorShapeBar,
+        L10nKey::CursorShapeUnderline,
+    ]
+    .into_iter()
+    .map(|key| t(key).to_string())
+    .collect()
+}
+
+/// The prompt cursor shape choices' labels, in `PROMPT_CURSOR_SHAPES` order:
+/// follow, then the shapes.
+pub(crate) fn prompt_cursor_shape_labels() -> Vec<String> {
+    let mut rows = vec![t(L10nKey::PromptCursorShapeFollow).to_string()];
+    rows.extend(cursor_shape_labels());
+    rows
+}
+
+pub(crate) const PROMPT_CURSOR_SHAPES: [PromptCursorStyle; 4] = [
+    PromptCursorStyle::Follow,
+    PromptCursorStyle::Block,
+    PromptCursorStyle::Bar,
+    PromptCursorStyle::Underline,
+];
+
 impl SearchEntry {
     fn config_key(&self) -> &'static str {
         match self.title {
             L10nKey::SettingsDimInactivePanes => "dim_inactive_panes",
             L10nKey::SettingsCursorBlink => "cursor_blink",
             L10nKey::SettingsCursorShape => "cursor_style",
+            L10nKey::SettingsPromptCursorShape => "prompt_cursor_style",
             L10nKey::SettingsScrollback => "scrollback_limit",
             L10nKey::SettingsNewTabPosition => "new_tab_position",
             L10nKey::SettingsTabBarPosition => "tab_bar_position",
-            L10nKey::SettingsSidebarGrouping => "sidebar_grouping",
+            L10nKey::SettingsSidebarGrouping => "sidebar_auto_grouping",
             L10nKey::SettingsDiffPreviewFromCounts => "sidebar_diff_preview",
+            L10nKey::SettingsSshTabTitle => "ssh_tab_title",
             L10nKey::SettingsNotifyOnCommandFinish => "notify_on_command_finish",
             L10nKey::SettingsNotifyThreshold => "notify_threshold_secs",
             L10nKey::SettingsTerminalBell => "bell",
@@ -800,6 +850,7 @@ impl SearchEntry {
             L10nKey::SettingsFontLigatures => t(L10nKey::SettingsFontLigaturesDesc),
             L10nKey::SettingsFontThicken => t(L10nKey::SettingsFontThickenDesc),
             L10nKey::SettingsCursorShape => t(L10nKey::SettingsCursorShapeDesc),
+            L10nKey::SettingsPromptCursorShape => t(L10nKey::SettingsPromptCursorShapeDesc),
             L10nKey::SettingsCursorBlink => t(L10nKey::SettingsCursorBlinkDesc),
             L10nKey::SettingsBackgroundImage => t(L10nKey::SettingsBackgroundImageDesc),
             L10nKey::SettingsImageOpacity => t(L10nKey::SettingsImageOpacityDesc),
@@ -829,6 +880,7 @@ impl SearchEntry {
             L10nKey::SettingsTabBarPosition => t(L10nKey::SettingsTabBarPositionDesc),
             L10nKey::SettingsSidebarGrouping => t(L10nKey::SettingsSidebarGroupingDesc),
             L10nKey::SettingsDiffPreviewFromCounts => t(L10nKey::SettingsDiffPreviewFromCountsDesc),
+            L10nKey::SettingsSshTabTitle => t(L10nKey::SettingsSshTabTitleDesc),
             L10nKey::SettingsNotifyOnCommandFinish => t(L10nKey::SettingsNotifyOnCommandFinishDesc),
             L10nKey::SettingsNotifyThreshold => t(L10nKey::SettingsNotifyThresholdDesc),
             L10nKey::SettingsAppHttpProxy => t(L10nKey::SettingsAppHttpProxyDesc),
@@ -865,13 +917,19 @@ impl SearchEntry {
             }
             L10nKey::SettingsCursorBlink => cfg.cursor_blink != defaults.cursor_blink,
             L10nKey::SettingsCursorShape => cfg.cursor_style != defaults.cursor_style,
+            L10nKey::SettingsPromptCursorShape => {
+                cfg.prompt_cursor_style != defaults.prompt_cursor_style
+            }
             L10nKey::SettingsScrollback => cfg.scrollback_limit != defaults.scrollback_limit,
             L10nKey::SettingsNewTabPosition => cfg.new_tab_position != defaults.new_tab_position,
             L10nKey::SettingsTabBarPosition => cfg.tab_bar_position != defaults.tab_bar_position,
-            L10nKey::SettingsSidebarGrouping => cfg.sidebar_grouping != defaults.sidebar_grouping,
+            L10nKey::SettingsSidebarGrouping => {
+                cfg.sidebar_auto_grouping != defaults.sidebar_auto_grouping
+            }
             L10nKey::SettingsDiffPreviewFromCounts => {
                 cfg.sidebar_diff_preview != defaults.sidebar_diff_preview
             }
+            L10nKey::SettingsSshTabTitle => cfg.ssh_tab_title != defaults.ssh_tab_title,
             L10nKey::SettingsNotifyOnCommandFinish => {
                 cfg.notify_on_command_finish != defaults.notify_on_command_finish
             }
@@ -1359,6 +1417,7 @@ pub(crate) struct ForwardRuleForm {
     pub(crate) target_host: Entity<InputState>,
     pub(crate) target_port: Entity<InputState>,
     pub(crate) description: Entity<InputState>,
+    pub(crate) enabled: bool,
 }
 
 impl ForwardRuleForm {
@@ -1381,6 +1440,7 @@ impl ForwardRuleForm {
             bind,
             target,
             description: val(&self.description),
+            enabled: self.enabled,
         })
     }
 }
@@ -1699,6 +1759,7 @@ fn seed_forward_row(
             &rule.description,
             t(L10nKey::ForwardDescriptionPlaceholder),
         ),
+        enabled: rule.enabled,
     }
 }
 
@@ -3238,7 +3299,7 @@ mod tests {
             "Terminal bell",
             "Report mouse to apps",
             "Open files with",
-            "Sidebar grouping",
+            "Auto grouping",
             "Tab completion",
             "Command history search",
             "Dim inactive panes",

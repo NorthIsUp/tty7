@@ -171,7 +171,7 @@ fn home_shortcut_label(action: &str, closed: Option<&str>) -> String {
         "NewTab" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeNewTab),
         "ReopenClosedTab" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeReopenClosedTab),
         "ToggleSwitcher" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSwitchWorkspace),
-        "TogglePalette" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeCommandPalette),
+        "TogglePalette" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSearchEverywhere),
         "SplitRight" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSplitRight),
         "SplitDown" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSplitDown),
         "OpenSettings" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSettings),
@@ -513,7 +513,10 @@ mod tests {
         let tab = SessionTab {
             name: Some("build".into()),
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(Some("/work/getty")),
         };
         assert_eq!(closed_tab_label(&tab).as_deref(), Some("build"));
@@ -524,7 +527,10 @@ mod tests {
         let tab = SessionTab {
             name: None,
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(Some("/work/getty")),
         };
         assert_eq!(closed_tab_label(&tab).as_deref(), Some("getty"));
@@ -532,7 +538,10 @@ mod tests {
         let tab = SessionTab {
             name: Some("   ".into()),
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(Some("/work/getty")),
         };
         assert_eq!(closed_tab_label(&tab).as_deref(), Some("getty"));
@@ -543,7 +552,10 @@ mod tests {
         let tab = SessionTab {
             name: None,
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: SessionPane::Split {
                 axis: crate::core::session::SessionAxis::Horizontal,
                 ratio: 0.5,
@@ -559,14 +571,20 @@ mod tests {
         let unnamed = SessionTab {
             name: None,
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(None),
         };
         assert_eq!(closed_tab_label(&unnamed), None);
         let root = SessionTab {
             name: None,
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(Some("/")),
         };
         assert_eq!(closed_tab_label(&root), None);
@@ -577,7 +595,10 @@ mod tests {
         let tab = SessionTab {
             name: Some("a".repeat(40)),
             tree_id: None,
-            sidebar_group: None,
+            group: None,
+            last_auto: None,
+            hibernated: false,
+            asleep_view: None,
             pane: leaf(None),
         };
         let label = closed_tab_label(&tab).unwrap();

@@ -11,6 +11,7 @@ use crate::core::config::{Config, RightPanelTab};
 use crate::daemon::protocol::{ManagedForward, PaneProcs, PortProbe};
 use crate::ui::app::{
     CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS, Tty7App, tile_trailing_inset,
+    tile_trailing_inset_sm,
 };
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::scrollbar::with_vertical_scrollbar;
@@ -174,8 +175,11 @@ const HEADING_TILE_GLYPH: f32 = 12.;
 /// Local forwards only, and only those aimed at the far host's own loopback:
 /// a forward to some third machine happens to carry the same number, and
 /// pairing it with the port row would claim it leads somewhere it does not.
+/// Nor does a switched-off forward: it leads nowhere until it is switched back
+/// on, and its own row is where that switch is.
 pub(crate) fn forwards_port(m: &ManagedForward, port: u16) -> bool {
-    m.kind == crate::daemon::protocol::SshForwardKind::Local
+    m.enabled
+        && m.kind == crate::daemon::protocol::SshForwardKind::Local
         && m.target_port == port
         && crate::daemon::protocol::PortEntry::reaches_loopback(&m.target_host)
 }
@@ -804,6 +808,18 @@ impl Tty7App {
         input: &gpui::Entity<gpui_component::input::InputState>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.panel_search_with(input, None, cx)
+    }
+
+    /// [`Self::panel_search`] with a tile at its far end, inset the way the
+    /// branch row's tile is so the two stack in one column.
+    pub(crate) fn panel_search_with(
+        &self,
+        input: &gpui::Entity<gpui_component::input::InputState>,
+        trailing: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let has_trailing = trailing.is_some();
         // A 28px well on the faint fill, the same shape as the sidebar's
         // search. It is a list-width box — `CONTENT_INSET` from both edges,
         // like a row's hover fill — with its glyph on the text column.
@@ -840,6 +856,8 @@ impl Tty7App {
                             .child(Input::new(input).appearance(false).xsmall().cleanable(true)),
                     ),
             )
+            .when(has_trailing, |row| row.pr(px(tile_trailing_inset_sm())))
+            .children(trailing)
             .into_any_element()
     }
 
@@ -1432,8 +1450,26 @@ impl Tty7App {
                 }),
             );
             if let Some(f) = forward {
-                tiles_wide += 1;
+                tiles_wide += 2;
                 let forward_id = f.id;
+                // Switched off, the forward stops speaking for this row and
+                // comes out as a row of its own with the switch to turn it
+                // back on.
+                actions = actions.child(
+                    crate::ui::tab_strip::chrome_tile_sized(
+                        Button::new(("panel-port-switch-off", i))
+                            .icon(Icon::empty().path("icons/power.svg")),
+                        TILE_SIZE_XS,
+                        TILE_GLYPH_XS,
+                        false,
+                        cx,
+                    )
+                    .rounded(px(4.))
+                    .tooltip(t(L10nKey::ForwardTooltipTurnOff))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_managed_forward_enabled(pane_id, forward_id, false, window, cx)
+                    })),
+                );
                 actions = actions.child(
                     self.info_tile(
                         ("panel-port-unforward", i),
@@ -2056,6 +2092,7 @@ mod tests {
             target_port,
             description: None,
             status: ForwardStatus::Listening,
+            enabled: true,
         }
     }
 
@@ -2085,6 +2122,15 @@ mod tests {
             "a remote forward listens on the far side, so it is not how this \
              port is reached from here"
         );
+    }
+
+    /// A switched-off forward reaches nothing, so it must not take over the
+    /// port row — its own row is the only place its switch is.
+    #[test]
+    fn a_switched_off_forward_is_not_the_way_to_a_port() {
+        let mut off = forward(SshForwardKind::Local, "localhost", 3000);
+        off.enabled = false;
+        assert!(!forwards_port(&off, 3000));
     }
 
     fn diff(added: u32, removed: u32, open: bool) -> InfoRow {

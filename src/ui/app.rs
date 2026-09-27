@@ -26,12 +26,13 @@ use crate::terminal::view::{ChildExited, TerminalView};
 use crate::ui::forwards::{ForwardFields, added_forward, rule_of};
 use crate::ui::host_registry::HostId;
 use crate::ui::i18n::{L10nKey, set_locale, t, t_fmt, t_plural};
-use crate::ui::palette::{
-    ChromeState, Command, CommandGroup, CommandKind, PaletteEvent, PaletteView,
-};
 use crate::ui::pane::{CloseOutcome, Dir, Pane, PaneSlot};
 use crate::ui::presets::Fill;
 use crate::ui::scm::ScmIntent;
+use crate::ui::search::{
+    Avatar, Catalog, ChromeState, CommandGroup, CommandKind, Item, SearchEvent, SearchTab,
+    SearchView,
+};
 use crate::ui::settings::{Recording, SettingsSection, SettingsState, ThemeEditor};
 use crate::ui::theme::{apply_theme, set_menus};
 
@@ -402,7 +403,19 @@ pub struct Tab {
     pub(crate) zoomed: Option<Entity<TerminalView>>,
     pub(crate) diff_overlay: Option<crate::ui::diff_overlay::DiffOverlayState>,
     pub(crate) code: Option<Box<crate::ui::code_editor::TabCode>>,
-    pub(crate) sidebar_group: std::cell::RefCell<Option<crate::core::group_key::GroupKey>>,
+    /// The pinned sidebar group this tab was put in, by id, or `None` to
+    /// leave it to auto grouping. A `Cell` because the sidebar files a tab
+    /// that walks into a pinned folder while it is working out where to draw
+    /// it, which it does from `&self`.
+    pub(crate) group: std::cell::Cell<Option<crate::core::group_key::GroupId>>,
+    /// The auto group this tab last resolved to. Stored nowhere — an auto
+    /// group is derived — but remembered here so a tab whose repo probe is
+    /// still in flight stays where it was instead of bouncing through
+    /// Ungrouped for the frames the probe takes.
+    pub(crate) auto_group: std::cell::RefCell<Option<crate::core::group_key::AutoKey>>,
+    /// Which pinned folder this tab was last seen inside, so it joins one only
+    /// on the way *in* — see [`crate::core::group_key::EntryWatch`].
+    pub(crate) folder_watch: std::cell::Cell<crate::core::group_key::EntryWatch>,
     pub(crate) overlay_top: OverlayTop,
     /// Whether this tab's document fills the workspace or docks beside the
     /// terminal, once the tab has been told. `None` follows `document_layout`
@@ -436,6 +449,25 @@ pub struct Tab {
     /// the tab no longer holds are dropped as the next one is written, so a
     /// closed pane leaves nothing behind either.
     focus_origin: std::collections::HashMap<(gpui::EntityId, Dir), gpui::EntityId>,
+    /// Set while the tab is asleep (#762): its panes were stopped and `pane`
+    /// is `Pane::Empty`. What is kept instead is what it takes to bring them
+    /// back — see [`Asleep`].
+    pub(crate) asleep: Option<Asleep>,
+}
+
+/// A sleeping tab: nothing of it runs, and everything a wake needs is here.
+///
+/// `layout` is the tab as the restore path reads a tab — pane ids, cwds,
+/// shells, agent sessions — so waking is that restore, run on one tab: each
+/// pane's id asks the daemon for the screen it stored when the pane was
+/// stopped, and an agent with a known session is resumed the way a reboot
+/// resumes it. `view` is what the tab is called in the meantime, read off
+/// the panes as they went to sleep (or off the tree's records, after a
+/// restart), since there is no terminal left to ask.
+pub(crate) struct Asleep {
+    pub(crate) layout: SessionPane,
+    pub(crate) view: tty7_core::core::tab_view::TabView,
+    pub(crate) home: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -456,10 +488,13 @@ impl Tab {
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            sidebar_group: std::cell::RefCell::new(None),
+            group: std::cell::Cell::new(None),
+            auto_group: std::cell::RefCell::new(None),
+            folder_watch: std::cell::Cell::new(crate::core::group_key::EntryWatch::fresh()),
             tree_id: std::cell::Cell::new(tty7_core::core::machine::TabId::new()),
             last_used: std::cell::Cell::new(0),
             focus_origin: Default::default(),
+            asleep: None,
         }
     }
 
@@ -473,15 +508,33 @@ impl Tab {
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            sidebar_group: std::cell::RefCell::new(
-                tree.sidebar_group
-                    .as_deref()
-                    .and_then(crate::core::group_key::GroupKey::decode),
-            ),
+            group: std::cell::Cell::new(tree.group),
+            auto_group: std::cell::RefCell::new(tree.last_auto.clone()),
+            // Only ever built for a tab that was just created elsewhere — by
+            // `tty7 tab new`, or another window — so it is as new as one
+            // opened here: opened inside a pinned folder, it joins it. Every
+            // window that hears of it reaches the same answer.
+            folder_watch: std::cell::Cell::new(crate::core::group_key::EntryWatch::fresh()),
             tree_id: std::cell::Cell::new(tree.id),
             last_used: std::cell::Cell::new(0),
             focus_origin: Default::default(),
+            asleep: None,
         }
+    }
+
+    pub(crate) fn is_asleep(&self) -> bool {
+        self.asleep.is_some()
+    }
+
+    /// The layout a sleeping tab will wake into; `None` for a tab that is awake.
+    pub(crate) fn asleep_layout(&self) -> Option<&SessionPane> {
+        self.asleep.as_ref().map(|a| &a.layout)
+    }
+
+    /// The agent a sleeping tab was running when it went to sleep, so its row
+    /// still says what it is while nothing in it can.
+    pub(crate) fn asleep_agent(&self) -> Option<crate::core::cli_agent::CLIAgent> {
+        self.asleep.as_ref().and_then(|a| a.view.agent)
     }
 
     fn focus_target(&self) -> Option<crate::ui::pane::PaneSlot> {
@@ -582,6 +635,14 @@ impl Tab {
         Option<std::path::PathBuf>,
     ) {
         let name = self.name.clone();
+        if let Some(asleep) = &self.asleep {
+            let view = tty7_core::core::tab_view::TabView {
+                id: self.tree_id.get(),
+                name,
+                ..asleep.view.clone()
+            };
+            return (view, asleep.home.clone());
+        }
         let Some(leaf) = self.title_leaf(window, cx) else {
             return (
                 tty7_core::core::tab_view::TabView {
@@ -609,7 +670,10 @@ impl Tab {
             // name tty7 chose for it deliberately, and `stated_title` hands
             // those up as the title the pane is showing.
             title: crate::terminal::view::DEFAULT_TITLE.to_string(),
-            osc_title: leaf.stated_title().map(str::to_string),
+            // On the title's rung, not a new one above it: a name given to the
+            // tab still beats an SSH host pinned by Settings (#726), and the
+            // pinned host beats everything the pane could say about itself.
+            osc_title: leaf.tab_title(cx),
             cwd: leaf.cwd().map(|p| p.display().to_string()),
             agent: leaf.agent(),
             status: leaf.agent_session().map(|s| s.status),
@@ -748,13 +812,9 @@ pub(crate) struct WorkspaceRename {
 }
 
 pub(crate) struct GroupRename {
-    /// The group being renamed, by the key it had when the box opened.
-    ///
-    /// A custom group *is* its name — there is no group record anywhere for
-    /// an id to point at, only the tabs that claim it. So renaming one means
-    /// rewriting every tab that says the old name, and this is what says
-    /// which those are.
-    pub(crate) key: crate::core::group_key::GroupKey,
+    /// The pinned group being renamed. By id, so a rename that lands after
+    /// another window reordered or renamed the groups still names this one.
+    pub(crate) group: crate::core::group_key::GroupId,
     pub(crate) input: Entity<InputState>,
     pub(crate) _subs: Vec<Subscription>,
 }
@@ -812,11 +872,11 @@ pub struct Tty7App {
     _git_status_watch: Subscription,
     _pane_liveness_watch: Subscription,
     _appearance_watch: Subscription,
-    palette: Option<Entity<PaletteView>>,
-    palette_sub: Option<Subscription>,
-    /// Preset that was live when the palette's theme picker started previewing.
+    pub(crate) search: Option<Entity<SearchView>>,
+    search_sub: Option<Subscription>,
+    /// Preset that was live when the search's theme picker started previewing.
     /// `Some` means the theme on screen is a preview that was never written to
-    /// disk, and closing the palette without confirming puts this one back.
+    /// disk, and closing the search without confirming puts this one back.
     theme_preview_restore: Option<String>,
     pub(crate) closed: Vec<SessionTab>,
     pub(crate) renaming: Option<Renaming>,
@@ -912,12 +972,21 @@ pub struct Tty7App {
     /// the sidebar — and takes no part in the reading.
     pub(crate) strip_slots: Rc<RefCell<Vec<Bounds<Pixels>>>>,
     pub(crate) sidebar_slots: Rc<RefCell<Vec<Bounds<Pixels>>>>,
-    /// Where each custom group's block was drawn last frame, so a tab held
-    /// over one can be told which group it is over. Only custom groups are
-    /// here: a repo group's membership is decided by cwd, so dropping a tab
+    /// Where each pinned group's block was drawn last frame, so a tab held
+    /// over one can be told which group it is over. Only pinned groups are
+    /// here: an auto group's membership is decided by cwd, so dropping a tab
     /// into one has no meaning to record.
     pub(crate) sidebar_group_slots:
-        Rc<RefCell<Vec<(crate::core::group_key::GroupKey, Bounds<Pixels>)>>>,
+        Rc<RefCell<Vec<(crate::core::group_key::GroupId, Bounds<Pixels>)>>>,
+    /// Where the divider between the pinned groups and the rest was drawn
+    /// last frame. Everything below it is auto grouping's: a tab dropped
+    /// there leaves its pinned group, and an auto group's header lifted
+    /// above it is pinned.
+    pub(crate) sidebar_divider: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// This workspace's pinned groups and folds, as the machine tree holds
+    /// them. Adopted from every pull and every `GroupsChanged`, and pushed
+    /// back as one `WorkspaceSetGroups` whenever this window edits it.
+    pub(crate) sidebar_groups: crate::core::group_key::WorkspaceGroups,
     /// Where the active tab's panes were last drawn, which is the frame of
     /// reference a drag's landing is worked out in.
     pub(crate) pane_area: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1437,8 +1506,8 @@ impl Tty7App {
             _git_status_watch: git_status_watch,
             _pane_liveness_watch: pane_liveness_watch,
             _appearance_watch: appearance_watch,
-            palette: None,
-            palette_sub: None,
+            search: None,
+            search_sub: None,
             theme_preview_restore: None,
             closed: Vec::new(),
             renaming: None,
@@ -1501,6 +1570,8 @@ impl Tty7App {
             strip_slots: Rc::new(RefCell::new(Vec::new())),
             sidebar_slots: Rc::new(RefCell::new(Vec::new())),
             sidebar_group_slots: Rc::new(RefCell::new(Vec::new())),
+            sidebar_divider: Rc::new(Cell::new(None)),
+            sidebar_groups: Default::default(),
             pane_area: Rc::new(Cell::new(None)),
             sidebar_search,
             _sidebar_search_sub: sidebar_search_sub,
@@ -1820,6 +1891,7 @@ impl Tty7App {
         self.tabs = tabs;
         self.active = active;
         self.maximized = None;
+        self.wake_active_if_asleep(window, cx);
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
@@ -1859,10 +1931,15 @@ impl Tty7App {
                 code: None,
                 overlay_top: OverlayTop::default(),
                 document_layout: None,
-                sidebar_group: std::cell::RefCell::new(st.sidebar_group),
+                group: std::cell::Cell::new(st.group),
+                auto_group: std::cell::RefCell::new(st.last_auto),
+                // Reopened here, so it is this window's new tab: walking into
+                // a pinned folder files it there like any other.
+                folder_watch: std::cell::Cell::new(crate::core::group_key::EntryWatch::fresh()),
                 tree_id: std::cell::Cell::new(tty7_core::core::machine::TabId::new()),
                 last_used: std::cell::Cell::new(0),
                 focus_origin: Default::default(),
+                asleep: None,
             },
         );
         self.active = insert_at;
@@ -2803,6 +2880,19 @@ impl Tty7App {
         self.apply_terminal_config_to_panes(&cfg, cx);
     }
 
+    pub(crate) fn set_prompt_cursor_style(
+        &mut self,
+        style: crate::core::config::PromptCursorStyle,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_config(cx, |cfg| cfg.prompt_cursor_style = style);
+        for tab in &self.tabs {
+            for leaf in tab.pane.terminals() {
+                leaf.update(cx, |_, cx| cx.notify());
+            }
+        }
+    }
+
     pub(crate) fn persist_settings_config(&mut self, cx: &mut Context<Self>) {
         let config = cx.global::<Config>().clone();
         let error = config.try_save().err().map(|error| error.to_string());
@@ -2913,7 +3003,7 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) {
         let fields = self.managed_forward_fields(cx);
-        let Some(rule) = fields.collect() else {
+        let Some(mut rule) = fields.collect() else {
             // Add is disabled while the fields do not make a rule and the form
             // already says what is missing, so there is nothing to do here and
             // nothing left to explain.
@@ -2921,6 +3011,10 @@ impl Tty7App {
         };
         let route = self.forward_route(pane_id, cx);
         let previous = self.loopback_panel.mf_editing.clone();
+        // Editing a switched-off rule edits it; it does not switch it on.
+        if let Some(old) = &previous {
+            rule.enabled = old.enabled;
+        }
         // A saved edit is a replace, and the rule being replaced has to come
         // out first: the ordinary edit keeps the bind port, and the far side
         // really does bind it, so adding first would collide with the very
@@ -3024,10 +3118,14 @@ impl Tty7App {
         let Some(list) = route.add(rule) else {
             return PlaceOutcome::Unreachable(t(L10nKey::ForwardRequestFailed).to_string());
         };
-        let broken = added_forward(&before, &list).and_then(|added| match &added.status {
-            ForwardStatus::Error(msg) => Some((added.id, msg.clone())),
-            ForwardStatus::Listening => None,
-        });
+        // A switched-off rule reports an error status because it binds
+        // nothing, and that is what it was asked to do.
+        let broken = added_forward(&before, &list)
+            .filter(|added| added.enabled)
+            .and_then(|added| match &added.status {
+                ForwardStatus::Error(msg) => Some((added.id, msg.clone())),
+                ForwardStatus::Listening => None,
+            });
         self.loopback_panel.managed = list;
         let Some((id, msg)) = broken else {
             return PlaceOutcome::Placed;
@@ -3113,6 +3211,84 @@ impl Tty7App {
             self.loopback_panel.managed = list;
         }
         cx.notify();
+    }
+
+    /// Switch one forward on or off, and carry the choice into the saved host
+    /// the rule came from, if it came from one — so the next connection opens
+    /// the same set of rules instead of the ones that were saved before.
+    pub(crate) fn set_managed_forward_enabled(
+        &mut self,
+        pane_id: u64,
+        forward_id: u64,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let route = self.forward_route(pane_id, cx);
+        let forward = self
+            .loopback_panel
+            .managed
+            .iter()
+            .find(|m| m.id == forward_id)
+            .cloned();
+        match route.set_enabled(forward_id, enabled) {
+            Ok(list) => {
+                self.loopback_panel.managed = list;
+                if let Some(forward) = forward {
+                    self.remember_forward_enabled(pane_id, &forward, enabled, cx);
+                }
+            }
+            Err(e) => {
+                window.push_notification(
+                    t_fmt(L10nKey::ForwardSwitchFailed, &[("error", &e.to_string())]),
+                    cx,
+                );
+                // The refusal changed nothing, but the panel may be behind
+                // whatever did change — ask rather than guess.
+                self.loopback_panel.managed = route.list();
+            }
+        }
+        cx.notify();
+    }
+
+    fn remember_forward_enabled(
+        &mut self,
+        pane_id: u64,
+        forward: &crate::daemon::protocol::ManagedForward,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let profile_id = self
+            .tabs
+            .iter()
+            .flat_map(|tab| tab.pane.terminals())
+            .find_map(|leaf| {
+                let view = leaf.read(cx);
+                (view.pane_id == pane_id).then(|| view.ssh_spec()?.profile_id.clone())?
+            })
+            .and_then(|id| uuid::Uuid::parse_str(&id).ok());
+        let Some(profile_id) = profile_id else {
+            return;
+        };
+        let saved = cx
+            .global::<Config>()
+            .ssh_profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .and_then(|p| crate::ui::forwards::saved_rule_index(&p.forwards, forward, enabled));
+        let Some(idx) = saved else {
+            return;
+        };
+        self.update_config(cx, |cfg| {
+            if let Some(rule) = cfg
+                .ssh_profiles
+                .iter_mut()
+                .find(|p| p.id == profile_id)
+                .and_then(|p| p.forwards.get_mut(idx))
+            {
+                rule.enabled = enabled;
+            }
+        });
     }
 
     pub(crate) fn show_ssh_forwards(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3313,16 +3489,20 @@ impl Tty7App {
         self.update_config(cx, |cfg| cfg.tab_bar_position = pos);
     }
 
-    pub(crate) fn set_sidebar_grouping(
-        &mut self,
-        grouping: crate::core::config::SidebarGrouping,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_config(cx, |cfg| cfg.sidebar_grouping = grouping);
+    pub(crate) fn set_sidebar_auto_grouping(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_config(cx, |cfg| cfg.sidebar_auto_grouping = on);
     }
 
     pub(crate) fn set_sidebar_diff_preview(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.sidebar_diff_preview = on);
+    }
+
+    pub(crate) fn set_ssh_tab_title(
+        &mut self,
+        mode: crate::core::config::SshTabTitle,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_config(cx, |cfg| cfg.ssh_tab_title = mode);
     }
 
     pub(crate) fn toggle_tab_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -3638,6 +3818,7 @@ impl Tty7App {
                     spawn.agent_launch_argv.as_deref(),
                     cx,
                 )
+                .or_else(|| spawn.run_on_land.clone())
             })
             .flatten();
         let view = build_terminal_view(parts, font_size, window, cx);
@@ -3752,8 +3933,21 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.new_tab_slot(cwd, shell, window, cx);
+    }
+
+    /// [`Self::new_tab_with_cwd`], answering with the pane it opened — `None`
+    /// when nothing opened, so a caller about to type into the new pane has
+    /// nothing to type into rather than whatever was focused before.
+    pub(crate) fn new_tab_slot(
+        &mut self,
+        cwd: Option<std::path::PathBuf>,
+        shell: Option<ShellSpec>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PaneSlot> {
         if !self.guard_local_spawn(window, cx) {
-            return;
+            return None;
         }
         let group = self.spawn_group(cwd.as_deref(), cx);
         let tab = match new_terminal(
@@ -3775,7 +3969,7 @@ impl Tty7App {
                 self.startup_error = Some(gpui::SharedString::from(text.clone()));
                 window.push_notification(text, cx);
                 cx.notify();
-                return;
+                return None;
             }
         };
         // Something opened, so whatever the last failure was is stale.
@@ -3783,15 +3977,14 @@ impl Tty7App {
         self.remember_active_pane(window, cx);
         self.maximized = None;
         let insert_at = self.new_tab_insert_at(cx);
-        let new_tab = Tab::new(Pane::leaf(tab));
-        if let Some(group) = group {
-            *new_tab.sidebar_group.borrow_mut() = group;
-        }
+        let new_tab = Tab::new(Pane::leaf(tab.clone()));
+        group.seat(&new_tab);
         self.tabs.insert(insert_at, new_tab);
         self.active = insert_at;
         self.focus_active(window, cx);
         self.save_session(cx);
         cx.notify();
+        Some(tab)
     }
 
     pub(crate) fn open_native_ssh_tab(
@@ -3875,15 +4068,24 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(target) = self
+        self.split_slot(axis, spawn, window, cx);
+    }
+
+    /// [`Self::split_into`], answering with the pane it placed, or `None`
+    /// when nothing was placed.
+    pub(crate) fn split_slot(
+        &mut self,
+        axis: Axis,
+        spawn: Option<SpawnAs>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PaneSlot> {
+        let target = self
             .tabs
             .get(self.active)
-            .and_then(|t| t.pane.focused_or_first(window, cx))
-        else {
-            return;
-        };
+            .and_then(|t| t.pane.focused_or_first(window, cx))?;
         if !self.guard_local_spawn(window, cx) {
-            return;
+            return None;
         }
         let cwd = target.read(cx).spawnable_cwd();
         let spawn = match spawn {
@@ -3911,7 +4113,7 @@ impl Tty7App {
                             ),
                             cx,
                         );
-                        return;
+                        return None;
                     }
                 }
             }
@@ -3933,22 +4135,23 @@ impl Tty7App {
                             t_fmt(L10nKey::AppSplitPaneFailed, &[("error", &e.to_string())]),
                             cx,
                         );
-                        return;
+                        return None;
                     }
                 }
             }
         };
-        if let Some(tab) = self.tabs.get_mut(self.active) {
-            if tab
-                .pane
-                .split_leaf(target.entity_id(), axis, false, new.clone())
-            {
-                self.maximized = None;
-                self.focus_leaf(&new, window, cx);
-                self.save_session(cx);
-                cx.notify();
-            }
+        let tab = self.tabs.get_mut(self.active)?;
+        if !tab
+            .pane
+            .split_leaf(target.entity_id(), axis, false, new.clone())
+        {
+            return None;
         }
+        self.maximized = None;
+        self.focus_leaf(&new, window, cx);
+        self.save_session(cx);
+        cx.notify();
+        Some(new)
     }
 
     fn close_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -4445,9 +4648,7 @@ impl Tty7App {
             .and_then(|view| view.read(cx).spawnable_cwd());
         let group = self.spawn_group(cwd.as_deref(), cx);
         let fresh = Tab::new(crate::ui::pane::Pane::leaf(slot));
-        if let Some(group) = group {
-            *fresh.sidebar_group.borrow_mut() = group;
-        }
+        group.seat(&fresh);
         let at = at.min(self.tabs.len());
         self.tabs.insert(at, fresh);
         self.maximized = None;
@@ -4565,7 +4766,28 @@ impl Tty7App {
         }
     }
 
+    /// Reorders the active tab one slot — the keyboard form of the drag that
+    /// the strip and the sidebar both do. Left is back along the order and
+    /// right is forward (on a left tab bar that reads as up and down), and
+    /// both wrap: past the last tab the first one follows, so a tab can walk
+    /// the whole list without letting go of the key. On a left tab bar the
+    /// list is the tab's own sidebar group: the grouping keys off the tab,
+    /// not its position, so a step out of the group would move nothing.
+    fn move_tab(&mut self, right: bool, cx: &mut Context<Self>) {
+        let run = self.tab_run(self.active, cx);
+        if let Some(permutation) = one_slot_move(&run, self.tabs.len(), self.active, right) {
+            self.apply_tab_order(&permutation, cx);
+        }
+    }
+
     pub(crate) fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // A tab is woken by being looked at, the way a browser reloads a
+        // discarded tab when it is selected: a tab on screen is always a
+        // running one, so there is no third state to draw. A wake that fails
+        // leaves the tab asleep and the window where it was.
+        if self.tabs.get(index).is_some_and(Tab::is_asleep) && !self.wake_tab(index, window, cx) {
+            return;
+        }
         if index < self.tabs.len() && index != self.active {
             self.remember_active_pane(window, cx);
             // Zoom rides with its tab (#599): stash the outgoing tab's zoom
@@ -4595,6 +4817,146 @@ impl Tty7App {
             }
             self.save_session(cx);
             cx.notify();
+        }
+    }
+
+    /// Whether tab `index` can be put to sleep right now (#762).
+    ///
+    /// Not while it is connecting: a pane still on its way has no id the
+    /// machine knows, so it would be lost rather than stopped. Not with a
+    /// native SSH pane in a remote window either — that pane runs on this
+    /// computer, beyond the reach of the machine asked to stop the tab. Not on
+    /// a machine whose server cannot do it. And not the one tab left awake:
+    /// the window has to have something on screen, and looking at a tab is
+    /// what wakes it.
+    pub(crate) fn can_hibernate_tab(&self, index: usize, cx: &App) -> bool {
+        let Some(tab) = self.tabs.get(index) else {
+            return false;
+        };
+        if tab.is_asleep() || !crate::ui::tree_sync::can_hibernate_on(cx, self.workspace) {
+            return false;
+        }
+        let remote = WorkspaceStore::all(cx)
+            .get(self.workspace)
+            .is_some_and(|w| w.is_remote());
+        let leaves = tab.pane.leaves();
+        let all_hibernatable = !leaves.is_empty()
+            && leaves.iter().all(|leaf| match leaf {
+                PaneSlot::Ready(view) => !(remote && view.read(cx).ssh_spec().is_some()),
+                PaneSlot::Connecting(_) => false,
+            });
+        all_hibernatable && self.awake_tab_besides(index).is_some()
+    }
+
+    /// The tab to show instead of `index` when that one goes to sleep: the
+    /// awake tab used most recently, the nearest one on a tie.
+    fn awake_tab_besides(&self, index: usize) -> Option<usize> {
+        (0..self.tabs.len())
+            .filter(|&i| i != index && !self.tabs[i].is_asleep())
+            .max_by_key(|&i| {
+                (
+                    self.tabs[i].last_used.get(),
+                    std::cmp::Reverse(i.abs_diff(index)),
+                )
+            })
+    }
+
+    /// Put tab `index` to sleep: stop its panes, keep its place (#762).
+    ///
+    /// The window lets go of the panes first and the machine stops them after,
+    /// from the sync this ends with. That order is what keeps a stopped pane
+    /// from reading as one that died: by the time its shell exits there is no
+    /// view left here to take the exit as a reason to close the pane, or the
+    /// tab with it. The machine, for its part, marks the tab before it stops
+    /// anything, so a restore reading the tree in between never takes the
+    /// panes for dead ones and spawns them straight back.
+    pub(crate) fn hibernate_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.can_hibernate_tab(index, cx) {
+            return;
+        }
+        if index == self.active {
+            let Some(next) = self.awake_tab_besides(index) else {
+                return;
+            };
+            self.activate(next, window, cx);
+        }
+        self.put_to_sleep(index, window, cx);
+    }
+
+    /// The part of [`Self::hibernate_tab`] that does not ask whether it may:
+    /// the tab lets go of its panes and keeps what a wake needs instead.
+    fn put_to_sleep(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(index).filter(|t| !t.is_asleep()) else {
+            return;
+        };
+        let (mut view, home) = tab.label_view(Some(window), cx);
+        view.live = false;
+        view.status = None;
+        let layout = pane_to_session(&tab.pane, cx);
+        let tab = &mut self.tabs[index];
+        let panes = std::mem::replace(&mut tab.pane, Pane::Empty);
+        tab.zoomed = None;
+        tab.last_focused = None;
+        tab.focus_origin.clear();
+        tab.asleep = Some(Asleep { layout, view, home });
+        drop(panes);
+        self.save_session(cx);
+        cx.notify();
+    }
+
+    /// Bring a sleeping tab back, through the restore every pane takes after a
+    /// reboot: each pane is spawned in its old one's place, opens on the screen
+    /// that one left behind, and resumes its agent session when it had one.
+    /// Returns whether the tab is awake now; a tab none of whose panes could
+    /// be started stays asleep, and says so.
+    pub(crate) fn wake_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(asleep) = self.tabs.get_mut(index).and_then(|t| t.asleep.take()) else {
+            return true;
+        };
+        let pane_ws = self.window_workspace(cx);
+        let layout = redial_native_ssh(&asleep.layout);
+        // No listing: every pane in here was stopped on purpose, so the attach
+        // each one tries first fails and falls through to the fresh spawn —
+        // unless the stop never landed, in which case attaching to the pane
+        // that is still running is exactly right.
+        let pane = session_to_pane(
+            pane_ws.as_ref(),
+            self.workspace,
+            &layout,
+            None,
+            self.font_size,
+            window,
+            cx,
+        );
+        let tab = &mut self.tabs[index];
+        let Some(pane) = pane else {
+            tab.asleep = Some(asleep);
+            window.push_notification(t(L10nKey::TabWakeFailed), cx);
+            return false;
+        };
+        tab.pane = pane;
+        tab.last_focused = None;
+        self.save_session(cx);
+        cx.notify();
+        true
+    }
+
+    /// Wake the tab on screen if it is asleep — for the paths that land on a
+    /// tab without going through [`Self::activate`]: a neighbour taking over
+    /// from a closed tab, a window restored onto a sleeping one.
+    pub(crate) fn wake_active_if_asleep(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.get(self.active).is_some_and(Tab::is_asleep) {
+            self.wake_tab(self.active, window, cx);
         }
     }
 
@@ -4702,6 +5064,7 @@ impl Tty7App {
         } else if index < self.active {
             self.active -= 1;
         }
+        self.wake_active_if_asleep(window, cx);
         self.focus_active(window, cx);
         self.save_session(cx);
         cx.notify();
@@ -4963,9 +5326,7 @@ impl Tty7App {
                 self.maximized = None;
                 let insert_at = self.new_tab_insert_at(cx);
                 let tab = Tab::new(Pane::leaf(new));
-                if let Some(group) = group {
-                    *tab.sidebar_group.borrow_mut() = group;
-                }
+                group.seat(&tab);
                 self.tabs.insert(insert_at, tab);
                 self.active = insert_at;
                 self.focus_active(window, cx);
@@ -5270,8 +5631,99 @@ impl Tty7App {
         cx.notify();
     }
 
-    pub(crate) fn palette_commands(&self, window: &Window, cx: &App) -> Vec<Command> {
-        let mut commands = Command::base_commands(
+    /// Everything the search offers from this window, gathered when it opens.
+    pub(crate) fn search_catalog(&self, window: &Window, cx: &App) -> Catalog {
+        let mut catalog = Catalog::new(
+            self.search_actions(window, cx),
+            self.search_terminals(cx),
+            crate::ui::search::host_items(cx),
+        );
+        let (sessions, here) =
+            self.search_sessions(crate::core::agent_history::cached(), window, cx);
+        catalog.sessions = sessions;
+        catalog.sessions_here = here;
+        catalog
+    }
+
+    /// The Sessions tab's rows from `found`: those that ran in the focused
+    /// pane's directory first, under its name, then the rest by recency. The
+    /// second value is how many lead.
+    ///
+    /// Only this computer's sessions, and only in a window on this computer:
+    /// a remote window's new tab opens on the other machine, where the
+    /// directory a local session ran in means nothing.
+    pub(crate) fn search_sessions(
+        &self,
+        found: Vec<crate::core::agent_history::PastSession>,
+        window: &Window,
+        cx: &App,
+    ) -> (Vec<Item>, usize) {
+        if WorkspaceStore::remote_ref(cx, self.workspace).is_some() {
+            return (Vec::new(), 0);
+        }
+        let here = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.pane.focused_or_first(window, cx))
+            .and_then(|leaf| leaf.read(cx).spawnable_cwd());
+        let home = crate::core::agent_history::home();
+        let now = crate::core::config::unix_now();
+        let (mut mine, mut rest): (Vec<_>, Vec<_>) = found
+            .into_iter()
+            .partition(|s| here.is_some() && s.cwd == here);
+        let here_section: Option<gpui::SharedString> = here.as_ref().map(|dir| {
+            t_fmt(
+                L10nKey::SearchSectionSessionsHere,
+                &[("dir", &crate::ui::home::display_path(dir, home.as_deref()))],
+            )
+            .into()
+        });
+        let recent: gpui::SharedString = t(L10nKey::SearchSectionSessionsRecent).into();
+        let row = |s: crate::core::agent_history::PastSession, section: gpui::SharedString| {
+            let place = s
+                .cwd
+                .as_deref()
+                .map(|p| crate::ui::home::display_path(p, home.as_deref()));
+            let subtitle = match (&place, &s.branch) {
+                (Some(place), Some(branch)) => Some(format!("{place} · {branch}")),
+                (Some(place), None) => Some(place.clone()),
+                (None, Some(branch)) => Some(branch.clone()),
+                (None, None) => None,
+            };
+            let mut item = Item::new(
+                s.title,
+                CommandKind::ResumeSession {
+                    agent: s.agent,
+                    session_id: s.id.clone(),
+                    cwd: s.cwd,
+                },
+            )
+            .with_note(crate::ui::home::relative_time(now, s.updated))
+            .with_avatar(Avatar {
+                agent: Some(s.agent),
+                ..Avatar::default()
+            })
+            .with_alias(s.id)
+            .with_alias(s.agent.display_name())
+            .in_section(section);
+            if let Some(subtitle) = subtitle {
+                item = item.with_subtitle(subtitle);
+            }
+            item
+        };
+        let count = mine.len();
+        let mut out: Vec<Item> = match here_section {
+            Some(section) => mine.drain(..).map(|s| row(s, section.clone())).collect(),
+            None => Vec::new(),
+        };
+        out.extend(rest.drain(..).map(|s| row(s, recent.clone())));
+        (out, count)
+    }
+
+    /// The Actions tab: the fixed set, plus the rows only this window can
+    /// judge are worth offering.
+    pub(crate) fn search_actions(&self, window: &Window, cx: &App) -> Vec<Item> {
+        let mut actions = Item::actions(
             cx,
             ChromeState {
                 rail_collapsed: self.sidebar_collapsed,
@@ -5284,13 +5736,39 @@ impl Tty7App {
             },
         );
 
+        // Groups are something the sidebar draws, so they are offered only
+        // while the tabs are in it. Opening a folder as a group asks the
+        // system picker, which browses this computer: a path picked there
+        // names nothing on a remote workspace's machine, where "Pin as
+        // Group" in the file tree is the way in instead.
+        if cx.global::<Config>().tab_bar_position == TabBarPosition::Left {
+            actions.push(
+                Item::localized(L10nKey::CmdNewGroup, CommandKind::NewGroup)
+                    .with_subtitle(t(L10nKey::CmdNewGroupSubtitle))
+                    .in_group(CommandGroup::TabsPanes),
+            );
+            if !WorkspaceStore::all(cx)
+                .get(self.workspace)
+                .is_some_and(|w| w.is_remote())
+            {
+                actions.push(
+                    Item::localized(
+                        L10nKey::CmdOpenFolderAsGroup,
+                        CommandKind::OpenFolderAsGroup,
+                    )
+                    .with_subtitle(t(L10nKey::CmdOpenFolderAsGroupSubtitle))
+                    .in_group(CommandGroup::TabsPanes),
+                );
+            }
+        }
+
         // Offered only where it would do something. A connection opened from a
         // saved host has nothing to save, and a pane that is not an SSH one has
         // no connection at all — either would be a row that quietly did nothing
         // (#549).
         if self.unsaved_ssh_session(window, cx).is_some() {
-            commands.push(
-                Command::localized(
+            actions.push(
+                Item::localized(
                     L10nKey::CmdSshSaveConnection,
                     CommandKind::SaveSshSessionAsHost,
                 )
@@ -5298,98 +5776,206 @@ impl Tty7App {
                 .in_group(CommandGroup::Ssh),
             );
         }
-
-        for p in crate::ui::ssh_connect::ssh_profiles_by_frecency(cx) {
-            let subtitle = crate::core::ssh_profile::to_connect_string(&p);
-            let title = if p.name.is_empty() {
-                subtitle.clone()
-            } else {
-                p.name.clone()
-            };
-            commands.push(
-                Command::new(
-                    t_fmt(L10nKey::AppCmdSshProfileTitle, &[("title", &title)]),
-                    CommandKind::ConnectSavedProfile(p.id),
-                )
-                .with_subtitle(subtitle)
-                .in_group(CommandGroup::Ssh),
-            );
-        }
-
-        for (i, tab) in self.tabs.iter().enumerate() {
-            if i == self.active {
-                continue;
-            }
-            let label = self.tab_label(tab, i, None, cx);
-            commands.push(
-                Command::new(
-                    t_fmt(L10nKey::AppCmdSwitchToTab, &[("label", &label)]),
-                    CommandKind::ActivateTab(i),
-                )
-                .in_group(CommandGroup::TabsPanes),
-            );
-        }
-        commands
+        actions
     }
 
-    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.palette.is_some() {
-            self.close_palette(window, cx);
+    /// The Terminals tab: every open tab of every workspace this process
+    /// knows — this window's first, most recently used first and without the
+    /// one you are in — then every way to open a new one.
+    pub(crate) fn search_terminals(&self, cx: &App) -> Vec<Item> {
+        let mut out = Vec::new();
+        let store = WorkspaceStore::all(cx);
+        let name_of = |id: WorkspaceId| {
+            store
+                .get(id)
+                .and_then(|w| crate::ui::machine_mirror::display_name(cx, w))
+                .unwrap_or_else(|| t(L10nKey::WindowUntitled).to_string())
+        };
+        // This window's own workspace leads, and is listed whether or not the
+        // store has caught up with it: its tabs are right here in the window.
+        let mut others: Vec<_> = store
+            .views
+            .iter()
+            .filter(|w| w.id != self.workspace)
+            .collect();
+        others.sort_by_key(|w| std::cmp::Reverse(w.last_active));
+        let workspaces = std::iter::once(self.workspace).chain(others.into_iter().map(|w| w.id));
+        for id in workspaces {
+            let name = name_of(id);
+            let here = id == self.workspace;
+            for tab in self.tab_rows_for(id, true, cx) {
+                if here && tab.active {
+                    continue;
+                }
+                let mut item = Item::new(
+                    tab.label.clone(),
+                    CommandKind::GoToTab {
+                        workspace: id,
+                        tab: tab.id,
+                    },
+                )
+                .with_avatar(Avatar {
+                    agent: tab.agent,
+                    status: tab.status,
+                    unread: tab.unread,
+                    ssh: tab.ssh,
+                })
+                .with_alias(name.clone())
+                .in_section(name.clone());
+                // A label derived from the path already says where; one that
+                // is a name or an agent leaves the place worth printing.
+                if tab.named && !tab.path.is_empty() {
+                    item = item.with_subtitle(tab.path.clone());
+                } else if !tab.path.is_empty() {
+                    item = item.with_alias(tab.path.clone());
+                }
+                if let Some(agent) = tab.agent {
+                    item = item.with_alias(agent.display_name());
+                }
+                if !here {
+                    item = item.with_note(name.clone());
+                }
+                out.push(item);
+            }
+        }
+
+        let new_terminal: gpui::SharedString = t(L10nKey::SearchSectionNewTerminal).into();
+        // Every shell the window's machine has, named alike in every language
+        // so the New Tab menu's "Other Shells…" row can land on exactly these
+        // by typing one word. Listed in the order that menu uses.
+        let default_shell = self.default_shell_label(cx);
+        let usage = &cx.global::<Config>().shell_frecency;
+        let now = crate::core::config::unix_now();
+        for s in crate::ui::tab_strip::shells_by_frecency(
+            &self.shells.shells,
+            &default_shell,
+            usage,
+            now,
+        ) {
+            let mut item = Item::new(
+                t_fmt(L10nKey::AppCmdShellTitle, &[("title", &s.label)]),
+                CommandKind::OpenShell(s.label.clone()),
+            )
+            .in_section(new_terminal.clone());
+            if s.label == default_shell {
+                item = item.with_subtitle(t(L10nKey::ShellDefault));
+            }
+            out.push(item);
+        }
+        for agent in self.offered_agents(cx) {
+            out.push(
+                Item::new(
+                    t_fmt(
+                        L10nKey::AppCmdAgentLaunchTitle,
+                        &[("name", agent.display_name())],
+                    ),
+                    CommandKind::LaunchAgent(agent),
+                )
+                .with_subtitle(agent.launch_command(&cx.global::<Config>().agent_launch))
+                .with_avatar(Avatar {
+                    agent: Some(agent),
+                    ..Avatar::default()
+                })
+                .in_section(new_terminal.clone()),
+            );
+        }
+        out
+    }
+
+    fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search.is_some() {
+            self.close_search(window, cx);
             return;
         }
-        self.open_palette("", window, cx);
+        self.open_search(SearchTab::All, "", window, cx);
     }
 
-    /// Open the palette with `query` already in its search field.
+    /// Open the search on `tab` with `query` already in its field.
     ///
-    /// Unlike [`Self::toggle_palette`] this always opens. A row that names
+    /// Unlike [`Self::toggle_search`] this always opens. A row that names
     /// what it will show cannot also be the thing that dismisses it, and the
     /// only ways in here are rows like that.
-    pub(crate) fn open_palette(
+    pub(crate) fn open_search(
         &mut self,
+        tab: SearchTab,
         query: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let commands = self.palette_commands(window, cx);
-        let view = cx.new(|cx| PaletteView::seeded(commands, query, window, cx));
-        self.palette_sub = Some(cx.subscribe_in(&view, window, Self::on_palette_event));
-        self.palette = Some(view);
+        let catalog = self.search_catalog(window, cx);
+        let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
+        self.search_sub = Some(cx.subscribe_in(&view, window, Self::on_search_event));
+        self.search = Some(view.clone());
+        self.refresh_search_sessions(view, window, cx);
         cx.notify();
     }
 
-    fn on_palette_event(
+    /// Reads the agents' history off the disk and hands what changed to the
+    /// open search. The search opened on the last scan's answer, so this is
+    /// only ever news: a session run since, or the first scan of the process.
+    fn refresh_search_sessions(
         &mut self,
-        _view: &Entity<PaletteView>,
-        ev: &PaletteEvent,
+        view: Entity<SearchView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if WorkspaceStore::remote_ref(cx, self.workspace).is_some() {
+            return;
+        }
+        let Some(home) = crate::core::agent_history::home() else {
+            return;
+        };
+        let codex_home = crate::core::agent_history::codex_home();
+        let scan = cx.background_spawn(async move {
+            crate::core::agent_history::scan(&home, codex_home.as_deref())
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let found = scan.await;
+            this.update_in(cx, |this, window, cx| {
+                // Closed, or closed and opened again, since: nothing to update.
+                if this.search.as_ref() != Some(&view) {
+                    return;
+                }
+                let (sessions, here) = this.search_sessions(found, window, cx);
+                view.update(cx, |view, cx| view.set_sessions(sessions, here, window, cx));
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn on_search_event(
+        &mut self,
+        _view: &Entity<SearchView>,
+        ev: &SearchEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match ev {
-            PaletteEvent::Confirm(kind) => {
+            SearchEvent::Confirm(kind) => {
                 let kind = kind.clone();
                 // The picker is already showing this theme; keep it through the
                 // close instead of reverting and re-applying it.
                 if matches!(kind, CommandKind::SetTheme(_)) {
                     self.theme_preview_restore = None;
                 }
-                self.close_palette(window, cx);
+                self.close_search(window, cx);
                 self.run_command(kind, window, cx);
             }
-            PaletteEvent::Dismiss => self.close_palette(window, cx),
-            PaletteEvent::PreviewTheme(i) => {
+            SearchEvent::Dismiss => self.close_search(window, cx),
+            SearchEvent::PreviewTheme(i) => {
                 if let Some(id) = crate::ui::presets::all(cx).get(*i).map(|t| t.id.clone()) {
                     self.preview_preset(&id, window, cx);
                 }
             }
-            PaletteEvent::CancelThemePreview => self.cancel_preset_preview(window, cx),
+            SearchEvent::CancelThemePreview => self.cancel_preset_preview(window, cx),
         }
     }
 
-    pub(crate) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette = None;
-        self.palette_sub = None;
-        // A previewed theme was never persisted: closing the palette any way
+    pub(crate) fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search = None;
+        self.search_sub = None;
+        // A previewed theme was never persisted: closing the search any way
         // other than confirming the pick puts the old one back.
         self.cancel_preset_preview(window, cx);
         self.focus_active(window, cx);
@@ -5439,6 +6025,8 @@ impl Tty7App {
             SwapPanePrev => self.swap_pane(false, window, cx),
             SelectNextTab => self.cycle_tab(true, window, cx),
             SelectPrevTab => self.cycle_tab(false, window, cx),
+            MoveTabLeft => self.move_tab(false, cx),
+            MoveTabRight => self.move_tab(true, cx),
             ToggleMaximizePane => self.toggle_maximize(window, cx),
             ToggleFullscreen => self.toggle_fullscreen(window, cx),
             ToggleTabSidebar => self.toggle_tab_sidebar(cx),
@@ -5493,11 +6081,21 @@ impl Tty7App {
             ReopenClosedTab => self.reopen_closed_tab(window, cx),
             RenameTab => self.start_rename(self.active, window, cx),
             NewWorktreeTab => self.new_worktree_tab(self.active, window, cx),
+            NewGroup => self.new_empty_group(window, cx),
+            OpenFolderAsGroup => self.open_folder_as_group(cx),
             CloseOtherTabs => self.close_other_tabs(self.active, window, cx),
             CloseTabsToTheRight => self.close_tabs_right_of(self.active, window, cx),
             CopyWorkingDirectory => self.copy_active_cwd(window, cx),
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
+            HibernateTab => self.hibernate_tab(self.active, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
+            NewAgentTab => self.new_agent_tab(window, cx),
+            // Picked from the palette with ⌥ held, the way a New Tab menu row
+            // is: a split beside the focused pane instead of a tab.
+            LaunchAgent(agent) => {
+                let at = SpawnWhere::from_modifiers(window.modifiers());
+                self.launch_agent(agent, at, window, cx)
+            }
             CopyAgentSessionId => self.copy_agent_session_id(self.active, window, cx),
             RenameWorkspace => self.start_workspace_rename(window, cx),
             OpenSettings => self.toggle_settings(window, cx),
@@ -5539,6 +6137,11 @@ impl Tty7App {
             }
             OpenSshConnect(input) => self.open_typed_ssh_connect(&input, window, cx),
             ConnectSavedProfile(id) => self.connect_ssh_profile(id, window, cx),
+            // ⌥ held as the row is taken splits, as it does on the menu's row.
+            OpenShell(label) => {
+                let at = SpawnWhere::from_modifiers(window.modifiers());
+                self.open_listed_shell(&label, at, window, cx)
+            }
             EditSavedProfile(id) => self.open_ssh_profile_in_settings(id, window, cx),
             QuickConnect(target) => {
                 if let Some(qc) = crate::core::ssh_profile::parse_quick_connect(&target) {
@@ -5561,8 +6164,15 @@ impl Tty7App {
             ScmCreateBranch => self.run_scm_action(ScmIntent::CreateBranch, window, cx),
             OpenBranchPicker => self.run_scm_action(ScmIntent::CheckoutBranch, window, cx),
             ToggleDiffViewMode => self.toggle_diff_view_mode(cx),
-            OpenThemePicker | OpenSshConnectInput => {}
-            ActivateTab(i) => self.activate(i, window, cx),
+            // Both are the search's own, and handled inside it.
+            OpenThemePicker => {}
+            SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
+            GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
+            ResumeSession {
+                agent,
+                session_id,
+                cwd,
+            } => self.resume_session(agent, &session_id, cwd, window, cx),
         }
     }
 
@@ -5670,6 +6280,9 @@ impl Tty7App {
             }
             L10nKey::SettingsCursorBlink => self.set_cursor_blink(defaults.cursor_blink, cx),
             L10nKey::SettingsCursorShape => self.set_cursor_style(defaults.cursor_style, cx),
+            L10nKey::SettingsPromptCursorShape => {
+                self.set_prompt_cursor_style(defaults.prompt_cursor_style, cx)
+            }
             L10nKey::SettingsScrollback => self.set_scrollback_limit(defaults.scrollback_limit, cx),
             L10nKey::SettingsNewTabPosition => {
                 self.set_new_tab_position(defaults.new_tab_position, cx)
@@ -5678,11 +6291,12 @@ impl Tty7App {
                 self.set_tab_bar_position(defaults.tab_bar_position, cx)
             }
             L10nKey::SettingsSidebarGrouping => {
-                self.set_sidebar_grouping(defaults.sidebar_grouping, cx)
+                self.set_sidebar_auto_grouping(defaults.sidebar_auto_grouping, cx)
             }
             L10nKey::SettingsDiffPreviewFromCounts => {
                 self.set_sidebar_diff_preview(defaults.sidebar_diff_preview, cx)
             }
+            L10nKey::SettingsSshTabTitle => self.set_ssh_tab_title(defaults.ssh_tab_title, cx),
             L10nKey::SettingsNotifyOnCommandFinish => {
                 self.set_notify_mode(defaults.notify_on_command_finish, cx)
             }
@@ -7815,6 +8429,31 @@ impl ForwardRoute {
         }
     }
 
+    pub(crate) fn set_enabled(
+        &self,
+        forward_id: u64,
+        enabled: bool,
+    ) -> anyhow::Result<Vec<crate::daemon::protocol::ManagedForward>> {
+        let Some(req) =
+            self.workspace_op(crate::daemon::protocol::WorkspaceOp::SetForwardEnabled {
+                forward_id,
+                enabled,
+            })
+        else {
+            return crate::terminal::RemoteTerminal::set_forward_enabled(
+                self.pane_id,
+                forward_id,
+                enabled,
+            );
+        };
+        match crate::terminal::RemoteTerminal::on_workspace(req)? {
+            crate::daemon::protocol::DaemonMsg::ForwardList(list) => Ok(list),
+            other => Err(anyhow::anyhow!(
+                "unexpected reply to SetForwardEnabled: {other:?}"
+            )),
+        }
+    }
+
     pub(crate) fn remove(
         &self,
         forward_id: u64,
@@ -7839,6 +8478,9 @@ impl Render for Tty7App {
         // terminal grid, sized in absolute px from `font_size`, does not move.
         window.set_rem_size(px(cx.global::<Config>().ui_font_size));
         self.claim_pending_tab(window, cx);
+        // Before anything asks where a tab is drawn: a tab that walked into a
+        // pinned folder since the last frame is filed there on this one.
+        self.settle_sidebar_groups(cx);
         self.touch_active_tab();
         self.declare_displayed_panes(cx);
         self.scm_sync_watchers(window, cx);
@@ -7855,14 +8497,23 @@ impl Render for Tty7App {
             let landed = crate::ui::reorder::take_landed(&self.reorder);
             if let Some((tab, zone)) = self.tab_merge.take() {
                 self.merge_tab(tab, zone, window, cx);
-            } else if let Some((tab, key)) = landed.regroup {
+            } else if let Some((tab, target)) = landed.regroup {
                 // A drop into another group outranks the reordering the drag
                 // did on its way out of the one it came from. The pointer
                 // left that group; the shuffle it caused before leaving is
                 // not what was being asked for.
-                self.regroup_tab(tab, key, cx);
+                self.regroup_tab(tab, target, cx);
+            } else if let Some(key) = landed.pin {
+                // The same for a header let go above the divider: it was
+                // carried there to be pinned, not to be reordered on the way.
+                self.pin_auto_group(key, cx);
             } else if let Some(order) = landed.order {
-                self.apply_tab_order(&order, cx);
+                match landed.surface {
+                    Some(crate::ui::reorder::Surface::PinnedGroups) => {
+                        self.apply_pinned_order(&order, cx)
+                    }
+                    _ => self.apply_tab_order(&order, cx),
+                }
             }
             // Also what ends the pane drag, so it is taken whichever of the two
             // readings the last frame left behind.
@@ -8334,6 +8985,12 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &SelectPrevTab, window, cx| {
                     this.cycle_tab(false, window, cx)
                 }))
+                .on_action(
+                    cx.listener(|this, _: &MoveTabLeft, _window, cx| this.move_tab(false, cx)),
+                )
+                .on_action(
+                    cx.listener(|this, _: &MoveTabRight, _window, cx| this.move_tab(true, cx)),
+                )
                 .on_action(cx.listener(|this, _: &ActivateTab1, window, cx| {
                     this.activate_visual(0, window, cx)
                 }))
@@ -8370,9 +9027,11 @@ impl Render for Tty7App {
                 .on_action(
                     cx.listener(|this, _: &ResetFontSize, _window, cx| this.reset_font_size(cx)),
                 )
-                .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
-                    this.toggle_palette(window, cx)
-                }))
+                .on_action(
+                    cx.listener(|this, _: &TogglePalette, window, cx| {
+                        this.toggle_search(window, cx)
+                    }),
+                )
                 .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
                     this.reopen_closed_tab(window, cx)
                 }))
@@ -8513,6 +9172,9 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &MarkTabUnread, _window, cx| {
                     this.mark_tab_unread(this.active, cx)
                 }))
+                .on_action(cx.listener(|this, _: &HibernateTab, window, cx| {
+                    this.hibernate_tab(this.active, window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)
                 }))
@@ -8530,6 +9192,15 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &CopyAgentSessionId, window, cx| {
                     this.copy_agent_session_id(this.active, window, cx)
+                }))
+                .on_action(
+                    cx.listener(|this, _: &NewAgentTab, window, cx| this.new_agent_tab(window, cx)),
+                )
+                .on_action(cx.listener(|this, action: &LaunchAgent, window, cx| {
+                    this.launch_agent(action.agent, SpawnWhere::NewTab, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SaveAgentLaunchArgs, window, cx| {
+                    this.save_agent_launch_args(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ShowKeyboardShortcuts, window, cx| {
                     this.open_settings_section(SettingsSection::Keybindings, window, cx)
@@ -8576,7 +9247,7 @@ impl Render for Tty7App {
                     this.child(el)
                 })
                 .children(self.render_switcher(window, cx))
-                .when_some(self.palette.clone(), |this, palette| this.child(palette))
+                .when_some(self.search.clone(), |this, search| this.child(search))
                 .children(gpui_component::Root::render_notification_layer(window, cx));
 
         if let Some(start) = prof {
@@ -8608,6 +9279,35 @@ fn step_in_order(order: &[usize], active: usize, forward: bool) -> Option<usize>
     Some(order[next]).filter(|&i| i != active)
 }
 
+/// The `apply_tab_order` permutation that moves the active tab one slot
+/// within `run` — a move, not a trade: the tab is lifted out and put back at
+/// the neighbour's place, so through a wrap the run it crossed shifts one slot
+/// (`[a, b, c]` with `c` moved right becomes `[c, a, b]`, not `[c, b, a]`).
+/// `run` is the tabs drawn together (a sidebar section, or every tab on a top
+/// bar) as ascending `self.tabs` indices out of `n`; only their slots are
+/// reassigned, so no tab in another run moves, not even out of sight. `None`
+/// when there is nothing to move: a run of fewer than two tabs, or one that
+/// does not hold the active tab.
+fn one_slot_move(run: &[usize], n: usize, active: usize, right: bool) -> Option<Vec<usize>> {
+    let len = run.len();
+    if len < 2 {
+        return None;
+    }
+    let pos = run.iter().position(|&i| i == active)?;
+    let mut moved = run.to_vec();
+    match (right, pos) {
+        (true, p) if p + 1 == len => moved.rotate_right(1),
+        (false, 0) => moved.rotate_left(1),
+        (true, p) => moved.swap(p, p + 1),
+        (false, p) => moved.swap(p, p - 1),
+    }
+    let mut permutation: Vec<usize> = (0..n).collect();
+    for (&slot, &tab) in run.iter().zip(&moved) {
+        permutation[slot] = tab;
+    }
+    Some(permutation)
+}
+
 fn mru_order(stamps: &[u64], active: usize) -> Vec<usize> {
     let mut order: Vec<usize> = (0..stamps.len()).collect();
     order.sort_by_key(|&i| (stamps[i] == 0, std::cmp::Reverse(stamps[i]), i));
@@ -8621,9 +9321,15 @@ fn mru_order(stamps: &[u64], active: usize) -> Vec<usize> {
 fn tab_to_session(tab: &Tab, cx: &App) -> SessionTab {
     SessionTab {
         name: tab.name.clone(),
-        pane: pane_to_session(&tab.pane, cx),
-        sidebar_group: tab.sidebar_group.borrow().clone(),
+        pane: match tab.asleep_layout() {
+            Some(layout) => layout.clone(),
+            None => pane_to_session(&tab.pane, cx),
+        },
+        group: tab.group.get(),
+        last_auto: tab.auto_group.borrow().clone(),
         tree_id: None,
+        hibernated: false,
+        asleep_view: None,
     }
 }
 
@@ -8798,7 +9504,19 @@ fn tabs_from_session(
     let alive = alive_panes_on(&crate::terminal::PaneRoute::for_workspace(workspace));
     let mut tabs: Vec<Tab> = Vec::with_capacity(session.tabs.len());
     let mut dropped = 0usize;
-    for st in &session.tabs {
+    let home = crate::ui::path_display::home_for_host(
+        cx,
+        workspace.map_or(HostId::LOCAL, |w| w.target.host_id()),
+    );
+    for (index, st) in session.tabs.iter().enumerate() {
+        // Asleep stays asleep: nothing is spawned or attached for it, which is
+        // the point. The one exception is the tab the window opens onto — a
+        // tab on screen is awake, so that one is woken here, by the same
+        // restore every other tab is getting.
+        if st.hibernated && index != session.active {
+            tabs.push(asleep_tab(st, home.clone()));
+            continue;
+        }
         let Some(pane) = session_to_pane(
             workspace,
             owner,
@@ -8823,17 +9541,106 @@ fn tabs_from_session(
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            sidebar_group: std::cell::RefCell::new(st.sidebar_group.clone()),
+            group: std::cell::Cell::new(st.group),
+            // The hint the tree kept: the tab is drawn in its auto group from
+            // the first frame, not parked in Ungrouped until its probe lands.
+            auto_group: std::cell::RefCell::new(st.last_auto.clone()),
+            folder_watch: std::cell::Cell::new(crate::core::group_key::EntryWatch::baseline()),
             tree_id: std::cell::Cell::new(
                 st.tree_id
                     .unwrap_or_else(tty7_core::core::machine::TabId::new),
             ),
             last_used: std::cell::Cell::new(0),
             focus_origin: Default::default(),
+            asleep: None,
         });
     }
     let active = session.active.min(tabs.len().saturating_sub(1));
     (tabs, active, dropped)
+}
+
+/// A tab restored asleep: its place, its name and its group, and nothing
+/// running behind them.
+fn asleep_tab(st: &SessionTab, home: Option<std::path::PathBuf>) -> Tab {
+    let mut tab = Tab::new(Pane::Empty);
+    tab.name = st.name.clone();
+    tab.group.set(st.group);
+    *tab.auto_group.borrow_mut() = st.last_auto.clone();
+    if let Some(id) = st.tree_id {
+        tab.tree_id.set(id);
+    }
+    tab.asleep = Some(Asleep {
+        layout: st.pane.clone(),
+        view: st
+            .asleep_view
+            .clone()
+            .unwrap_or_else(|| view_of_layout(tab.tree_id.get(), &st.pane)),
+        home,
+    });
+    tab
+}
+
+/// What to call a sleeping tab when the tree had nothing better to say: the
+/// first directory in its layout, and the agent in it if there was one.
+fn view_of_layout(
+    id: tty7_core::core::machine::TabId,
+    layout: &SessionPane,
+) -> tty7_core::core::tab_view::TabView {
+    fn leaves<'a>(pane: &'a SessionPane, out: &mut Vec<&'a SessionPane>) {
+        match pane {
+            SessionPane::Leaf { .. } => out.push(pane),
+            SessionPane::Split { a, b, .. } => {
+                leaves(a, out);
+                leaves(b, out);
+            }
+        }
+    }
+    let mut all = Vec::new();
+    leaves(layout, &mut all);
+    let cwd = all.iter().find_map(|leaf| match leaf {
+        SessionPane::Leaf { cwd, .. } => cwd.as_ref().map(|p| p.display().to_string()),
+        SessionPane::Split { .. } => None,
+    });
+    let agent = all.iter().find_map(|leaf| match leaf {
+        SessionPane::Leaf { agent, .. } => *agent,
+        SessionPane::Split { .. } => None,
+    });
+    tty7_core::core::tab_view::TabView {
+        id,
+        name: None,
+        title: String::new(),
+        osc_title: None,
+        cwd,
+        agent,
+        status: None,
+        live: false,
+        panes: all.len(),
+    }
+}
+
+/// A sleeping layout as a wake should read it: a native SSH pane dials its
+/// host again rather than standing on its old id. That id belongs to a pane
+/// whose connection is gone, and the restore reading it would put a local
+/// shell in its place.
+fn redial_native_ssh(layout: &SessionPane) -> SessionPane {
+    match layout {
+        SessionPane::Leaf {
+            ssh_spec: Some(_), ..
+        } => {
+            let mut leaf = layout.clone();
+            if let SessionPane::Leaf { pane_id, .. } = &mut leaf {
+                *pane_id = None;
+            }
+            leaf
+        }
+        SessionPane::Leaf { .. } => layout.clone(),
+        SessionPane::Split { axis, ratio, a, b } => SessionPane::Split {
+            axis: *axis,
+            ratio: *ratio,
+            a: Box::new(redial_native_ssh(a)),
+            b: Box::new(redial_native_ssh(b)),
+        },
+    }
 }
 
 fn leaf_shares_the_window_daemon(window_is_remote: bool, leaf_is_native_ssh: bool) -> bool {
@@ -8966,6 +9773,7 @@ pub(crate) fn new_terminal(
         agent: None,
         agent_session_id: None,
         agent_launch_argv: None,
+        run_on_land: None,
         owner,
         font_size,
     };
@@ -9042,6 +9850,14 @@ fn build_terminal_view(
         window,
         |app, _view, _: &crate::terminal::view::AgentSessionChanged, _window, cx| {
             app.save_session(cx);
+        },
+    )
+    .detach();
+    cx.subscribe_in(
+        &view,
+        window,
+        |app, _view, ev: &crate::terminal::view::AgentDetected, _window, cx| {
+            app.note_agent_detected(ev.0, cx);
         },
     )
     .detach();
@@ -9680,7 +10496,7 @@ mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_W, Dir, Pane, Rename, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab,
         TabAgentSession, clear_window_override_values, close_prompt, document_column_px,
-        join_shell_args, leaf_shares_the_window_daemon, mru_order, pane_free_for,
+        join_shell_args, leaf_shares_the_window_daemon, mru_order, one_slot_move, pane_free_for,
         parse_ssh_connect_input, parse_ssh_option_words, rename_outcome, side_panel_max,
         split_shell_args, step_in_order, strip_band, wd_path_saveable,
     };
@@ -10061,6 +10877,46 @@ mod tests {
     }
 
     #[test]
+    fn moving_a_tab_one_slot_puts_it_where_the_neighbour_was() {
+        // A move, not a trade: the neighbour it crossed shifts one slot.
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 1, true), Some(vec![0, 2, 1]));
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 1, false), Some(vec![1, 0, 2]));
+    }
+
+    #[test]
+    fn a_tab_moved_past_an_end_carries_the_whole_run_with_it() {
+        // Through the wrap the tab lands at the far end and the run it
+        // crossed shifts one slot — `[c, a, b]`, not `[c, b, a]`.
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 2, true), Some(vec![2, 0, 1]));
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 0, false), Some(vec![1, 2, 0]));
+    }
+
+    #[test]
+    fn a_move_inside_a_sidebar_group_leaves_the_other_groups_alone() {
+        // Tabs 0, 2 and 4 are one group, 1 and 3 another: only the group's
+        // own slots are reassigned, and the wrap stays inside it.
+        assert_eq!(
+            one_slot_move(&[0, 2, 4], 5, 2, true),
+            Some(vec![0, 1, 4, 3, 2])
+        );
+        assert_eq!(
+            one_slot_move(&[0, 2, 4], 5, 0, false),
+            Some(vec![2, 1, 4, 3, 0])
+        );
+        assert_eq!(
+            one_slot_move(&[1, 3], 5, 3, true),
+            Some(vec![0, 3, 2, 1, 4])
+        );
+    }
+
+    #[test]
+    fn a_move_with_nothing_to_move_is_refused() {
+        assert_eq!(one_slot_move(&[], 0, 0, true), None);
+        assert_eq!(one_slot_move(&[0], 3, 0, true), None);
+        assert_eq!(one_slot_move(&[0, 1, 2], 3, 7, true), None);
+    }
+
+    #[test]
     fn restore_only_attaches_panes_the_workspace_owns_or_nobody_claims() {
         let ours = crate::core::session::WorkspaceId::new();
         let theirs = crate::core::session::WorkspaceId::new();
@@ -10175,6 +11031,7 @@ mod tests {
                         agent: Some(CLIAgent::Claude),
                         agent_session_id: Some("sid-abc".to_string()),
                         agent_launch_argv: Some(vec!["claude".to_string()]),
+                        run_on_land: None,
                         owner: None,
                         font_size: 14.0,
                     },
@@ -10625,8 +11482,10 @@ mod ssh_rebuild_gpui_tests {
             let tab = TreeTab {
                 id: app.tabs[0].tree_id.get(),
                 name: None,
-                sidebar_group: None,
+                group: None,
+                last_auto: None,
                 root: PaneNode::Leaf { pane: 1 },
+                hibernated: false,
             };
             app.apply_layout_delta(
                 &LayoutDelta::TabRestructured { tab, pane: None },
@@ -11455,6 +12314,7 @@ mod managed_forward_gpui_tests {
             target_port: 80,
             description: None,
             status: ForwardStatus::Listening,
+            enabled: true,
         }
     }
 
@@ -11814,6 +12674,7 @@ mod tab_focus_memory_tests {
                     agent: None,
                     agent_session_id: None,
                     agent_launch_argv: None,
+                    run_on_land: None,
                     owner: None,
                     font_size: 14.,
                 },
@@ -12159,6 +13020,115 @@ mod tab_focus_memory_tests {
                 "the zoom lands on the pane the reader was last in"
             );
             assert!(right.read(cx).focus_handle.is_focused(window));
+        });
+    }
+}
+
+#[cfg(test)]
+mod hibernate_gpui_tests {
+    use gpui::TestAppContext;
+
+    use crate::core::session::SessionPane;
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::pane::Pane;
+
+    fn leaf_pane_id(pane: &SessionPane) -> Option<u64> {
+        match pane {
+            SessionPane::Leaf { pane_id, .. } => *pane_id,
+            SessionPane::Split { .. } => None,
+        }
+    }
+
+    /// Asleep, a tab holds nothing running and still holds its place: the
+    /// pane id the wake restores from, the name it had on screen, and a seat in
+    /// the sync that tells the machine it is asleep rather than gone.
+    #[gpui::test]
+    fn a_sleeping_tab_keeps_its_place_its_pane_and_its_name(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            let pane_id = app.tabs[1]
+                .pane
+                .first_leaf()
+                .and_then(|slot| slot.terminal().cloned())
+                .expect("tab 1 has a pane")
+                .read(cx)
+                .pane_id;
+            let (before, _) = app.tabs[1].label_view(Some(window), cx);
+
+            app.put_to_sleep(1, window, cx);
+
+            assert_eq!(app.tabs.len(), 2, "sleeping is not closing");
+            let tab = &app.tabs[1];
+            assert!(tab.is_asleep());
+            assert!(matches!(tab.pane, Pane::Empty));
+            assert!(tab.pane.terminals().is_empty(), "nothing is left running");
+            assert_eq!(tab.asleep_layout().and_then(leaf_pane_id), Some(pane_id));
+            let (after, _) = tab.label_view(Some(window), cx);
+            assert_eq!(
+                format!("{:?}", after.label()),
+                format!("{:?}", before.label()),
+                "it is called what it was called while awake"
+            );
+            assert!(!after.live);
+
+            let (desired, _, held) = crate::ui::tree_sync::desired_tabs(app, cx);
+            assert!(held.is_empty(), "a sleeping tab is not a tab gone missing");
+            assert_eq!(desired.len(), 2);
+            assert!(!desired[0].hibernated);
+            assert!(desired[1].hibernated);
+            match &desired[1].root {
+                crate::ui::tree_sync::DesiredNode::Leaf { pane, .. } => assert_eq!(*pane, pane_id),
+                other => panic!("expected the one leaf, got {other:?}"),
+            }
+        });
+    }
+
+    /// Looking at a tab is what wakes it, so the window has to keep one awake
+    /// to look at; the tab shown in a sleeping one's place is the awake tab
+    /// used last.
+    #[gpui::test]
+    fn the_last_awake_tab_has_nothing_to_hand_the_window_to(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.tabs[1].last_used.set(5);
+            app.tabs[2].last_used.set(9);
+            assert_eq!(app.awake_tab_besides(0), Some(2), "the one used last");
+
+            app.put_to_sleep(2, window, cx);
+            assert_eq!(app.awake_tab_besides(0), Some(1));
+
+            app.put_to_sleep(1, window, cx);
+            assert_eq!(app.awake_tab_besides(0), None);
+            assert!(
+                !app.can_hibernate_tab(0, cx),
+                "the last awake tab stays awake"
+            );
+            assert!(
+                !app.can_hibernate_tab(1, cx),
+                "nor is a sleeping tab put to sleep twice"
+            );
+        });
+    }
+
+    /// Closing a sleeping tab closes it like any other, and what Reopen Closed
+    /// Tab gets back is the layout it slept with — not the empty stand-in.
+    #[gpui::test]
+    fn a_sleeping_tab_closes_into_what_it_would_have_woken_as(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.put_to_sleep(1, window, cx);
+            let layout_id = app.tabs[1].asleep_layout().and_then(leaf_pane_id);
+            assert!(layout_id.is_some());
+
+            app.close_tab(1, window, cx);
+
+            assert_eq!(app.tabs.len(), 1);
+            let closed = app.closed.last().expect("the closed tab is remembered");
+            assert_eq!(leaf_pane_id(&closed.pane), layout_id);
+            assert!(!closed.hibernated, "reopening brings it back awake");
         });
     }
 }

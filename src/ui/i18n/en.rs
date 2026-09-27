@@ -93,8 +93,27 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchThemes => "Search themes…",
         L10nKey::SearchSettings => "Search settings…",
         L10nKey::FilterHosts => "Filter hosts…",
-        L10nKey::SearchCommandsOrHost => "Search or type user@host to connect…",
         L10nKey::SearchTheme => "Search…",
+        L10nKey::SearchTabAll => "All",
+        L10nKey::SearchTabActions => "Actions",
+        L10nKey::SearchTabTerminals => "Terminals",
+        L10nKey::SearchTabHosts => "Hosts",
+        L10nKey::SearchPlaceholderAll => "Search actions, terminals and hosts…",
+        L10nKey::SearchPlaceholderActions => "Search actions…",
+        L10nKey::SearchPlaceholderTerminals => "Search open tabs, shells and agents…",
+        L10nKey::SearchPlaceholderHosts => "Search hosts, or type user@host to connect…",
+        L10nKey::SearchTabSessions => "Sessions",
+        L10nKey::SearchPlaceholderSessions => "Search past agent sessions…",
+        L10nKey::SearchSessionsEmptyHint => {
+            "Claude Code and Codex sessions on this computer are listed here."
+        }
+        L10nKey::SearchSectionSessionsHere => "In {dir}",
+        L10nKey::SearchSectionSessionsRecent => "Recent",
+        L10nKey::AppSessionNotResumable => "{name} cannot resume a session by id.",
+        L10nKey::AppSessionDirectoryGone => "The session's directory no longer exists: {path}",
+        L10nKey::SearchMoreIn => "{count} more in {tab}",
+        L10nKey::SearchNoResults => "No results",
+        L10nKey::SearchSectionNewTerminal => "New Terminal",
         L10nKey::SearchWorkspacesAndMachines => "Search workspaces, tabs, and machines…",
         L10nKey::SearchFonts => "Search fonts…",
         L10nKey::SearchFind => "Find…",
@@ -105,7 +124,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::HomeNewTab => "New Tab",
         L10nKey::HomeReopenClosedTab => "Reopen Closed Tab",
         L10nKey::HomeSwitchWorkspace => "Switch Workspace…",
-        L10nKey::HomeCommandPalette => "Command Palette…",
+        L10nKey::HomeSearchEverywhere => "Search Everywhere…",
         L10nKey::HomeSplitRight => "Split Right",
         L10nKey::HomeSplitDown => "Split Down",
         L10nKey::HomeSettings => "Settings…",
@@ -116,7 +135,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::Refreshing => "refreshing…",
         L10nKey::Binary => "binary",
         L10nKey::Delete => "Delete",
-        L10nKey::NoMatchingCommands => "No matching commands",
         L10nKey::ConnectSshHint => "Type user@host to connect over SSH instead.",
         L10nKey::EditHint => "edit",
         L10nKey::OpenFileFromTree => "Open a file from the file tree",
@@ -193,6 +211,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsCursor => "Cursor",
         L10nKey::SettingsCursorShape => "Cursor shape",
         L10nKey::SettingsCursorShapeDesc => "How the terminal cursor is drawn.",
+        L10nKey::SettingsPromptCursorShape => "Prompt cursor shape",
+        L10nKey::SettingsPromptCursorShapeDesc => {
+            "The cursor at the shell prompt. Follow uses the cursor shape above everywhere."
+        }
         L10nKey::SettingsCursorBlink => "Cursor blink",
         L10nKey::SettingsCursorBlinkDesc => "Pulse the cursor while the terminal is focused.",
         L10nKey::SettingsLanguage => "Language",
@@ -627,12 +649,19 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsNewTabPositionDesc => "Where a freshly opened tab is inserted.",
         L10nKey::SettingsTabBarPosition => "Tab bar position",
         L10nKey::SettingsTabBarPositionDesc => "A strip on top or a sidebar on the left.",
-        L10nKey::SettingsSidebarGrouping => "Sidebar grouping",
+        L10nKey::SettingsSidebarGrouping => "Auto grouping",
         L10nKey::SettingsSidebarGroupingDesc => {
-            "Group tabs by git repository; others go under Scratch."
+            "Group unpinned tabs by git repository, SSH tabs by host."
         }
         L10nKey::SettingsDiffPreviewFromCounts => "Open diff preview from sidebar counts",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "Click a row's +N −N to open its diff.",
+        L10nKey::SettingsSshTabTitle => "SSH tab title",
+        L10nKey::SettingsSshTabTitleDesc => {
+            "Dynamic follows the remote title; the others pin it to the host."
+        }
+        L10nKey::SettingsSshTabTitleDynamic => "Dynamic",
+        L10nKey::SettingsSshTabTitleProfileName => "Profile name",
+        L10nKey::SettingsSshTabTitleHostname => "Hostname",
         L10nKey::DocumentDock => "Dock beside terminal",
         L10nKey::DocumentFill => "Fill window",
         L10nKey::SettingsNotifications => "Notifications",
@@ -655,9 +684,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAtEnd => "At end",
         L10nKey::SettingsTop => "Top",
         L10nKey::SettingsLeft => "Left",
-        L10nKey::SettingsByRepo => "By repo",
-        L10nKey::SettingsByRepoOrFolder => "By repo or folder",
-        L10nKey::SettingsFlat => "Flat",
         L10nKey::SettingsPreset => "Preset",
         L10nKey::SettingsPresetDesc => "tmux maps pane and tab actions to prefix keys (Ctrl-B C).",
         L10nKey::SettingsPrefix => "Prefix",
@@ -806,6 +832,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAgentCrush => "Crush",
         L10nKey::SettingsAgentCodeBuddy => "CodeBuddy",
         L10nKey::SettingsAgentCursorCli => "Cursor CLI",
+        L10nKey::SettingsAgentPrimeAgent => "Prime Agent",
+        L10nKey::SettingsAgentAntigravity => "Antigravity",
         L10nKey::SettingsSearchAboutKeywords => "version license credits build update check github",
         L10nKey::SettingsSearchAppHttpProxyKeywords => {
             "proxy http https socks socks5 clash v2ray network download update"
@@ -838,6 +866,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchCopyOnSelectKeywords => "clipboard selection yank mouse",
         L10nKey::SettingsSearchCursorBlinkKeywords => "caret blinking flash",
         L10nKey::SettingsSearchCursorShapeKeywords => "caret block bar underline beam",
+        L10nKey::SettingsSearchPromptCursorShapeKeywords => {
+            "prompt cursor shape caret block bar underline beam shell integration"
+        }
         L10nKey::SettingsSearchCustomThemesKeywords => {
             "theme duplicate edit colors folder yaml import background image wallpaper"
         }
@@ -912,6 +943,12 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchCursorCliKeywords => {
             "agent integration hooks install cursor cursor-agent"
         }
+        L10nKey::SettingsSearchPrimeAgentKeywords => {
+            "agent integration extension install prime prime-agent primeintellect"
+        }
+        L10nKey::SettingsSearchAntigravityKeywords => {
+            "agent integration hooks install antigravity agy google"
+        }
         L10nKey::SettingsSearchPiKeywords => "agent integration extension install pi",
         L10nKey::SettingsSearchPortForwardingKeywords => {
             "ssh tunnel local remote dynamic socks forward rule"
@@ -946,7 +983,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "tray menu bar status item agent attention system icon"
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
-            "tabs group repo repository git scratch header sidebar flat folder directory cwd"
+            "tabs group grouping auto repo repository git ssh host pinned pin ungrouped header sidebar flat folder"
+        }
+        L10nKey::SettingsSearchSshTabTitleKeywords => {
+            "ssh tab title name host hostname profile alias pin fixed osc remote"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "double click word url path select semantic bracket email"
@@ -1026,6 +1066,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SshEditProfile => "Edit connection…",
         L10nKey::ForwardTooltipAdd => "Add forward",
         L10nKey::ForwardTooltipRemove => "Remove",
+        L10nKey::ForwardTooltipTurnOn => "Turn on",
+        L10nKey::ForwardTooltipTurnOff => "Turn off — the rule is kept",
+        L10nKey::ForwardSwitchFailed => "Couldn't switch the forward — {error}",
+        L10nKey::SettingsFwdEnabled => "Open this rule with the connection",
         L10nKey::ForwardLocal => "Local",
         L10nKey::ForwardRemote => "Remote",
         L10nKey::ForwardDynamic => "Dynamic",
@@ -1061,6 +1105,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::FileTreeContextOpen => "Open",
         L10nKey::FileTreeContextCdHere => "cd Here",
+        L10nKey::FileTreeContextPinAsGroup => "Pin as Group",
         L10nKey::FileTreeContextInsertPath => "Insert Path in Terminal",
         L10nKey::FileTreeContextAttachAgent => "Attach to Agent",
         L10nKey::FileTreeContextNewFile => "New File",
@@ -1221,6 +1266,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::ScmShowMore => "Show more",
         L10nKey::ScmShowLess => "Show less",
         L10nKey::ScmCommitNotFound => "This commit is not in this repository.",
+        L10nKey::ScmFilterChanges => "Filter changed files…",
+        L10nKey::ScmViewAsTree => "View as Tree",
+        L10nKey::ScmViewAsList => "View as List",
+        L10nKey::ScmNoMatchingChanges => "No changed files match the filter.",
         L10nKey::ScmTooManyChanges => "Showing the first {shown} of {total} changes.",
         L10nKey::ScmOpenChanges => "Open Changes",
         L10nKey::ScmDiscardAllConfirm => {
@@ -1492,6 +1541,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdNewWindow => "New Window",
         L10nKey::CmdNewWorktreeTab => "New Worktree Tab…",
         L10nKey::CmdNewWorktreeTabSubtitle => "isolated checkout on a fresh branch",
+        L10nKey::CmdNewGroup => "New Group",
+        L10nKey::CmdNewGroupSubtitle => "an empty pinned group in the sidebar",
+        L10nKey::CmdOpenFolderAsGroup => "Open Folder as Group…",
+        L10nKey::CmdOpenFolderAsGroupSubtitle => "pin a folder; tabs opened in it join",
         L10nKey::CmdRenameTab => "Rename Tab…",
         L10nKey::CmdSplitRight => "Split Right",
         L10nKey::CmdSplitDown => "Split Down",
@@ -1510,14 +1563,22 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdSwapPanePrevious => "Swap Pane Previous",
         L10nKey::CmdNextTab => "Next Tab",
         L10nKey::CmdPreviousTab => "Previous Tab",
+        L10nKey::CmdMoveTabLeft => "Move Tab Left",
+        L10nKey::CmdMoveTabRight => "Move Tab Right",
         L10nKey::CmdRecentTabSwitcher => "Recent Tab Switcher",
         L10nKey::CmdRecentTabSwitcherReverse => "Recent Tab Switcher (Reverse)",
         L10nKey::CmdCopyWorkingDirectory => "Copy Working Directory",
         L10nKey::CmdCopySessionId => "Copy Session ID",
         L10nKey::CmdCopySessionIdSubtitle => "the coding agent's own session id",
+        L10nKey::CmdNewAgentTab => "New Agent Tab",
+        L10nKey::CmdNewAgentTabSubtitle => "open the coding agent you used last in a new tab",
         L10nKey::CmdForkSession => "Fork Session",
         L10nKey::CmdForkSessionSubtitle => "branch this agent session into a new tab",
         L10nKey::CmdMarkTabAsUnread => "Mark Tab as Unread",
+        L10nKey::CmdHibernateTab => "Hibernate Tab",
+        L10nKey::CmdHibernateTabSubtitle => {
+            "stop its processes to free memory; selecting it wakes it"
+        }
         L10nKey::CmdClosePaneTab => "Close Pane / Tab",
         L10nKey::CmdCloseWindow => "Close Window",
         L10nKey::CmdCloseWindowSubtitle => "shells keep running",
@@ -1675,8 +1736,16 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppNoUncommittedChanges => {
             "No uncommitted changes in {cwd} (or not a git repository)."
         }
-        L10nKey::AppCmdSshProfileTitle => "SSH: {title}",
-        L10nKey::AppCmdSwitchToTab => "Switch to Tab: {label}",
+        L10nKey::AppCmdAgentLaunchTitle => "Agent: {name}",
+        L10nKey::AppNoAgentOnPath => "No coding agent was found on this machine's PATH",
+        L10nKey::AppNoAgentSeenHere => {
+            "No coding agent has run in this workspace yet — start one by hand once and it will be offered here"
+        }
+        L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
+        L10nKey::AppAgentLaunchArgsUnknown => {
+            "{name} did not report the arguments it was started with"
+        }
+        L10nKey::AppCmdShellTitle => "Shell: {title}",
         L10nKey::AppPlaceholderDescription => "description",
         L10nKey::AppPlaceholderSshQuickConnect => "user@host  or  user@host:port",
         L10nKey::AppPlaceholderLoginShell => "login shell",
@@ -1787,6 +1856,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CursorShapeBlock => "Block",
         L10nKey::CursorShapeBar => "Bar",
         L10nKey::CursorShapeUnderline => "Underline",
+        L10nKey::PromptCursorShapeFollow => "Follow",
         L10nKey::PaletteTryDifferentSearch => "Try a different search.",
         L10nKey::CompletionListingRemote => "listing remote…",
         L10nKey::CompletionRemoteListingFailed => "remote listing failed — {error}",
@@ -1834,6 +1904,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppMenuCopyWorkingDirectory => "Copy Working Directory",
         L10nKey::AppMenuCopySessionId => "Copy Session ID",
         L10nKey::AppMenuForkSession => "Fork Session",
+        L10nKey::AppMenuSaveAgentLaunchArgs => "Set Current Launch Args as Default",
         L10nKey::AppMenuClosePaneTab => "Close",
         L10nKey::AppMenuCloseOtherTabs => "Close Other Tabs",
         L10nKey::AppMenuCloseTabsRight => "Close Tabs to the Right",
@@ -1850,7 +1921,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppMenuFind => "Find…",
         L10nKey::AppMenuFindNext => "Find Next",
         L10nKey::AppMenuFindPrevious => "Find Previous",
-        L10nKey::AppMenuCommandPalette => "Command Palette…",
+        L10nKey::AppMenuSearchEverywhere => "Search Everywhere…",
         L10nKey::AppMenuIncreaseFontSize => "Increase Font Size",
         L10nKey::AppMenuDecreaseFontSize => "Decrease Font Size",
         L10nKey::AppMenuResetFontSize => "Reset Font Size",
@@ -1863,6 +1934,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppMenuZoomPane => "Zoom Pane",
         L10nKey::AppMenuClearScrollback => "Clear Scrollback",
         L10nKey::AppMenuOpenLink => "Open",
+        L10nKey::AppMenuOpenLinkWithDefaultApp => "Open with Default App",
         L10nKey::AppMenuRevealInFinder => "Show in Finder",
         L10nKey::AppMenuRevealInFolder => "Show Containing Folder",
         L10nKey::AppMenuCopyLinkPath => "Copy Path",
@@ -1892,15 +1964,24 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::TabMenuLocalShells => "Local",
         L10nKey::TabMenuAddHost => "Add SSH Host…",
         L10nKey::TabMenuAllHosts => "All SSH Hosts…",
+        L10nKey::TabMenuLaunchAgent => "Launch Agent…",
+        L10nKey::TabMenuOtherShells => "Other Shells…",
         L10nKey::TabMenuSplitHint => "Hold {key} to split",
         L10nKey::TabUnnamedShell => "Shell {n}",
         L10nKey::ShellDefault => "default",
-        L10nKey::SidebarScratchGroup => "Scratch",
+        L10nKey::SidebarUngroupedGroup => "Ungrouped",
         L10nKey::SidebarMoveToGroup => "Move to Group",
         L10nKey::SidebarNewGroup => "New Group…",
-        L10nKey::SidebarAutoGroup => "Group Automatically",
         L10nKey::SidebarNewGroupName => "New Group",
         L10nKey::SidebarRenameGroup => "Rename Group",
+        L10nKey::SidebarPinGroup => "Pin Group",
+        L10nKey::SidebarUnpinGroup => "Unpin",
+        L10nKey::SidebarGroupNewTab => "New Tab",
+        L10nKey::SidebarSetGroupFolder => "Set Folder…",
+        L10nKey::SidebarUseCurrentTabFolder => "Use Current Tab's Folder",
+        L10nKey::SidebarClearGroupFolder => "Clear Folder",
+        L10nKey::SidebarDeleteGroup => "Delete Group",
+        L10nKey::SidebarDropToPin => "Drop here to pin",
         L10nKey::TabContextCloseTab => "Close Tab",
         L10nKey::TabContextCloseTabsBelow => "Close Tabs Below",
         L10nKey::AppAgentHooksOpFailed => "Failed: {error}",
@@ -1911,6 +1992,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsNoneLower => "none",
         L10nKey::SettingsSearchCommandLineToolTitle => "Command line tool",
         L10nKey::TabContextMarkUnread => "Mark as Unread",
+        L10nKey::TabContextHibernate => "Hibernate",
+        L10nKey::TabContextWake => "Wake",
+        L10nKey::TabTooltipAsleep => "Hibernated — select to wake",
+        L10nKey::TabWakeFailed => "Could not wake the tab: none of its panes could be started",
     }
 }
 

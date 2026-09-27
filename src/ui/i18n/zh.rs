@@ -86,8 +86,25 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchThemes => "搜索主题…",
         L10nKey::SearchSettings => "搜索设置…",
         L10nKey::FilterHosts => "筛选主机…",
-        L10nKey::SearchCommandsOrHost => "搜索或输入 user@host 连接…",
         L10nKey::SearchTheme => "搜索…",
+        L10nKey::SearchTabAll => "全部",
+        L10nKey::SearchTabActions => "操作",
+        L10nKey::SearchTabTerminals => "终端",
+        L10nKey::SearchTabHosts => "主机",
+        L10nKey::SearchPlaceholderAll => "搜索操作、终端和主机…",
+        L10nKey::SearchPlaceholderActions => "搜索操作…",
+        L10nKey::SearchPlaceholderTerminals => "搜索已打开的标签页、Shell 和 Agent…",
+        L10nKey::SearchPlaceholderHosts => "搜索主机，或输入 user@host 连接…",
+        L10nKey::SearchTabSessions => "会话",
+        L10nKey::SearchPlaceholderSessions => "搜索历史 Agent 会话…",
+        L10nKey::SearchSessionsEmptyHint => "这里列出本机上的 Claude Code 和 Codex 会话。",
+        L10nKey::SearchSectionSessionsHere => "在 {dir}",
+        L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::AppSessionNotResumable => "{name} 不支持按 ID 恢复会话。",
+        L10nKey::AppSessionDirectoryGone => "会话所在的目录已不存在：{path}",
+        L10nKey::SearchMoreIn => "{tab}中还有 {count} 项",
+        L10nKey::SearchNoResults => "没有结果",
+        L10nKey::SearchSectionNewTerminal => "新建终端",
         L10nKey::SearchWorkspacesAndMachines => "搜索工作区、标签页和机器…",
         L10nKey::SearchFonts => "搜索字体…",
         L10nKey::SearchFind => "查找…",
@@ -98,7 +115,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::HomeNewTab => "新标签页",
         L10nKey::HomeReopenClosedTab => "重新打开已关闭的标签页",
         L10nKey::HomeSwitchWorkspace => "切换工作区…",
-        L10nKey::HomeCommandPalette => "命令面板…",
+        L10nKey::HomeSearchEverywhere => "随处搜索…",
         L10nKey::HomeSplitRight => "向右分屏",
         L10nKey::HomeSplitDown => "向下分屏",
         L10nKey::HomeSettings => "设置…",
@@ -109,7 +126,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::Refreshing => "正在刷新…",
         L10nKey::Binary => "二进制文件",
         L10nKey::Delete => "删除",
-        L10nKey::NoMatchingCommands => "没有匹配的命令",
         L10nKey::ConnectSshHint => "输入 user@host 改为通过 SSH 连接。",
         L10nKey::EditHint => "编辑",
         L10nKey::OpenFileFromTree => "从文件树打开文件",
@@ -182,6 +198,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsCursor => "光标",
         L10nKey::SettingsCursorShape => "光标形状",
         L10nKey::SettingsCursorShapeDesc => "终端光标的绘制方式。",
+        L10nKey::SettingsPromptCursorShape => "提示符光标形状",
+        L10nKey::SettingsPromptCursorShapeDesc => {
+            "shell 提示符处的光标。跟随表示各处都用上面的光标形状。"
+        }
         L10nKey::SettingsCursorBlink => "光标闪烁",
         L10nKey::SettingsCursorBlinkDesc => "终端获得焦点时让光标闪烁。",
         L10nKey::SettingsLanguage => "语言",
@@ -552,10 +572,17 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsNewTabPositionDesc => "新打开的标签页插入的位置。",
         L10nKey::SettingsTabBarPosition => "标签栏位置",
         L10nKey::SettingsTabBarPositionDesc => "将标签页显示为顶部横向条或左侧垂直侧栏。",
-        L10nKey::SettingsSidebarGrouping => "侧栏分组",
-        L10nKey::SettingsSidebarGroupingDesc => "按 git 仓库分组侧栏标签页，其余归入“草稿”。",
+        L10nKey::SettingsSidebarGrouping => "自动分组",
+        L10nKey::SettingsSidebarGroupingDesc => {
+            "未固定的标签页按 git 仓库分组，SSH 标签页按主机分组。"
+        }
         L10nKey::SettingsDiffPreviewFromCounts => "从侧栏计数打开 diff 预览",
         L10nKey::SettingsDiffPreviewFromCountsDesc => "点击行上的 +N −N 打开 diff。",
+        L10nKey::SettingsSshTabTitle => "SSH 标签页标题",
+        L10nKey::SettingsSshTabTitleDesc => "“动态”跟随远端标题；另外两项固定为主机。",
+        L10nKey::SettingsSshTabTitleDynamic => "动态",
+        L10nKey::SettingsSshTabTitleProfileName => "配置名称",
+        L10nKey::SettingsSshTabTitleHostname => "主机名",
         L10nKey::DocumentDock => "停靠在终端旁",
         L10nKey::DocumentFill => "铺满窗口",
         L10nKey::SettingsNotifications => "通知",
@@ -574,9 +601,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAtEnd => "末尾",
         L10nKey::SettingsTop => "顶部",
         L10nKey::SettingsLeft => "左侧",
-        L10nKey::SettingsByRepo => "按仓库",
-        L10nKey::SettingsByRepoOrFolder => "按仓库或文件夹",
-        L10nKey::SettingsFlat => "平铺",
         L10nKey::SettingsPreset => "预设",
         L10nKey::SettingsPresetDesc => "tmux 预设把操作映射为前缀键（如 Ctrl-B C）。",
         L10nKey::SettingsPrefix => "前缀",
@@ -705,6 +729,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentCrush => "Crush",
         L10nKey::SettingsAgentCodeBuddy => "CodeBuddy",
         L10nKey::SettingsAgentCursorCli => "Cursor CLI",
+        L10nKey::SettingsAgentPrimeAgent => "Prime Agent",
+        L10nKey::SettingsAgentAntigravity => "Antigravity",
         L10nKey::SettingsSearchAboutKeywords => {
             "关于 版本 许可证 致谢 构建 更新 检查 github about version license credits update"
         }
@@ -750,6 +776,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchCursorShapeKeywords => {
             "光标形状 光标 块 竖线 下划线 cursor shape caret block bar underline beam"
+        }
+        L10nKey::SettingsSearchPromptCursorShapeKeywords => {
+            "提示符 光标形状 光标 块 竖线 下划线 prompt cursor shape caret block bar underline beam"
         }
         L10nKey::SettingsSearchCustomThemesKeywords => {
             "自定义主题 复制 编辑 颜色 文件夹 背景图片 壁纸 yaml 导入 theme custom edit duplicate colors import background image wallpaper"
@@ -851,6 +880,12 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchCursorCliKeywords => {
             "Cursor CLI agent 集成 钩子 安装 cursor cursor-agent"
         }
+        L10nKey::SettingsSearchPrimeAgentKeywords => {
+            "Prime Agent agent 集成 扩展 安装 prime prime-agent primeintellect"
+        }
+        L10nKey::SettingsSearchAntigravityKeywords => {
+            "Antigravity agent 集成 钩子 安装 antigravity agy google"
+        }
         L10nKey::SettingsSearchPiKeywords => {
             "Pi agent 集成 扩展 安装 pi agent integration extension install"
         }
@@ -891,7 +926,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
             "显示托盘图标 托盘 菜单栏 状态 图标 show tray icon menu bar status"
         }
         L10nKey::SettingsSearchSidebarGroupingKeywords => {
-            "侧栏分组 标签页 分组 仓库 git 侧栏 文件夹 目录 sidebar grouping tabs repo repository folder directory"
+            "自动分组 标签页 分组 仓库 git ssh 主机 固定 未分组 侧栏 sidebar auto grouping tabs repo repository pinned pin host ungrouped"
+        }
+        L10nKey::SettingsSearchSshTabTitleKeywords => {
+            "SSH 标签页 标题 名称 主机 主机名 配置 别名 固定 ssh tab title name host hostname profile alias pin"
         }
         L10nKey::SettingsSearchSmartSelectionKeywords => {
             "智能选择 双击 选择 单词 URL 路径 邮箱 括号 smart selection double click"
@@ -973,6 +1011,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshEditProfile => "编辑连接…",
         L10nKey::ForwardTooltipAdd => "添加转发",
         L10nKey::ForwardTooltipRemove => "移除",
+        L10nKey::ForwardTooltipTurnOn => "开启",
+        L10nKey::ForwardTooltipTurnOff => "关闭——规则会保留",
+        L10nKey::ForwardSwitchFailed => "无法切换这条转发——{error}",
+        L10nKey::SettingsFwdEnabled => "连接时开启这条规则",
         L10nKey::ForwardLocal => "本地",
         L10nKey::ForwardRemote => "远程",
         L10nKey::ForwardDynamic => "动态",
@@ -1004,6 +1046,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::FileTreeDownloadTooLarge => "超过 {limit} MB，请改用 scp 或 rsync 下载。",
         L10nKey::FileTreeContextOpen => "打开",
         L10nKey::FileTreeContextCdHere => "cd 到此处",
+        L10nKey::FileTreeContextPinAsGroup => "固定为分组",
         L10nKey::FileTreeContextInsertPath => "在终端中插入路径",
         L10nKey::FileTreeContextAttachAgent => "附加到 agent",
         L10nKey::FileTreeContextNewFile => "新建文件",
@@ -1153,6 +1196,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmShowMore => "展开",
         L10nKey::ScmShowLess => "收起",
         L10nKey::ScmCommitNotFound => "本仓库中没有这个提交。",
+        L10nKey::ScmFilterChanges => "筛选变更文件…",
+        L10nKey::ScmViewAsTree => "以树形显示",
+        L10nKey::ScmViewAsList => "以列表显示",
+        L10nKey::ScmNoMatchingChanges => "没有匹配筛选的变更文件。",
         L10nKey::ScmTooManyChanges => "改动过多，仅显示前 {shown} 项（共 {total} 项）。",
         L10nKey::ScmOpenChanges => "查看改动",
         L10nKey::ScmDiscardAllConfirm => {
@@ -1391,6 +1438,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdNewWindow => "新建窗口",
         L10nKey::CmdNewWorktreeTab => "新建 worktree 标签页…",
         L10nKey::CmdNewWorktreeTabSubtitle => "在全新分支上独立检出",
+        L10nKey::CmdNewGroup => "新建分组",
+        L10nKey::CmdNewGroupSubtitle => "在侧栏新建一个空的固定分组",
+        L10nKey::CmdOpenFolderAsGroup => "将文件夹作为分组打开…",
+        L10nKey::CmdOpenFolderAsGroupSubtitle => "固定一个文件夹；在其中打开的标签页会加入",
         L10nKey::CmdRenameTab => "重命名标签页…",
         L10nKey::CmdSplitRight => "向右分屏",
         L10nKey::CmdSplitDown => "向下分屏",
@@ -1409,14 +1460,20 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdSwapPanePrevious => "与上一窗格交换",
         L10nKey::CmdNextTab => "下一标签页",
         L10nKey::CmdPreviousTab => "上一标签页",
+        L10nKey::CmdMoveTabLeft => "标签页左移",
+        L10nKey::CmdMoveTabRight => "标签页右移",
         L10nKey::CmdRecentTabSwitcher => "最近标签页切换器",
         L10nKey::CmdRecentTabSwitcherReverse => "最近标签页切换器（反向）",
         L10nKey::CmdCopyWorkingDirectory => "复制工作目录",
         L10nKey::CmdCopySessionId => "复制会话 ID",
         L10nKey::CmdCopySessionIdSubtitle => "编码 agent 自身的会话 ID",
+        L10nKey::CmdNewAgentTab => "新建 Agent 标签页",
+        L10nKey::CmdNewAgentTabSubtitle => "在新标签页中打开上次使用的编码 agent",
         L10nKey::CmdForkSession => "Fork 会话",
         L10nKey::CmdForkSessionSubtitle => "将此 agent 会话 fork 到新标签页",
         L10nKey::CmdMarkTabAsUnread => "将标签页标记为未读",
+        L10nKey::CmdHibernateTab => "休眠标签页",
+        L10nKey::CmdHibernateTabSubtitle => "停止其中的进程以释放内存，选中即可唤醒",
         L10nKey::CmdClosePaneTab => "关闭窗格/标签页",
         L10nKey::CmdCloseWindow => "关闭窗口",
         L10nKey::CmdCloseWindowSubtitle => "shell 保持运行",
@@ -1568,8 +1625,14 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNothingSelected => "未选择任何内容——请先选择一些终端输出。",
         L10nKey::AppPaneNoKnownDirectory => "此窗格没有已知的目录。",
         L10nKey::AppNoUncommittedChanges => "{cwd} 中没有未提交的更改（或不是 git 仓库）。",
-        L10nKey::AppCmdSshProfileTitle => "SSH：{title}",
-        L10nKey::AppCmdSwitchToTab => "切换到标签页：{label}",
+        L10nKey::AppCmdAgentLaunchTitle => "Agent：{name}",
+        L10nKey::AppNoAgentOnPath => "在本机 PATH 中未找到编码 agent",
+        L10nKey::AppNoAgentSeenHere => {
+            "此工作区还没有运行过编码 agent——手动启动一次后，这里就会列出它"
+        }
+        L10nKey::AppAgentLaunchSaved => "{name} 以后将以此命令启动：{command}",
+        L10nKey::AppAgentLaunchArgsUnknown => "{name} 未报告其启动参数",
+        L10nKey::AppCmdShellTitle => "Shell：{title}",
         L10nKey::AppPlaceholderDescription => "描述",
         L10nKey::AppPlaceholderSshQuickConnect => "user@host  或  user@host:port",
         L10nKey::AppPlaceholderLoginShell => "登录 shell",
@@ -1676,6 +1739,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CursorShapeBlock => "块状",
         L10nKey::CursorShapeBar => "竖线",
         L10nKey::CursorShapeUnderline => "下划线",
+        L10nKey::PromptCursorShapeFollow => "跟随",
         L10nKey::PaletteTryDifferentSearch => "换个关键词试试。",
         L10nKey::CompletionListingRemote => "正在列出远程目录…",
         L10nKey::CompletionRemoteListingFailed => "远程目录列表失败——{error}",
@@ -1719,6 +1783,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuCopyWorkingDirectory => "复制工作目录",
         L10nKey::AppMenuCopySessionId => "复制会话 ID",
         L10nKey::AppMenuForkSession => "Fork 会话",
+        L10nKey::AppMenuSaveAgentLaunchArgs => "将当前启动参数设为默认",
         L10nKey::AppMenuClosePaneTab => "关闭",
         L10nKey::AppMenuCloseOtherTabs => "关闭其他标签页",
         L10nKey::AppMenuCloseTabsRight => "关闭右侧标签页",
@@ -1735,7 +1800,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuFind => "查找…",
         L10nKey::AppMenuFindNext => "查找下一个",
         L10nKey::AppMenuFindPrevious => "查找上一个",
-        L10nKey::AppMenuCommandPalette => "命令面板…",
+        L10nKey::AppMenuSearchEverywhere => "随处搜索…",
         L10nKey::AppMenuIncreaseFontSize => "增大字号",
         L10nKey::AppMenuDecreaseFontSize => "减小字号",
         L10nKey::AppMenuResetFontSize => "重置字号",
@@ -1748,6 +1813,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppMenuZoomPane => "缩放窗格",
         L10nKey::AppMenuClearScrollback => "清除回滚内容",
         L10nKey::AppMenuOpenLink => "打开",
+        L10nKey::AppMenuOpenLinkWithDefaultApp => "用默认程序打开",
         L10nKey::AppMenuRevealInFinder => "在访达中显示",
         L10nKey::AppMenuRevealInFolder => "打开所在文件夹",
         L10nKey::AppMenuCopyLinkPath => "复制路径",
@@ -1777,15 +1843,24 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::TabMenuLocalShells => "本地",
         L10nKey::TabMenuAddHost => "添加 SSH 主机…",
         L10nKey::TabMenuAllHosts => "所有 SSH 主机…",
+        L10nKey::TabMenuLaunchAgent => "启动 Agent…",
+        L10nKey::TabMenuOtherShells => "其他 Shell…",
         L10nKey::TabMenuSplitHint => "按住 {key} 可分屏打开",
         L10nKey::TabUnnamedShell => "终端 {n}",
         L10nKey::ShellDefault => "默认",
-        L10nKey::SidebarScratchGroup => "草稿",
+        L10nKey::SidebarUngroupedGroup => "未分组",
         L10nKey::SidebarMoveToGroup => "移到分组",
         L10nKey::SidebarNewGroup => "新建分组…",
-        L10nKey::SidebarAutoGroup => "恢复自动分组",
         L10nKey::SidebarNewGroupName => "新建分组",
         L10nKey::SidebarRenameGroup => "重命名分组",
+        L10nKey::SidebarPinGroup => "固定分组",
+        L10nKey::SidebarUnpinGroup => "取消固定",
+        L10nKey::SidebarGroupNewTab => "新建标签页",
+        L10nKey::SidebarSetGroupFolder => "设置文件夹…",
+        L10nKey::SidebarUseCurrentTabFolder => "使用当前标签页的文件夹",
+        L10nKey::SidebarClearGroupFolder => "清除文件夹",
+        L10nKey::SidebarDeleteGroup => "删除分组",
+        L10nKey::SidebarDropToPin => "拖到此处固定",
         L10nKey::TabContextCloseTab => "关闭标签页",
         L10nKey::TabContextCloseTabsBelow => "关闭下方标签页",
         L10nKey::AppAgentHooksOpFailed => "失败：{error}",
@@ -1796,6 +1871,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsNoneLower => "无",
         L10nKey::SettingsSearchCommandLineToolTitle => "命令行工具",
         L10nKey::TabContextMarkUnread => "标记为未读",
+        L10nKey::TabContextHibernate => "休眠",
+        L10nKey::TabContextWake => "唤醒",
+        L10nKey::TabTooltipAsleep => "已休眠 — 选中即可唤醒",
+        L10nKey::TabWakeFailed => "无法唤醒标签页：其中的窗格都无法启动",
     })
 }
 
