@@ -1580,6 +1580,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshPromptUnlock => "ロック解除",
         L10nKey::SshPromptSubmit => "送信",
         L10nKey::HostOpsError => "{context}: {error}",
+        L10nKey::GitOpFailed => "git {op} に失敗しました",
         L10nKey::IoDenied => "権限がありません。",
         L10nKey::IoGone => "もう存在しません。",
         L10nKey::IoNoSpace => "ディスクに空き容量がありません。",

@@ -1299,6 +1299,7 @@ l10n_keys! {
     SshPromptUnlock,
     SshPromptSubmit,
     HostOpsError,
+    GitOpFailed,
     IoDenied,
     IoGone,
     IoNoSpace,

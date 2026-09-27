@@ -1420,6 +1420,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SshPromptUnlock => "解锁",
         L10nKey::SshPromptSubmit => "提交",
         L10nKey::HostOpsError => "{context}：{error}",
+        L10nKey::GitOpFailed => "git {op} 失败",
         L10nKey::IoDenied => "没有权限。",
         L10nKey::IoGone => "文件或目录已不存在。",
         L10nKey::IoNoSpace => "磁盘没有空间了。",

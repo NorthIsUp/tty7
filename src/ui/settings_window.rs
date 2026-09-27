@@ -107,5 +107,10 @@ impl Render for SettingsWindow {
             // ⌘, lands here while this window has focus; it is already open.
             .on_action(cx.listener(|_, _: &OpenSettings, window, _| window.activate_window()))
             .when_some(page.flatten(), |root, page| root.child(page))
+            // This window is a `Root` of its own, and a `Root` only shows the
+            // toasts it is asked to draw: without this, everything the page
+            // reports — an ssh_config import, a passphrase it could not store
+            // — was pushed into a layer nobody rendered.
+            .children(gpui_component::Root::render_notification_layer(window, cx))
     }
 }

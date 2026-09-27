@@ -1537,6 +1537,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SshPromptUnlock => "Unlock",
         L10nKey::SshPromptSubmit => "Submit",
         L10nKey::HostOpsError => "{context}: {error}",
+        L10nKey::GitOpFailed => "git {op} failed",
         L10nKey::IoDenied => "You do not have permission.",
         L10nKey::IoGone => "It is not there any more.",
         L10nKey::IoNoSpace => "There is no space left on the disk.",
