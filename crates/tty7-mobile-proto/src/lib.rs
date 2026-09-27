@@ -176,6 +176,10 @@ pub struct RemoteView {
     /// end did not answer.
     #[serde(default)]
     pub error: Option<String>,
+    /// The link is up and its first read has not come back yet: its
+    /// workspaces are unknown, not absent.
+    #[serde(default)]
+    pub pending: bool,
     pub workspaces: Vec<WorkspaceView>,
 }
 

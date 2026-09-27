@@ -51,6 +51,8 @@ export interface RemoteView {
   name: string;
   connected: boolean;
   error?: string | null;
+  /** Up, but its first read has not come back: workspaces unknown, not absent. */
+  pending?: boolean;
   workspaces: WorkspaceView[];
 }
 

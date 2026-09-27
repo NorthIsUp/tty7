@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tty7_core::client::{ControlClient, PaneClient, PaneSession};
@@ -16,7 +16,17 @@ use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
 use tty7_core::daemon::router::RouteTarget;
 use tty7_mobile_proto::{GridSize, TabCreated};
 
+use crate::poller::Poller;
 use crate::serve::{Backend, PaneFeed, Remote};
+
+/// How long a tree read waits on linked machines before reporting the slow
+/// ones as they last were. A healthy link answers well inside it.
+const REMOTE_BUDGET: Duration = Duration::from_millis(250);
+
+type Snapshot = (Machine, Vec<PaneAgentState>);
+/// One linked machine's routed control connection. Each has its own lock, so
+/// a request stuck on one link never queues work for another.
+type RoutedSlot = Arc<Mutex<Option<ControlClient>>>;
 
 /// The size the gateway claims when it observes a pane. The daemon ignores it
 /// for an observer — the pane keeps the size its window gave it — but the
@@ -42,7 +52,8 @@ pub struct Daemon {
     control: Mutex<Option<ControlClient>>,
     /// A control connection per linked machine, routed through the local
     /// server, by link key.
-    remote: Mutex<HashMap<String, ControlClient>>,
+    remote: Mutex<HashMap<String, RoutedSlot>>,
+    trees: Poller<Snapshot>,
 }
 
 impl Default for Daemon {
@@ -51,6 +62,7 @@ impl Default for Daemon {
             host: hostname(),
             control: Mutex::new(None),
             remote: Mutex::new(HashMap::new()),
+            trees: Poller::default(),
         }
     }
 }
@@ -98,20 +110,20 @@ impl Daemon {
         route.target().map_err(io::Error::other)
     }
 
+    fn slot(&self, key: &str) -> RoutedSlot {
+        self.remote
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(key.to_string())
+            .or_default()
+            .clone()
+    }
+
     fn request_on(&self, machine: Option<&str>, req: ControlRequest) -> io::Result<ReplyOk> {
-        let Some(key) = machine else {
-            return self.request(req);
-        };
-        let mut clients = self.remote.lock().unwrap_or_else(|e| e.into_inner());
-        if !clients.get(key).is_some_and(ControlClient::is_connected) {
-            let client = ControlClient::routed(self.target(key)?, &self.hello())?;
-            clients.insert(key.to_string(), client);
+        match machine {
+            None => self.request(req),
+            Some(key) => routed_request(&self.slot(key), || self.target(key), &self.hello(), req),
         }
-        let reply = clients[key].request(req);
-        if reply.is_err() {
-            clients.remove(key);
-        }
-        reply
     }
 
     fn panes_on(&self, machine: Option<&str>) -> io::Result<PaneClient> {
@@ -120,18 +132,39 @@ impl Daemon {
             Some(key) => Ok(PaneClient::routed(self.target(key)?)),
         }
     }
+}
 
-    fn snapshot_on(&self, machine: Option<&str>) -> io::Result<(Machine, Vec<PaneAgentState>)> {
-        let tree = match self.request_on(machine, ControlRequest::MachineGet)? {
-            ReplyOk::MachineTree(tree) => *tree,
-            other => return Err(unexpected("MachineGet", &other)),
-        };
-        let agents = match self.request_on(machine, ControlRequest::AgentStates)? {
-            ReplyOk::AgentStates(agents) => agents,
-            other => return Err(unexpected("AgentStates", &other)),
-        };
-        Ok((tree, agents))
+/// A request over one linked machine's routed connection, dialing the route
+/// (never the machine: the link is the desktop's) when there is none yet.
+fn routed_request(
+    slot: &Mutex<Option<ControlClient>>,
+    target: impl FnOnce() -> io::Result<RouteTarget>,
+    hello: &ControlHello,
+    req: ControlRequest,
+) -> io::Result<ReplyOk> {
+    let mut client = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if !client.as_ref().is_some_and(ControlClient::is_connected) {
+        *client = Some(ControlClient::routed(target()?, hello)?);
     }
+    let reply = client.as_ref().expect("connected just above").request(req);
+    if reply.is_err() {
+        *client = None;
+    }
+    reply
+}
+
+fn read_tree(
+    mut request: impl FnMut(ControlRequest) -> io::Result<ReplyOk>,
+) -> io::Result<Snapshot> {
+    let tree = match request(ControlRequest::MachineGet)? {
+        ReplyOk::MachineTree(tree) => *tree,
+        other => return Err(unexpected("MachineGet", &other)),
+    };
+    let agents = match request(ControlRequest::AgentStates)? {
+        ReplyOk::AgentStates(agents) => agents,
+        other => return Err(unexpected("AgentStates", &other)),
+    };
+    Ok((tree, agents))
 }
 
 fn link_down(key: &str) -> io::Error {
@@ -146,10 +179,11 @@ impl Backend for Daemon {
         self.host.clone()
     }
 
-    fn snapshot(&self) -> io::Result<(Machine, Vec<PaneAgentState>)> {
-        self.snapshot_on(None)
+    fn snapshot(&self) -> io::Result<Snapshot> {
+        read_tree(|req| self.request(req))
     }
 
+    /// Every linked machine is read on its own thread; see [`Poller`].
     fn remotes(&self) -> Vec<Remote> {
         let Ok(routes) = self.routes() else {
             return Vec::new();
@@ -159,11 +193,32 @@ impl Backend for Daemon {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|key, _| routes.iter().any(|r| &r.key == key && r.connected));
+
+        let hello = self.hello();
+        let reads = routes
+            .iter()
+            .filter(|route| route.connected)
+            .map(|route| {
+                let key = route.key.clone();
+                let (slot, route, hello) = (self.slot(&key), route.clone(), hello.clone());
+                let read: Box<dyn FnOnce() -> Result<Snapshot, String> + Send> =
+                    Box::new(move || {
+                        let target = || route.target().map_err(io::Error::other);
+                        read_tree(|req| routed_request(&slot, target, &hello, req))
+                            .map_err(|e| e.to_string())
+                    });
+                (key, read)
+            })
+            .collect();
+        let mut trees = self.trees.poll(reads, REMOTE_BUDGET);
         routes
             .into_iter()
             .map(|route| Remote {
                 name: route.host().unwrap_or(&route.key).to_string(),
-                snapshot: route.connected.then(|| self.snapshot_on(Some(&route.key))),
+                snapshot: trees
+                    .remove(&route.key)
+                    .flatten()
+                    .map(|read| read.map_err(io::Error::other)),
                 connected: route.connected,
                 key: route.key,
             })

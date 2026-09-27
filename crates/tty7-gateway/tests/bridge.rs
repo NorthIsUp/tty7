@@ -56,8 +56,8 @@ impl Backend for FakeMachine {
         Ok((self.machine.clone(), Vec::new()))
     }
 
-    /// One linked machine that is up, holding the same tree, and one whose
-    /// link is down.
+    /// One linked machine that is up, holding the same tree, one whose link
+    /// is down, and one that is up but has not answered yet.
     fn remotes(&self) -> Vec<Remote> {
         vec![
             Remote {
@@ -70,6 +70,12 @@ impl Backend for FakeMachine {
                 key: "me@gone:22".into(),
                 name: "gone".into(),
                 connected: false,
+                snapshot: None,
+            },
+            Remote {
+                key: "me@slow:22".into(),
+                name: "slow".into(),
+                connected: true,
                 snapshot: None,
             },
         ]
@@ -372,9 +378,11 @@ async fn linked_machines_come_with_the_tree_and_their_panes_open() {
     let Some(ControlEvent::Tree(tree)) = within(tree.next()).await.unwrap() else {
         panic!("expected a tree first");
     };
-    let [up, down] = &tree.remotes[..] else {
-        panic!("two remotes: {:?}", tree.remotes);
+    let [up, down, slow] = &tree.remotes[..] else {
+        panic!("three remotes: {:?}", tree.remotes);
     };
+    assert!(!up.pending && !down.pending);
+    assert!(slow.pending && slow.connected && slow.workspaces.is_empty());
     assert_eq!((up.name.as_str(), up.connected), ("build-box", true));
     assert_eq!(up.workspaces[0].name, "pale-otter");
     assert_eq!((down.connected, down.workspaces.len()), (false, 0));

@@ -69,7 +69,8 @@ pub struct Remote {
     pub key: String,
     pub name: String,
     pub connected: bool,
-    /// Its tree, read through the link; `None` while the link is down.
+    /// Its tree, read through the link: `None` while the link is down, or
+    /// while it is up but has not answered yet.
     pub snapshot: Option<io::Result<(Machine, Vec<PaneAgentState>)>>,
 }
 
@@ -303,6 +304,7 @@ fn watch_tree(
 }
 
 fn remote_view(remote: Remote) -> RemoteView {
+    let pending = remote.connected && remote.snapshot.is_none();
     let (workspaces, error) = match remote.snapshot {
         Some(Ok((machine, agents))) => (
             tree::build(&remote.name, &machine, &agents).workspaces,
@@ -316,6 +318,7 @@ fn remote_view(remote: Remote) -> RemoteView {
         name: remote.name,
         connected: remote.connected,
         error,
+        pending,
         workspaces,
     }
 }

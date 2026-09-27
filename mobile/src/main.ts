@@ -491,7 +491,14 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
   // Then every machine the desktop reaches over SSH, as the desktop's
   // sidebar lists them: its own heading, its workspaces under it.
   for (const remote of remotes) {
-    const state = remote.connected ? (remote.error ? "Not answering" : "Connected") : "Link down";
+    const state = !remote.connected
+      ? "Link down"
+      : remote.error
+        ? "Not answering"
+        : remote.pending
+          ? "Reading…"
+          : "Connected";
+    const tone = !remote.connected || remote.error ? "offline" : remote.pending ? "connecting" : "direct";
     out.push(
       h(
         "section",
@@ -506,7 +513,7 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
             h("h2", { class: "remote-name" }, remote.name),
             h(
               "p",
-              { class: `link ${remote.connected && !remote.error ? "direct" : "offline"}` },
+              { class: `link ${tone}` },
               h("span", { class: "link-dot" }),
               `SSH · ${state}`,
             ),
@@ -519,8 +526,10 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
             `tty7 on ${host.name} lost its link to ${remote.name}. Reconnect it there to reach its workspaces.`,
           ),
         remote.error && h("p", { class: "remote-note" }, sentence(remote.error)),
+        remote.pending && skeleton(),
         remote.connected &&
           !remote.error &&
+          !remote.pending &&
           remote.workspaces.length === 0 &&
           h("p", { class: "remote-note" }, `No workspaces on ${remote.name}.`),
         ...remote.workspaces.map((ws) => workspaceGroup(host, remote, ws, failed)),
