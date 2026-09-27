@@ -619,17 +619,15 @@ pub(crate) fn chrome_tile(button: Button, selected: bool, cx: &gpui::App) -> But
 }
 
 /// The right panel's tabs, left to right: which pane, what its tooltip calls
-/// it, and the glyph the row draws for it.
+/// it, and the glyph the row draws for it. Info leads as the default and the
+/// pane's overview; then two pairs — the project's files (Files, Search) and
+/// its version control, local to remote (Changes, GitHub). GitHub is last so
+/// that hiding it for a repository without a GitHub remote moves nothing.
 const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey, &str); 5] = [
     (
         RightPanelTab::Info,
         L10nKey::PanelInfoTitle,
         "icons/info.svg",
-    ),
-    (
-        RightPanelTab::Scm,
-        L10nKey::PanelChangesTitle,
-        "icons/git-branch.svg",
     ),
     (
         RightPanelTab::Files,
@@ -640,6 +638,11 @@ const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey, &str); 5] = [
         RightPanelTab::Search,
         L10nKey::PanelSearchTitle,
         "icons/search.svg",
+    ),
+    (
+        RightPanelTab::Scm,
+        L10nKey::PanelChangesTitle,
+        "icons/git-branch.svg",
     ),
     (
         RightPanelTab::GitHub,

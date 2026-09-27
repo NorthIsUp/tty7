@@ -635,16 +635,16 @@ impl Item {
                 ShowRightPanel(RightPanelTab::Info),
             ),
             Item::localized(
-                L10nKey::CmdRightPanelChanges,
-                ShowRightPanel(RightPanelTab::Scm),
-            ),
-            Item::localized(
                 L10nKey::CmdRightPanelFiles,
                 ShowRightPanel(RightPanelTab::Files),
             ),
             Item::localized(
                 L10nKey::CmdRightPanelSearch,
                 ShowRightPanel(RightPanelTab::Search),
+            ),
+            Item::localized(
+                L10nKey::CmdRightPanelChanges,
+                ShowRightPanel(RightPanelTab::Scm),
             ),
             Item::localized(
                 L10nKey::CmdRightPanelGitHub,

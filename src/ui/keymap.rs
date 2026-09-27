@@ -573,9 +573,9 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         // in config.json was dropped without a word, and the Keybindings page —
         // which reads this list — never showed them at all.
         ("ShowRightPanelInfo", ""),
-        ("ShowRightPanelChanges", ""),
         ("ShowRightPanelFiles", ""),
         ("ShowRightPanelSearch", ""),
+        ("ShowRightPanelChanges", ""),
         ("ShowRightPanelGitHub", ""),
         ("EditorSave", "secondary-s"),
         ("OpenSshProfiles", ""),
