@@ -1722,7 +1722,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppForkNoCommand => "tty7 has no fork command for {name}",
         L10nKey::AppForkLocalOnly => "{name} sessions can only be forked from a local pane",
         L10nKey::AppForkNoSessionId => {
-            "tty7 hasn't seen a {name} session id in this pane — install its hooks in Settings → Agents"
+            "tty7 hasn't seen a {name} session id in this pane — install its hooks in Settings → Integrations"
         }
         L10nKey::AppForkSessionIdNotToken => "{name}'s session id isn't a plain token",
         L10nKey::AppForkMidTurn => "{name} is mid-turn — the fork won't include the turn in flight",

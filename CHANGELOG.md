@@ -242,6 +242,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chinese UI copy reads like Chinese** (#980). Half-width `?` and `,` in the
+  hard-reset confirmation, the passphrase, Finder and server naming used two
+  words each, and three quote/dash styles were mixed; these are now one each,
+  and the most literal translations (file errors, update and version-mismatch
+  dialogs, SSH prompts) are rewritten. The fork error that pointed to
+  "Settings → Agents" — a page that is called Integrations — now names it
+  correctly in every language and in the `tty7` CLI.
 - **Return runs the top row after a search that found nothing.** Backspacing
   from a query with no results to one with some — or opening the search
   already filtered, as the New Tab menu's *Other Shells…* row does — left no row selected, so Return did nothing until an arrow key was

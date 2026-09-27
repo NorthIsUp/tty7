@@ -1765,7 +1765,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "{name} のセッションはローカルペインからしかフォークできません"
         }
         L10nKey::AppForkNoSessionId => {
-            "tty7 はこのペインで {name} のセッション ID を確認できていません — 設定 → エージェントでフックをインストールしてください"
+            "tty7 はこのペインで {name} のセッション ID を確認できていません — 設定 → 連携でフックをインストールしてください"
         }
         L10nKey::AppForkSessionIdNotToken => {
             "{name} のセッション ID はプレーンなトークンではありません"
