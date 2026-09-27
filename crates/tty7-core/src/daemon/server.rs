@@ -512,12 +512,19 @@ fn hand_over(registry: &Registry, exe: &std::path::Path) -> anyhow::Error {
         store.flush();
     }
 
-    crate::daemon::handoff::take_over(
+    // The new image cannot reap a child it did not start; it starts its own.
+    crate::daemon::mobile::stop_for_handoff();
+
+    let failed = crate::daemon::handoff::take_over(
         exe,
         carried,
         registry.alloc_id(),
         crate::daemon::singleton::held_fd(),
-    )
+    );
+    // Still this program: the exec did not happen, so this daemon goes on
+    // serving, and so does its gateway.
+    crate::daemon::mobile::handoff_failed();
+    failed
 }
 
 #[cfg(not(unix))]

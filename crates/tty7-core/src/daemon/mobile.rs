@@ -16,14 +16,16 @@
 //!   the status file rather than seeming to start forever.
 //!
 //! The child's stdin is a pipe from here, and the gateway exits when that
-//! pipe closes. So however this process ends — stopped, crashed, or
-//! re-executed by a handoff, which closes the pipe because it is
-//! close-on-exec — its gateway ends with it. The next daemon starts a fresh
-//! one from its own binary, and no gateway from an older build is left
-//! running.
+//! pipe closes. So however this process ends — stopped, or crashed — its
+//! gateway ends with it. A handoff stops it explicitly before the exec
+//! ([`stop_for_handoff`]): the new image would never reap a child it did not
+//! start. The next daemon starts a fresh one from its own binary, and no
+//! gateway from an older build is left running.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +44,30 @@ const POLL: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_secs(30);
 /// How long a gateway asked to stop gets before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// The running gateway, where the supervisor and a handoff can both reach it.
+static GATEWAY: Mutex<Option<Child>> = Mutex::new(None);
+/// Set by a handoff: from here to the exec, no new gateway is started.
+static HANDING_OFF: AtomicBool = AtomicBool::new(false);
+
+fn gateway() -> std::sync::MutexGuard<'static, Option<Child>> {
+    GATEWAY.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Stops the gateway and waits for it, before this process becomes another
+/// program. The new image supervises afresh and starts its own.
+pub fn stop_for_handoff() {
+    HANDING_OFF.store(true, Ordering::SeqCst);
+    if let Some(child) = gateway().take() {
+        stop(child);
+    }
+}
+
+/// A handoff that did not happen: this daemon carries on, and its supervisor
+/// starts the gateway again.
+pub fn handoff_failed() {
+    HANDING_OFF.store(false, Ordering::SeqCst);
+}
 
 /// The gateway's state directory: `<config dir>/mobile/`.
 pub fn state_dir() -> Option<PathBuf> {
@@ -72,26 +98,35 @@ pub fn supervise() {
         .name("mobile-supervisor".into())
         .spawn(|| {
             let mut switch = Switch::default();
-            let mut gateway: Option<Child> = None;
             let mut next_try = Instant::now();
             let mut noted: Option<String> = None;
             loop {
-                if let Some(child) = &mut gateway
-                    && let Ok(Some(exit)) = child.try_wait()
-                {
-                    gateway = None;
+                let exited = {
+                    let mut running = gateway();
+                    let exit = running.as_mut().and_then(|c| c.try_wait().ok().flatten());
+                    if exit.is_some() {
+                        *running = None;
+                    }
+                    exit
+                };
+                if let Some(exit) = exited {
                     next_try = Instant::now() + RETRY;
                     note(&mut noted, format!("the mobile gateway exited ({exit})"));
                 }
+                let running = gateway().is_some();
                 if !switch.on() {
-                    if let Some(child) = gateway.take() {
+                    let child = gateway().take();
+                    if let Some(child) = child {
                         stop(child);
                     }
                     next_try = Instant::now();
                     noted = None;
-                } else if gateway.is_none() && Instant::now() >= next_try {
+                } else if !running
+                    && Instant::now() >= next_try
+                    && !HANDING_OFF.load(Ordering::SeqCst)
+                {
                     match start() {
-                        Ok(child) => gateway = Some(child),
+                        Ok(child) => *gateway() = Some(child),
                         Err(why) => {
                             next_try = Instant::now() + RETRY;
                             if noted.as_deref() != Some(&why) {
