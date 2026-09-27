@@ -1211,6 +1211,7 @@ l10n_keys! {
     RemoteNoticeDisconnected,
     RemoteActionRetryNow,
     RemoteActionTakeBack,
+    PaneLeasedBy,
     RemoteActionConnect,
     RemoteActionRetry,
     RemoteActionRemoveEntry,

@@ -8552,6 +8552,7 @@ mod tests {
             }),
             label: None,
             resize_echo: false,
+            size_lease: false,
         }
     }
 
@@ -10200,6 +10201,7 @@ mod tests {
             spec: None,
             label: None,
             resize_echo: false,
+            size_lease: false,
         };
 
         let remote = ws.target.host_id();
@@ -10217,6 +10219,7 @@ mod tests {
             spec: None,
             label: None,
             resize_echo: false,
+            size_lease: false,
         };
         assert_eq!(sibling.target.host_id(), remote);
     }
@@ -14448,6 +14451,7 @@ mod gpui_tests {
             )),
             label: None,
             resize_echo: false,
+            size_lease: false,
         }));
         id
     }
@@ -14701,6 +14705,7 @@ mod gpui_tests {
                     spec: None,
                     label: Some("hummingbot".into()),
                     resize_echo: false,
+                    size_lease: false,
                 }));
                 assert_eq!(view.title, "hummingbot", "an untitled tab shows the name");
                 view.handle_event(AlacEvent::Exit, cx);
