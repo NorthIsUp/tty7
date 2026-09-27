@@ -11,6 +11,9 @@ export const icon = {
   more: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>`,
   terminal: stroke(`<path d="M5.8 8.4 9.7 12l-3.9 3.6"/><path d="M12.9 15.6h5.6"/>`),
   machine: stroke(`<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>`),
+  server: stroke(
+    `<rect x="2" y="3" width="20" height="7.4" rx="2.4"/><rect x="2" y="13.6" width="20" height="7.4" rx="2.4"/><path d="M6.9 6.7h.01M6.9 17.3h.01"/>`,
+  ),
   keyboard: stroke(
     `<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/>`,
   ),

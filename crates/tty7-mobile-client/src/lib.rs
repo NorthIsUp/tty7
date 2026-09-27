@@ -141,9 +141,18 @@ impl Session {
     }
 
     /// Opens one pane: its output (replay first) arrives on the reader, and
-    /// keystrokes go in through the writer.
-    pub async fn pane(&self, pane_id: u64) -> Result<(PaneWriter, PaneReader)> {
-        let (send, recv) = open(&self.conn, &Open::Pane { pane_id }).await?;
+    /// keystrokes go in through the writer. `machine` is the key of the
+    /// remote it lives on, `None` for the gateway's own machine.
+    pub async fn pane(
+        &self,
+        machine: Option<&str>,
+        pane_id: u64,
+    ) -> Result<(PaneWriter, PaneReader)> {
+        let ask = Open::Pane {
+            pane_id,
+            machine: machine.map(str::to_string),
+        };
+        let (send, recv) = open(&self.conn, &ask).await?;
         Ok((PaneWriter { send }, PaneReader { recv }))
     }
 }
@@ -153,6 +162,7 @@ impl Session {
     /// pane to open with [`Session::pane`].
     pub async fn new_tab(
         &self,
+        machine: Option<&str>,
         workspace_id: &str,
         cwd: Option<String>,
         size: Option<GridSize>,
@@ -161,6 +171,7 @@ impl Session {
             workspace_id: workspace_id.to_string(),
             cwd,
             size,
+            machine: machine.map(str::to_string),
         };
         // A gateway from before new tabs cannot parse the ask and drops the
         // stream without a word; say what that means rather than that it hung

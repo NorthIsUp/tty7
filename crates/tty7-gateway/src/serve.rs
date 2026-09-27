@@ -21,7 +21,7 @@ use tty7_core::daemon::control::PaneAgentState;
 use tty7_core::daemon::protocol::DaemonMsg;
 use tty7_mobile_proto::{
     ControlEvent, ControlRequest, Frame, GridSize, Open, OpenReply, PROTOCOL_VERSION, PaneEvent,
-    TabCreated, Tree, read_frame, write_bytes, write_msg,
+    RemoteView, TabCreated, Tree, read_frame, write_bytes, write_msg,
 };
 
 use crate::state::State;
@@ -44,18 +44,33 @@ const PAIR_FAILURE_DELAY: Duration = Duration::from_secs(2);
 
 /// What the gateway needs from the machine it serves. The daemon is the real
 /// one; tests stand in a fake so they can drive the bridge without a PTY.
+///
+/// `machine` names a remote the desktop is linked to, by its link key, and is
+/// `None` for this machine itself.
 pub trait Backend: Send + Sync + 'static {
     fn hostname(&self) -> String;
     fn snapshot(&self) -> io::Result<(Machine, Vec<PaneAgentState>)>;
-    fn observe(&self, pane_id: u64) -> io::Result<Box<dyn PaneFeed>>;
-    fn send_input(&self, pane_id: u64, bytes: &[u8]) -> io::Result<()>;
+    /// Every machine the desktop is linked to, each read through its link.
+    fn remotes(&self) -> Vec<Remote>;
+    fn observe(&self, machine: Option<&str>, pane_id: u64) -> io::Result<Box<dyn PaneFeed>>;
+    fn send_input(&self, machine: Option<&str>, pane_id: u64, bytes: &[u8]) -> io::Result<()>;
     /// Starts a shell in a new tab at the end of `workspace_id`.
     fn new_tab(
         &self,
+        machine: Option<&str>,
         workspace_id: &str,
         cwd: Option<String>,
         size: Option<GridSize>,
     ) -> io::Result<TabCreated>;
+}
+
+/// One linked machine, as [`Backend::remotes`] reports it.
+pub struct Remote {
+    pub key: String,
+    pub name: String,
+    pub connected: bool,
+    /// Its tree, read through the link; `None` while the link is down.
+    pub snapshot: Option<io::Result<(Machine, Vec<PaneAgentState>)>>,
 }
 
 /// A read-only view onto one pane's output, as the daemon sends it.
@@ -153,12 +168,15 @@ async fn serve_stream(
             workspace_id,
             cwd,
             size,
+            machine,
         } => {
             let created = {
                 let backend = backend.clone();
-                tokio::task::spawn_blocking(move || backend.new_tab(&workspace_id, cwd, size))
-                    .await
-                    .map_err(io::Error::other)?
+                tokio::task::spawn_blocking(move || {
+                    backend.new_tab(machine.as_deref(), &workspace_id, cwd, size)
+                })
+                .await
+                .map_err(io::Error::other)?
             };
             match created {
                 Ok(created) => {
@@ -170,17 +188,17 @@ async fn serve_stream(
             finish(send).await;
             Ok(())
         }
-        Open::Pane { pane_id } => {
+        Open::Pane { pane_id, machine } => {
             let feed = {
-                let backend = backend.clone();
-                tokio::task::spawn_blocking(move || backend.observe(pane_id))
+                let (backend, machine) = (backend.clone(), machine.clone());
+                tokio::task::spawn_blocking(move || backend.observe(machine.as_deref(), pane_id))
                     .await
                     .map_err(io::Error::other)?
             };
             match feed {
                 Ok(feed) => {
                     write_msg(&mut send, &ok).await?;
-                    pane_stream(pane_id, feed, send, recv, backend).await
+                    pane_stream(machine, pane_id, feed, send, recv, backend).await
                 }
                 Err(e) => {
                     write_msg(&mut send, &denied(&e.to_string())).await?;
@@ -252,7 +270,8 @@ fn watch_tree(
         let event = match backend.snapshot() {
             Ok((machine, agents)) => {
                 failing = false;
-                let tree = tree::build(&host, &machine, &agents);
+                let mut tree = tree::build(&host, &machine, &agents);
+                tree.remotes = backend.remotes().into_iter().map(remote_view).collect();
                 if forced || last.as_ref() != Some(&tree) {
                     last = Some(tree.clone());
                     Some(ControlEvent::Tree(tree))
@@ -283,6 +302,24 @@ fn watch_tree(
     }
 }
 
+fn remote_view(remote: Remote) -> RemoteView {
+    let (workspaces, error) = match remote.snapshot {
+        Some(Ok((machine, agents))) => (
+            tree::build(&remote.name, &machine, &agents).workspaces,
+            None,
+        ),
+        Some(Err(e)) => (Vec::new(), Some(e.to_string())),
+        None => (Vec::new(), None),
+    };
+    RemoteView {
+        key: remote.key,
+        name: remote.name,
+        connected: remote.connected,
+        error,
+        workspaces,
+    }
+}
+
 /// What to say when the tty7 server can't be reached. No socket at all means
 /// no server is running, which is the common case and has a fix to name; any
 /// other failure is passed on as it came.
@@ -301,6 +338,7 @@ enum Down {
 }
 
 async fn pane_stream(
+    machine: Option<String>,
     pane_id: u64,
     feed: Box<dyn PaneFeed>,
     mut send: SendStream,
@@ -319,7 +357,7 @@ async fn pane_stream(
         .name(format!("gateway-input-{pane_id}"))
         .spawn(move || {
             for bytes in input_rx {
-                if let Err(e) = backend.send_input(pane_id, &bytes) {
+                if let Err(e) = backend.send_input(machine.as_deref(), pane_id, &bytes) {
                     eprintln!("tty7-gateway: input to pane {pane_id}: {e}");
                     return;
                 }

@@ -222,13 +222,14 @@ async fn refresh(state: State<'_, Arc<AppState>>, host_id: String) -> CmdResult<
 async fn tab_new(
     state: State<'_, Arc<AppState>>,
     host_id: String,
+    machine: Option<String>,
     workspace_id: String,
     cwd: Option<String>,
     size: Option<GridSize>,
 ) -> CmdResult<TabCreated> {
     let session = state.session(&host_id).await?;
     session
-        .new_tab(&workspace_id, cwd, size)
+        .new_tab(machine.as_deref(), &workspace_id, cwd, size)
         .await
         .map_err(err)
 }
@@ -240,11 +241,15 @@ async fn tab_new(
 async fn pane_open(
     state: State<'_, Arc<AppState>>,
     host_id: String,
+    machine: Option<String>,
     pane_id: u64,
     on_output: Channel<InvokeResponseBody>,
 ) -> CmdResult<u32> {
     let session = state.session(&host_id).await?;
-    let (mut keys, mut screen) = session.pane(pane_id).await.map_err(err)?;
+    let (mut keys, mut screen) = session
+        .pane(machine.as_deref(), pane_id)
+        .await
+        .map_err(err)?;
     let handle = state.next_pane.fetch_add(1, Ordering::Relaxed);
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     state.panes.lock().await.insert(handle, input_tx);

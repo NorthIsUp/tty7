@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
             let pane: u64 = args.get(1).context("type <pane> <text>")?.parse()?;
             let text = args.get(2).context("type <pane> <text>")?;
             let session = Session::connect(&endpoint, &host()?).await?;
-            let (mut keys, mut screen) = session.pane(pane).await?;
+            let (mut keys, mut screen) = session.pane(None, pane).await?;
             // Drain the replay: it ends when the pane goes quiet.
             let mut replay = 0usize;
             while let Ok(Ok(Some(item))) =
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
             let cwd = args.get(2).cloned();
             let session = Session::connect(&endpoint, &host()?).await?;
             let size = GridSize { cols: 56, rows: 40 };
-            let created = session.new_tab(ws, cwd, Some(size)).await?;
+            let created = session.new_tab(None, ws, cwd, Some(size)).await?;
             println!(
                 "opened tab {} with pane {}",
                 created.tab_id, created.pane_id

@@ -12,7 +12,7 @@ use iroh::endpoint::presets;
 use tty7_core::core::machine::{Machine, Tab, Workspace};
 use tty7_core::daemon::control::PaneAgentState;
 use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
-use tty7_gateway::serve::{self, Backend, PaneFeed};
+use tty7_gateway::serve::{self, Backend, PaneFeed, Remote};
 use tty7_gateway::state::State;
 use tty7_mobile_client::{PaneItem, Session};
 use tty7_mobile_proto::{ALPN, ControlEvent, GridSize, PairCode, PaneEvent, TabCreated};
@@ -56,10 +56,38 @@ impl Backend for FakeMachine {
         Ok((self.machine.clone(), Vec::new()))
     }
 
-    fn observe(&self, pane_id: u64) -> io::Result<Box<dyn PaneFeed>> {
+    /// One linked machine that is up, holding the same tree, and one whose
+    /// link is down.
+    fn remotes(&self) -> Vec<Remote> {
+        vec![
+            Remote {
+                key: "me@build-box:22".into(),
+                name: "build-box".into(),
+                connected: true,
+                snapshot: Some(Ok((self.machine.clone(), Vec::new()))),
+            },
+            Remote {
+                key: "me@gone:22".into(),
+                name: "gone".into(),
+                connected: false,
+                snapshot: None,
+            },
+        ]
+    }
+
+    fn observe(&self, machine: Option<&str>, pane_id: u64) -> io::Result<Box<dyn PaneFeed>> {
+        if machine == Some("me@gone:22") {
+            return Err(io::Error::other("the desktop's link to me@gone:22 is down"));
+        }
         if pane_id != 1 {
             return Err(io::Error::other(format!("no such pane {pane_id}")));
         }
+        // The remote's pane 1 says where it is, so a test can tell it from
+        // the local one.
+        let prompt = match machine {
+            Some(key) => format!("{key}$ ").into_bytes(),
+            None => b"$ ".to_vec(),
+        };
         let (tx, rx) = std_mpsc::channel();
         *self.typed.lock().unwrap() = Some(tx);
         Ok(Box::new(FakeFeed {
@@ -70,13 +98,13 @@ impl Backend for FakeMachine {
                     cell_w: 8,
                     cell_h: 16,
                 }),
-                DaemonMsg::Snapshot(b"$ ".to_vec()),
+                DaemonMsg::Snapshot(prompt),
             ],
             typed: rx,
         }))
     }
 
-    fn send_input(&self, _pane_id: u64, bytes: &[u8]) -> io::Result<()> {
+    fn send_input(&self, _machine: Option<&str>, _pane_id: u64, bytes: &[u8]) -> io::Result<()> {
         let typed = self.typed.lock().unwrap();
         typed
             .as_ref()
@@ -87,6 +115,7 @@ impl Backend for FakeMachine {
 
     fn new_tab(
         &self,
+        machine: Option<&str>,
         workspace_id: &str,
         cwd: Option<String>,
         size: Option<GridSize>,
@@ -97,7 +126,7 @@ impl Backend for FakeMachine {
         // Echo what was asked for in the tab id, so the test can see it
         // crossed intact.
         Ok(TabCreated {
-            tab_id: format!("{cwd:?} {size:?}"),
+            tab_id: format!("{machine:?} {cwd:?} {size:?}"),
             pane_id: 2,
         })
     }
@@ -205,7 +234,7 @@ async fn an_unpaired_phone_is_turned_away() {
     let session = Session::connect(&rig.phone, &host).await.unwrap();
     let err = within(session.control()).await.err().expect("denied");
     assert!(err.to_string().contains("not paired"), "{err}");
-    let err = within(session.pane(1)).await.err().expect("denied");
+    let err = within(session.pane(None, 1)).await.err().expect("denied");
     assert!(err.to_string().contains("not paired"), "{err}");
 }
 
@@ -230,7 +259,7 @@ async fn a_paired_phone_reads_the_tree_and_drives_a_pane() {
         Some(ControlEvent::Tree(t)) if t == first
     ));
 
-    let (mut keys, mut screen) = within(session.pane(1)).await.unwrap();
+    let (mut keys, mut screen) = within(session.pane(None, 1)).await.unwrap();
     assert_eq!(
         within(screen.next()).await.unwrap(),
         Some(PaneItem::Event(PaneEvent::Size {
@@ -254,7 +283,10 @@ async fn a_paired_phone_reads_the_tree_and_drives_a_pane() {
     );
     assert_eq!(within(screen.next()).await.unwrap(), None, "stream ends");
 
-    let err = within(session.pane(99)).await.err().expect("no such pane");
+    let err = within(session.pane(None, 99))
+        .await
+        .err()
+        .expect("no such pane");
     assert!(err.to_string().contains("no such pane 99"), "{err}");
 }
 
@@ -281,16 +313,30 @@ async fn a_paired_phone_opens_a_tab() {
     let ws = &first.workspaces[0].id;
 
     let size = GridSize { cols: 56, rows: 40 };
-    let created = within(session.new_tab(ws, Some("/src/demo".into()), Some(size)))
+    let created = within(session.new_tab(None, ws, Some("/src/demo".into()), Some(size)))
         .await
         .unwrap();
     assert_eq!(created.pane_id, 2);
     assert_eq!(
         created.tab_id,
-        format!("{:?} {:?}", Some("/src/demo"), Some(size))
+        format!(
+            "{:?} {:?} {:?}",
+            None::<&str>,
+            Some("/src/demo"),
+            Some(size)
+        )
     );
 
-    let err = within(session.new_tab("nope", None, None))
+    let created = within(session.new_tab(Some("me@build-box:22"), ws, None, None))
+        .await
+        .unwrap();
+    assert!(
+        created.tab_id.starts_with("Some(\"me@build-box:22\")"),
+        "{}",
+        created.tab_id
+    );
+
+    let err = within(session.new_tab(None, "nope", None, None))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no workspace nope"), "{err}");
@@ -312,6 +358,40 @@ async fn an_unpaired_phone_cannot_open_a_tab() {
     };
     let session = Session::connect(&rig.phone, &host).await.unwrap();
     let ws = FakeMachine::new().machine.workspaces[0].id.to_string();
-    let err = within(session.new_tab(&ws, None, None)).await.unwrap_err();
+    let err = within(session.new_tab(None, &ws, None, None))
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("not paired"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn linked_machines_come_with_the_tree_and_their_panes_open() {
+    let rig = Rig::new().await;
+    let session = within(rig.paired()).await;
+    let (_, mut tree) = within(session.control()).await.unwrap().split();
+    let Some(ControlEvent::Tree(tree)) = within(tree.next()).await.unwrap() else {
+        panic!("expected a tree first");
+    };
+    let [up, down] = &tree.remotes[..] else {
+        panic!("two remotes: {:?}", tree.remotes);
+    };
+    assert_eq!((up.name.as_str(), up.connected), ("build-box", true));
+    assert_eq!(up.workspaces[0].name, "pale-otter");
+    assert_eq!((down.connected, down.workspaces.len()), (false, 0));
+
+    let (_, mut screen) = within(session.pane(Some(&up.key), 1)).await.unwrap();
+    assert!(matches!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Event(PaneEvent::Size { .. }))
+    ));
+    assert_eq!(
+        within(screen.next()).await.unwrap(),
+        Some(PaneItem::Output(b"me@build-box:22$ ".to_vec()))
+    );
+
+    let err = within(session.pane(Some(&down.key), 1))
+        .await
+        .err()
+        .expect("down");
+    assert!(err.to_string().contains("is down"), "{err}");
 }

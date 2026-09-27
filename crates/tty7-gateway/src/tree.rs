@@ -50,6 +50,7 @@ pub fn build(host: &str, machine: &Machine, agents: &[PaneAgentState]) -> Tree {
                 }
             })
             .collect(),
+        remotes: Vec::new(),
     }
 }
 

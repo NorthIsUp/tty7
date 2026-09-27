@@ -453,38 +453,29 @@ const STATUS_WORD: Record<AgentStatus, string> = {
   idle: "Idle",
 };
 
+/** Which machine a pane or workspace is on: a remote the desktop is linked
+ * to, or null for the paired machine itself. */
+type Place = { key: string; name: string } | null;
+
 function renderTree(host: Host, tree: Tree, failed: (message: string) => void): Node[] {
   const out: Node[] = [];
+  const remotes = tree.remotes ?? [];
+  const everywhere: [Place, WorkspaceView][] = [
+    ...tree.workspaces.map((ws): [Place, WorkspaceView] => [null, ws]),
+    ...remotes.flatMap((r) => r.workspaces.map((ws): [Place, WorkspaceView] => [r, ws])),
+  ];
+
   const waiting: Node[] = [];
-  for (const ws of tree.workspaces)
+  for (const [place, ws] of everywhere)
     for (const tab of ws.tabs)
       for (const pane of tab.panes)
-        if (pane.agent && (pane.agent.status === "waiting" || pane.agent.status === "done"))
-          waiting.push(paneRow(host, tab, pane, workspaceName(ws.name)));
-
+        if (pane.agent && (pane.agent.status === "waiting" || pane.agent.status === "done")) {
+          const where = place ? `${place.name} › ${workspaceName(ws.name)}` : workspaceName(ws.name);
+          waiting.push(paneRow(host, place, tab, pane, where));
+        }
   if (waiting.length) out.push(section("Needs you", ...waiting));
 
-  // A workspace is one card of its tabs, named as the desktop's sidebar names
-  // them; a split tab gives each of its panes a row.
-  for (const ws of tree.workspaces) {
-    out.push(
-      h(
-        "section",
-        { class: "group" },
-        h(
-          "div",
-          { class: "group-head" },
-          h("h2", { class: "group-title" }, workspaceName(ws.name)),
-          newTabButton(host, ws, failed),
-        ),
-        h(
-          "div",
-          { class: "card" },
-          ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, tab, pane, null))),
-        ),
-      ),
-    );
-  }
+  out.push(...tree.workspaces.map((ws) => workspaceGroup(host, null, ws, failed)));
   if (tree.workspaces.length === 0) {
     out.push(
       h(
@@ -496,19 +487,79 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
       ),
     );
   }
+
+  // Then every machine the desktop reaches over SSH, as the desktop's
+  // sidebar lists them: its own heading, its workspaces under it.
+  for (const remote of remotes) {
+    const state = remote.connected ? (remote.error ? "Not answering" : "Connected") : "Link down";
+    out.push(
+      h(
+        "section",
+        { class: "remote" },
+        h(
+          "div",
+          { class: "remote-head" },
+          h("span", { class: "tile" }, ico("server")),
+          h(
+            "div",
+            { class: "remote-titles" },
+            h("h2", { class: "remote-name" }, remote.name),
+            h(
+              "p",
+              { class: `link ${remote.connected && !remote.error ? "direct" : "offline"}` },
+              h("span", { class: "link-dot" }),
+              `SSH · ${state}`,
+            ),
+          ),
+        ),
+        !remote.connected &&
+          h(
+            "p",
+            { class: "remote-note" },
+            `tty7 on ${host.name} lost its link to ${remote.name}. Reconnect it there to reach its workspaces.`,
+          ),
+        remote.error && h("p", { class: "remote-note" }, sentence(remote.error)),
+        remote.connected &&
+          !remote.error &&
+          remote.workspaces.length === 0 &&
+          h("p", { class: "remote-note" }, `No workspaces on ${remote.name}.`),
+        ...remote.workspaces.map((ws) => workspaceGroup(host, remote, ws, failed)),
+      ),
+    );
+  }
   return out;
+}
+
+/** A workspace is one card of its tabs, named as the desktop's sidebar names
+ * them; a split tab gives each of its panes a row. */
+function workspaceGroup(host: Host, place: Place, ws: WorkspaceView, failed: (message: string) => void) {
+  return h(
+    "section",
+    { class: "group" },
+    h(
+      "div",
+      { class: "group-head" },
+      h("h2", { class: "group-title" }, workspaceName(ws.name)),
+      newTabButton(host, place, ws, failed),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, place, tab, pane, null))),
+    ),
+  );
 }
 
 /** Starts a shell in a new tab at the end of a workspace, in the directory
  * its last tab is in, sized to this screen, and opens it. */
-function newTabButton(host: Host, ws: WorkspaceView, failed: (message: string) => void) {
+function newTabButton(host: Host, place: Place, ws: WorkspaceView, failed: (message: string) => void) {
   const button = h("button", { class: "head-action" }, ico("plus"), "New tab");
   button.onclick = async () => {
     button.disabled = true;
     const cwd = ws.tabs.at(-1)?.panes[0]?.cwd ?? null;
     try {
-      const created = await api.tabNew(host.id, ws.id, cwd, phoneGrid());
-      terminalScreen(host, { id: created.pane_id, title: "shell", cwd }, "New tab");
+      const created = await api.tabNew(host.id, place?.key ?? null, ws.id, cwd, phoneGrid());
+      terminalScreen(host, place, { id: created.pane_id, title: "shell", cwd }, "New tab");
     } catch (e) {
       failed(errorText(e));
       button.disabled = false;
@@ -538,7 +589,7 @@ function workspaceName(name: string) {
 /** A pane's row: its tab's name first, as on the desktop, then what the pane
  * is doing — its agent's state, or where its shell is. `where` names the
  * workspace when the row sits outside it, in "Needs you". */
-function paneRow(host: Host, tab: TabView, pane: PaneView, where: string | null) {
+function paneRow(host: Host, place: Place, tab: TabView, pane: PaneView, where: string | null) {
   const agent = pane.agent;
   const sub: Child[] = [];
   if (agent && agent.status !== "idle")
@@ -547,14 +598,14 @@ function paneRow(host: Host, tab: TabView, pane: PaneView, where: string | null)
   // panes apart then is what runs in them.
   const namedByPath = /^[~/]/.test(tab.name);
   const split = tab.panes.length > 1 || namedByPath ? pane.title : null;
-  const place = agent || namedByPath ? null : shortPath(pane.cwd);
-  const detail = [where, split, agent?.message ?? place].filter(Boolean).join(" · ");
+  const dir = agent || namedByPath ? null : shortPath(pane.cwd);
+  const detail = [where, split, agent?.message ?? dir].filter(Boolean).join(" · ");
   if (detail) sub.push(sub.length ? ` · ${detail}` : detail);
   return h(
     "button",
     {
       class: tab.hibernated ? "row asleep" : "row",
-      onclick: () => terminalScreen(host, pane, tab.name),
+      onclick: () => terminalScreen(host, place, pane, tab.name),
     },
     avatar(agent),
     h(
@@ -720,13 +771,16 @@ const CELL_EM = 0.602;
 /** The smallest font a pane is read at before it pans instead of shrinking. */
 const READABLE_PX = 11;
 
-function terminalScreen(host: Host, pane: PaneView, title: string) {
+function terminalScreen(host: Host, place: Place, pane: PaneView, title: string) {
   go("push", () => {
     // What the pane is doing and whether keystrokes will land, in words: the
     // one line under the title.
     const stateWord = h("span", {}, "Connecting…");
     const state = h("span", { class: "term-state connecting" }, h("span", { class: "link-dot" }), stateWord);
-    const cwd = h("span", { class: "term-cwd" }, shortPath(pane.cwd));
+    // On a remote, the path says which machine it is on, the way a prompt does.
+    const where = (path: string | null | undefined) =>
+      place && path ? `${place.name}:${shortPath(path)}` : shortPath(path);
+    const cwd = h("span", { class: "term-cwd" }, where(pane.cwd));
     const sub = h("span", { class: "term-sub" }, state, cwd);
     const zoom = h("button", { class: "nav-icon", ariaLabel: "Fit the whole width" }, ico("fit"));
     let head = avatar(pane.agent, "avatar small");
@@ -866,6 +920,7 @@ function terminalScreen(host: Host, pane: PaneView, title: string) {
       try {
         handle = await api.paneOpen(
           host.id,
+          place?.key ?? null,
           pane.id,
           (bytes) => term.write(bytes),
           (event) => {
@@ -883,7 +938,7 @@ function terminalScreen(host: Host, pane: PaneView, title: string) {
                 break;
               }
               case "cwd":
-                cwd.textContent = shortPath(event.path);
+                cwd.textContent = where(event.path);
                 break;
               case "exited":
                 handle = null;

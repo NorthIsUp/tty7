@@ -42,6 +42,16 @@ export interface WorkspaceView {
 export interface Tree {
   host: string;
   workspaces: WorkspaceView[];
+  /** Machines the desktop is linked to over SSH. Absent from older gateways. */
+  remotes?: RemoteView[];
+}
+
+export interface RemoteView {
+  key: string;
+  name: string;
+  connected: boolean;
+  error?: string | null;
+  workspaces: WorkspaceView[];
 }
 
 export interface LinkInfo {
@@ -78,8 +88,10 @@ export function watch(hostId: string, onMsg: (msg: TreeMsg) => void) {
 export const refresh = (hostId: string) => invoke<void>("refresh", { hostId });
 
 /** Output arrives as ArrayBuffers of raw terminal bytes, events as objects. */
+/** `machine` is a remote's key, or null for the paired machine itself. */
 export function paneOpen(
   hostId: string,
+  machine: string | null,
   paneId: number,
   onOutput: (bytes: Uint8Array) => void,
   onEvent: (event: PaneEvent) => void,
@@ -89,7 +101,7 @@ export function paneOpen(
     if (msg instanceof ArrayBuffer) onOutput(new Uint8Array(msg));
     else onEvent(msg);
   };
-  return invoke<number>("pane_open", { hostId, paneId, onOutput: channel });
+  return invoke<number>("pane_open", { hostId, machine, paneId, onOutput: channel });
 }
 
 export interface TabCreated {
@@ -99,10 +111,11 @@ export interface TabCreated {
 
 export const tabNew = (
   hostId: string,
+  machine: string | null,
   workspaceId: string,
   cwd: string | null,
   size: { cols: number; rows: number } | null,
-) => invoke<TabCreated>("tab_new", { hostId, workspaceId, cwd, size });
+) => invoke<TabCreated>("tab_new", { hostId, machine, workspaceId, cwd, size });
 
 export const paneInput = (handle: number, data: string) =>
   invoke<void>("pane_input", { handle, data });

@@ -338,6 +338,41 @@ code {
   overflow: hidden;
 }
 
+.remote {
+  padding-top: 10px;
+}
+
+.remote-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 20px 16px;
+}
+
+.remote-titles {
+  min-width: 0;
+}
+
+.remote-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.014em;
+  overflow-wrap: anywhere;
+}
+
+.remote-head .link {
+  margin-top: 1px;
+  font-size: 14px;
+}
+
+.remote-note {
+  margin: -4px 20px 24px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
 .row.asleep > .avatar {
   opacity: 0.45;
 }

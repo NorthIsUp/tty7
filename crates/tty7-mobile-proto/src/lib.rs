@@ -58,7 +58,13 @@ pub enum Open {
     /// desktop, and would take the pane away from the window showing it.
     /// Keystrokes go in beside the observer, so the phone can drive the pane
     /// without owning it.
-    Pane { pane_id: u64 },
+    Pane {
+        pane_id: u64,
+        /// The [`RemoteView::key`] of the remote machine the pane lives on;
+        /// absent for the gateway's own machine.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+    },
     /// Start a shell in a new tab at the end of a workspace. One-shot: the
     /// gateway creates the tab first, then answers `Ok` followed by a
     /// [`TabCreated`], or `Denied` with what went wrong.
@@ -74,6 +80,9 @@ pub enum Open {
         /// window is showing the tab yet. One that later does resizes it.
         #[serde(default)]
         size: Option<GridSize>,
+        /// As on [`Open::Pane`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
     },
 }
 
@@ -145,6 +154,28 @@ pub enum PaneEvent {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
     pub host: String,
+    pub workspaces: Vec<WorkspaceView>,
+    /// The machines the desktop is linked to over SSH, each with its own
+    /// workspaces. The gateway reaches them through those links and never
+    /// dials one itself.
+    #[serde(default)]
+    pub remotes: Vec<RemoteView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteView {
+    /// The link's key (`me@build-box:22`): what [`Open::Pane`] and
+    /// [`Open::NewTab`] name the machine by.
+    pub key: String,
+    /// What to call it: the host, or the key when it has none.
+    pub name: String,
+    /// Whether the desktop's link to it is up. A down link lists no
+    /// workspaces; the desktop has to reconnect it.
+    pub connected: bool,
+    /// Why its workspaces could not be read, when the link is up but the far
+    /// end did not answer.
+    #[serde(default)]
+    pub error: Option<String>,
     pub workspaces: Vec<WorkspaceView>,
 }
 
@@ -374,7 +405,10 @@ mod tests {
 
     #[test]
     fn frames_survive_arbitrary_chunking() {
-        let mut wire = encode_msg(&Open::Pane { pane_id: 7 });
+        let mut wire = encode_msg(&Open::Pane {
+            pane_id: 7,
+            machine: None,
+        });
         wire.extend(encode_bytes(b"\x1b[31mhi\r\n"));
         wire.extend(encode_msg(&PaneEvent::Size { cols: 80, rows: 24 }));
 
@@ -388,7 +422,13 @@ mod tests {
                 }
             }
             assert_eq!(frames.len(), 3, "chunk size {chunk}");
-            assert_eq!(frames[0].msg::<Open>().unwrap(), Open::Pane { pane_id: 7 });
+            assert_eq!(
+                frames[0].msg::<Open>().unwrap(),
+                Open::Pane {
+                    pane_id: 7,
+                    machine: None
+                }
+            );
             assert_eq!(frames[1], Frame::Bytes(b"\x1b[31mhi\r\n".to_vec()));
             assert_eq!(
                 frames[2].msg::<PaneEvent>().unwrap(),
@@ -459,8 +499,19 @@ mod tests {
             Open::NewTab {
                 workspace_id: "w".into(),
                 cwd: None,
-                size: None
+                size: None,
+                machine: None
             }
+        );
+        // A local pane is asked for exactly as before remotes existed, so an
+        // older gateway still understands it.
+        assert_eq!(
+            serde_json::to_value(Open::Pane {
+                pane_id: 3,
+                machine: None
+            })
+            .unwrap(),
+            serde_json::json!({"type": "pane", "pane_id": 3})
         );
     }
 
