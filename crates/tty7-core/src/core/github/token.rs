@@ -127,38 +127,18 @@ pub fn resolve_token_from_system() -> Option<(Token, TokenSource)> {
 }
 
 fn run_gh_auth_token(gh: &Path) -> Option<String> {
-    use std::io::Read as _;
-    use std::process::{Command, Stdio};
-    let mut child = Command::new(gh)
-        .args(["auth", "token", "--hostname", "github.com"])
+    use crate::core::proc::{hide_console, output_within};
+    let mut cmd = std::process::Command::new(gh);
+    cmd.args(["auth", "token", "--hostname", "github.com"])
         .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_NO_UPDATE_NOTIFIER", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let deadline = std::time::Instant::now() + GH_TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let mut out = String::new();
-                child.stdout.take()?.read_to_string(&mut out).ok()?;
-                return Some(out);
-            }
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
+        .env("GH_NO_UPDATE_NOTIFIER", "1");
+    // A GUI app spawning a console program on Windows flashes a console
+    // window unless told not to.
+    let out = output_within(hide_console(&mut cmd), GH_TIMEOUT).ok()?;
+    if !out.status.success() {
+        return None;
     }
+    String::from_utf8(out.stdout).ok()
 }
 
 #[cfg(test)]

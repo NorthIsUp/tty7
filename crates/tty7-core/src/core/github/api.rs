@@ -111,7 +111,7 @@ pub fn classify(
                     .duration_since(std::time::UNIX_EPOCH)
                     .ok()?
                     .as_secs() as i64;
-                Some(now + after)
+                Some(now.saturating_add(after))
             })
     };
     match status {

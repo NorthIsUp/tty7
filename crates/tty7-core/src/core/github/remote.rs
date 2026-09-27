@@ -70,6 +70,11 @@ pub fn parse_github_url(url: &str) -> Option<RepoSlug> {
             return None;
         }
         let (authority, path) = rest.split_once('/')?;
+        // `?`, `#` and `\` end the authority for a URL parser, so
+        // `https://evil.io#@github.com/o/r` is a URL for evil.io.
+        if authority.contains(['?', '#', '\\']) {
+            return None;
+        }
         // Userinfo can itself hold a `@` only percent-encoded, so the last
         // one is the separator.
         let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
@@ -266,6 +271,9 @@ mod tests {
             "git@github.example.com:owner/name.git",
             "https://notgithub.com/owner/name",
             "https://github.com.evil.io/owner/name",
+            "https://evil.io#@github.com/owner/name",
+            "https://evil.io?@github.com/owner/name",
+            "https://evil.io\\@github.com/owner/name",
             "/srv/git/name.git",
             "./relative:path",
             "file:///srv/git/name.git",
