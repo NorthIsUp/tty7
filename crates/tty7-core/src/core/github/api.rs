@@ -70,6 +70,14 @@ pub struct Reply {
 pub trait Transport: Send + Sync {
     /// `path` starts with `/` and includes the query string.
     fn get(&self, path: &str) -> Result<Reply, ApiError>;
+    /// The same GET, asking for the `full` media type: text fields come with
+    /// their rendered `*_html` too, which is where GitHub puts the signed
+    /// URLs a pasted attachment can actually be downloaded from (see
+    /// [`markdown::sign_attachments`](super::markdown::sign_attachments)).
+    /// Only the detail asks for it; a list does not need 50 bodies twice.
+    fn get_full(&self, path: &str) -> Result<Reply, ApiError> {
+        self.get(path)
+    }
     /// Whether requests carry a token. Decides how a 404 or a rate limit is
     /// explained: to a signed-out user, both usually mean "sign in".
     fn authenticated(&self) -> bool;
@@ -241,12 +249,15 @@ pub fn list(t: &dyn Transport, q: &ListQuery, page: u32) -> Result<ListPage, Api
 /// request, its branches, size and changed files.
 pub fn detail(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Detail, ApiError> {
     let base = repo_path(slug);
-    let issue: RawIssue = decode(&t.get(&format!("{base}/issues/{number}"))?)?;
+    let issue: RawIssue = decode(&t.get_full(&format!("{base}/issues/{number}"))?)?;
     let is_pr = issue.is_pr();
-    let body = issue.body.clone().unwrap_or_default();
+    let body = super::markdown::sign_attachments(
+        issue.body.as_deref().unwrap_or_default(),
+        issue.body_html.as_deref().unwrap_or_default(),
+    );
     let mut item = issue.into_item();
 
-    let reply = t.get(&format!(
+    let reply = t.get_full(&format!(
         "{base}/issues/{number}/comments?per_page={DETAIL_PAGE}"
     ))?;
     let comments: Vec<Comment> = decode::<Vec<RawComment>>(&reply)?

@@ -461,14 +461,14 @@ impl Tty7App {
 /// Headings a step or two over the body rather than the document-sized ramp
 /// the text view defaults to: an issue's `## What happened?` is a label in a
 /// 280px column, not a page title.
-fn panel_markdown_style() -> gpui_component::text::TextViewStyle {
+fn panel_markdown_style(cx: &gpui::App) -> gpui_component::text::TextViewStyle {
     gpui_component::text::TextViewStyle {
         heading_font_size: Some(Arc::new(|level, base| match level {
             1 => base * 1.25,
             2 => base * 1.15,
             _ => base * 1.05,
         })),
-        ..Default::default()
+        ..crate::ui::theme::markdown_style(cx)
     }
 }
 
@@ -504,7 +504,7 @@ fn markdown_block(id: String, source: &str, empty: &str, cx: &gpui::App) -> AnyE
         .text_size(rems(TEXT))
         .child(
             gpui_component::text::TextView::markdown(SharedString::from(id), safe)
-                .style(panel_markdown_style())
+                .style(panel_markdown_style(cx))
                 .selectable(true),
         )
         .into_any_element()

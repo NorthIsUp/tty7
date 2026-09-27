@@ -324,6 +324,48 @@ fn scheme(url: &str) -> Option<&str> {
     Some(head)
 }
 
+/// Point each pasted attachment at a URL it can be downloaded from.
+///
+/// An image pasted into an issue is written into the Markdown as
+/// `https://github.com/user-attachments/assets/<uuid>`. On a public repository
+/// that URL answers anyone; on a private one it wants a browser session, and
+/// an API token does not count. The rendered HTML GitHub returns alongside
+/// (`body_html`, from the `full` media type) carries the same image as a
+/// `private-user-images.githubusercontent.com/…<uuid>…?jwt=…` URL that
+/// downloads without credentials for a few minutes. Swap each attachment for
+/// its signed twin by the uuid both carry; one with no twin is left alone.
+pub fn sign_attachments(markdown: &str, html: &str) -> String {
+    const PREFIX: &str = "https://github.com/user-attachments/assets/";
+    if html.is_empty() || !markdown.contains(PREFIX) {
+        return markdown.to_string();
+    }
+    let signed: Vec<String> = html
+        .split(['"', '\''])
+        .filter(|v| v.starts_with("https://private-user-images.githubusercontent.com/"))
+        .map(|v| v.replace("&amp;", "&"))
+        .collect();
+    let mut out = String::with_capacity(markdown.len());
+    let mut rest = markdown;
+    while let Some(at) = rest.find(PREFIX) {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + PREFIX.len()..];
+        let id_len = tail
+            .find(|c: char| !(c.is_ascii_hexdigit() || c == '-'))
+            .unwrap_or(tail.len());
+        let id = &tail[..id_len];
+        match signed
+            .iter()
+            .find(|url| id.len() >= 32 && url.split('?').next().is_some_and(|p| p.contains(id)))
+        {
+            Some(url) => out.push_str(url),
+            None => out.push_str(&rest[at..at + PREFIX.len() + id_len]),
+        }
+        rest = &tail[id_len..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// `![alt](url)` or `![alt](url "title")` at the start of `s`: the alt text,
 /// the URL, and how many bytes the whole form takes. `None` for anything
 /// else, including the reference form `![alt][id]`.
@@ -525,5 +567,32 @@ mod tests {
         assert!(is_safe_target("HTTPS://x.io"));
         assert!(is_safe_target("./a:b"));
         assert!(is_safe_target("/abs/path"));
+    }
+
+    #[test]
+    fn attachments_are_swapped_for_their_signed_twins() {
+        let id = "352d14e0-d11c-42db-b8b3-042b31e34ce7";
+        let md = format!(
+            "see <img alt=\"x\" src=\"https://github.com/user-attachments/assets/{id}\" /> and \
+             https://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000"
+        );
+        let signed = format!(
+            "https://private-user-images.githubusercontent.com/1/2-{id}.png?jwt=a.b&amp;x=1"
+        );
+        let html = format!(r#"<a href="{signed}"><img src="{signed}" alt="x"></a>"#);
+        let out = sign_attachments(&md, &html);
+        assert!(
+            out.contains(&format!(
+                "https://private-user-images.githubusercontent.com/1/2-{id}.png?jwt=a.b&x=1\""
+            )),
+            "{out}"
+        );
+        // No twin in the HTML: left as written.
+        assert!(
+            out.ends_with("assets/00000000-0000-0000-0000-000000000000"),
+            "{out}"
+        );
+        // No HTML at all (a fixture, an old reply): nothing changes.
+        assert_eq!(sign_attachments(&md, ""), md);
     }
 }

@@ -47,10 +47,24 @@ impl HttpTransport {
 
 impl Transport for HttpTransport {
     fn get(&self, path: &str) -> Result<Reply, ApiError> {
+        self.request(path, "application/vnd.github+json")
+    }
+
+    fn get_full(&self, path: &str) -> Result<Reply, ApiError> {
+        self.request(path, "application/vnd.github.full+json")
+    }
+
+    fn authenticated(&self) -> bool {
+        self.token.is_some()
+    }
+}
+
+impl HttpTransport {
+    fn request(&self, path: &str, accept: &str) -> Result<Reply, ApiError> {
         let mut request = self
             .agent
             .get(format!("{API}{path}"))
-            .header("Accept", "application/vnd.github+json")
+            .header("Accept", accept)
             .header("X-GitHub-Api-Version", "2022-11-28");
         if let Some(token) = &self.token {
             request = request.header("Authorization", format!("Bearer {}", token.expose()));
@@ -79,9 +93,5 @@ impl Transport for HttpTransport {
             has_next: header("link").is_some_and(|l| link_has_next(&l)),
             body,
         })
-    }
-
-    fn authenticated(&self) -> bool {
-        self.token.is_some()
     }
 }

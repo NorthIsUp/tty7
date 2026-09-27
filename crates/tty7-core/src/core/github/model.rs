@@ -204,6 +204,9 @@ pub(crate) struct RawIssue {
     updated_at: String,
     #[serde(default)]
     pub(crate) body: Option<String>,
+    /// Only with the `full` media type.
+    #[serde(default)]
+    pub(crate) body_html: Option<String>,
     #[serde(default)]
     html_url: String,
     #[serde(default)]
@@ -264,6 +267,9 @@ pub(crate) struct RawComment {
     user: Option<RawUser>,
     #[serde(default)]
     body: Option<String>,
+    /// Only with the `full` media type.
+    #[serde(default)]
+    body_html: Option<String>,
     #[serde(default)]
     created_at: String,
     #[serde(default)]
@@ -378,7 +384,10 @@ impl RawComment {
         Comment {
             id: self.id,
             author: login(self.user),
-            body: self.body.unwrap_or_default(),
+            body: super::markdown::sign_attachments(
+                self.body.as_deref().unwrap_or_default(),
+                self.body_html.as_deref().unwrap_or_default(),
+            ),
             created_at: timestamp(&self.created_at),
             html_url: self.html_url,
         }
