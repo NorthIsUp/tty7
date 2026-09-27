@@ -81,7 +81,9 @@ pub fn search(
         std::fs::metadata(root)?;
     }
 
-    let deadline = Instant::now() + Duration::from_millis(limits.max_millis);
+    // The limits come off the wire on a server; a budget too large to add to
+    // a clock is no budget, not a panic.
+    let deadline = Instant::now().checked_add(Duration::from_millis(limits.max_millis));
     let max_hits = limits.max_hits as usize;
     let per_file = limits.max_hits_per_file.max(1) as usize;
 
@@ -92,7 +94,9 @@ pub fn search(
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 continue;
             }
-            if out.files_searched >= limits.max_files || Instant::now() >= deadline {
+            if out.files_searched >= limits.max_files
+                || deadline.is_some_and(|d| Instant::now() >= d)
+            {
                 out.truncated = true;
                 break 'roots;
             }
@@ -151,11 +155,20 @@ fn walker(root: &Path, show_hidden: bool) -> ignore::Walk {
 /// size cap, or binary. Bytes that are not UTF-8 are replaced rather than
 /// losing the whole file to one Latin-1 comment.
 fn read_text(path: &Path, max_bytes: u64) -> Option<String> {
-    let meta = std::fs::metadata(path).ok()?;
-    if meta.len() > max_bytes {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > max_bytes {
         return None;
     }
-    let bytes = std::fs::read(path).ok()?;
+    // Read through the cap rather than trusting the size just seen: a log
+    // that grows between the two would otherwise be read whole.
+    let mut bytes = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > max_bytes {
+        return None;
+    }
     if is_binary(&bytes) {
         return None;
     }
@@ -463,6 +476,20 @@ mod tests {
             distinct_roots(&roots),
             vec![PathBuf::from("/r"), PathBuf::from("/other")]
         );
+    }
+
+    #[test]
+    fn an_unbounded_time_budget_is_not_a_panic() {
+        let dir = std::env::temp_dir().join(format!("tty7-cs-budget-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "needle\n").unwrap();
+        let limits = ContentLimits {
+            max_millis: u64::MAX,
+            ..ContentLimits::default()
+        };
+        let found = search(&[dir.clone()], &q("needle"), &limits).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found.hits.len(), 1);
     }
 
     #[test]
