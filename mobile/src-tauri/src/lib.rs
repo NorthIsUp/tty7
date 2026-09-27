@@ -19,7 +19,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Manager, State};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tty7_mobile_client::{ControlSender, Host, LinkInfo, PaneItem, Session};
-use tty7_mobile_proto::{ControlEvent, PaneEvent, Tree};
+use tty7_mobile_proto::{ControlEvent, GridSize, PaneEvent, TabCreated, Tree};
 
 /// How long output is gathered before it crosses to the WebView. One frame at
 /// 60 Hz: shorter buys nothing on screen, longer starts to feel like lag.
@@ -216,6 +216,23 @@ async fn refresh(state: State<'_, Arc<AppState>>, host_id: String) -> CmdResult<
     }
 }
 
+/// Starts a shell in a new tab at the end of a workspace. The frontend opens
+/// the returned pane like any other.
+#[tauri::command]
+async fn tab_new(
+    state: State<'_, Arc<AppState>>,
+    host_id: String,
+    workspace_id: String,
+    cwd: Option<String>,
+    size: Option<GridSize>,
+) -> CmdResult<TabCreated> {
+    let session = state.session(&host_id).await?;
+    session
+        .new_tab(&workspace_id, cwd, size)
+        .await
+        .map_err(err)
+}
+
 /// Opens a pane. Output arrives on `on_output` as `ArrayBuffer`s of raw
 /// terminal bytes, interleaved in order with JSON [`PaneEvent`]s; the returned
 /// handle addresses [`pane_input`] and [`pane_close`].
@@ -344,7 +361,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            hosts, pair, forget, watch, refresh, pane_open, pane_input, pane_close
+            hosts, pair, forget, watch, refresh, tab_new, pane_open, pane_input, pane_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tty7");

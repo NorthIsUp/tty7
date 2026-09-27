@@ -5,7 +5,16 @@ import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
 
 import * as api from "./api";
-import type { AgentStatus, AgentView, Host, LinkInfo, PaneView, TabView, Tree } from "./api";
+import type {
+  AgentStatus,
+  AgentView,
+  Host,
+  LinkInfo,
+  PaneView,
+  TabView,
+  Tree,
+  WorkspaceView,
+} from "./api";
 import { agentLook, icon } from "./icons";
 import logoUrl from "./assets/logo.svg?url";
 
@@ -331,6 +340,9 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
       clearTimeout(slow);
     };
 
+    const failed = (message: string) =>
+      notice.replaceChildren(noticeCard({ title: "Couldn't open a tab", body: [sentence(message)] }));
+
     const offline = (message: string) => {
       renderLink(link, null);
       notice.replaceChildren(
@@ -381,7 +393,7 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
               clearTimeout(slow);
               if (!lastTree) notice.replaceChildren();
               lastTree = msg.tree;
-              body.replaceChildren(...renderTree(host, msg.tree));
+              body.replaceChildren(...renderTree(host, msg.tree, failed));
               break;
             case "link":
               renderLink(link, msg.link);
@@ -441,7 +453,7 @@ const STATUS_WORD: Record<AgentStatus, string> = {
   idle: "Idle",
 };
 
-function renderTree(host: Host, tree: Tree): Node[] {
+function renderTree(host: Host, tree: Tree, failed: (message: string) => void): Node[] {
   const out: Node[] = [];
   const waiting: Node[] = [];
   for (const ws of tree.workspaces)
@@ -456,9 +468,20 @@ function renderTree(host: Host, tree: Tree): Node[] {
   // them; a split tab gives each of its panes a row.
   for (const ws of tree.workspaces) {
     out.push(
-      section(
-        workspaceName(ws.name),
-        ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, tab, pane, null))),
+      h(
+        "section",
+        { class: "group" },
+        h(
+          "div",
+          { class: "group-head" },
+          h("h2", { class: "group-title" }, workspaceName(ws.name)),
+          newTabButton(host, ws, failed),
+        ),
+        h(
+          "div",
+          { class: "card" },
+          ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, tab, pane, null))),
+        ),
       ),
     );
   }
@@ -474,6 +497,37 @@ function renderTree(host: Host, tree: Tree): Node[] {
     );
   }
   return out;
+}
+
+/** Starts a shell in a new tab at the end of a workspace, in the directory
+ * its last tab is in, sized to this screen, and opens it. */
+function newTabButton(host: Host, ws: WorkspaceView, failed: (message: string) => void) {
+  const button = h("button", { class: "head-action" }, ico("plus"), "New tab");
+  button.onclick = async () => {
+    button.disabled = true;
+    const cwd = ws.tabs.at(-1)?.panes[0]?.cwd ?? null;
+    try {
+      const created = await api.tabNew(host.id, ws.id, cwd, phoneGrid());
+      terminalScreen(host, { id: created.pane_id, title: "shell", cwd }, "New tab");
+    } catch (e) {
+      failed(errorText(e));
+      button.disabled = false;
+    }
+  };
+  return button;
+}
+
+/** The grid that fills this screen at the readable size: what a tab started
+ * here is spawned at, since no desktop window is showing it yet. */
+function phoneGrid() {
+  const cellW = READABLE_PX * CELL_EM;
+  const cellH = READABLE_PX * 1.18;
+  // The terminal screen's bar and key bar, and the xterm padding.
+  const chrome = 48 + 56 + 16;
+  return {
+    cols: Math.max(20, Math.floor((window.innerWidth - 12) / cellW)),
+    rows: Math.max(5, Math.floor((window.innerHeight - chrome) / cellH)),
+  };
 }
 
 /** The desktop leaves a workspace unnamed as "-". */

@@ -1,13 +1,17 @@
 //! The real [`Backend`]: this machine's tty7 server, over its local sockets.
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use tty7_core::client::{ControlClient, PaneClient, PaneSession};
 use tty7_core::core::machine::Machine;
-use tty7_core::daemon::control::{ControlHello, ControlRequest, PaneAgentState, ReplyOk};
+use tty7_core::daemon::control::{
+    ControlHello, ControlRequest, PaneAgentState, PaneSeed, ReplyOk, WorkspaceId,
+};
 use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
+use tty7_mobile_proto::{GridSize, TabCreated};
 
 use crate::serve::{Backend, PaneFeed};
 
@@ -17,6 +21,15 @@ use crate::serve::{Backend, PaneFeed};
 const OBSERVE_SIZE: WinSize = WinSize {
     cols: 80,
     rows: 24,
+    cell_w: 8,
+    cell_h: 16,
+};
+
+/// The grid a tab started from the phone gets when the phone did not say. The
+/// same the `tty7` CLI starts its shells at.
+const NEW_TAB_SIZE: WinSize = WinSize {
+    cols: 120,
+    rows: 30,
     cell_w: 8,
     cell_h: 16,
 };
@@ -78,6 +91,56 @@ impl Backend for Daemon {
 
     fn send_input(&self, pane_id: u64, bytes: &[u8]) -> io::Result<()> {
         PaneClient::local().send_input(pane_id, bytes)
+    }
+
+    /// The two steps `tty7 tab new` takes: spawn a shell owned by the
+    /// workspace, then hang a tab on it.
+    fn new_tab(
+        &self,
+        workspace_id: &str,
+        cwd: Option<String>,
+        size: Option<GridSize>,
+    ) -> io::Result<TabCreated> {
+        let workspace: WorkspaceId = workspace_id.parse().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("no workspace {workspace_id}"),
+            )
+        })?;
+        let size = size.map_or(NEW_TAB_SIZE, |s| WinSize {
+            cols: s.cols.clamp(20, 500),
+            rows: s.rows.clamp(5, 300),
+            ..NEW_TAB_SIZE
+        });
+        let owner = workspace.to_string();
+        let session = PaneClient::local().spawn(
+            cwd.as_deref().map(PathBuf::from),
+            size,
+            None,
+            Some(owner.clone()),
+            Some(owner),
+        )?;
+        let pane = session.pane_id();
+        session.detach()?;
+        let seed = PaneSeed {
+            pane,
+            cwd,
+            ssh_spec: None,
+            agent: None,
+            shell: None,
+        };
+        match self.request(ControlRequest::TabCreate {
+            workspace,
+            at: None,
+            pane: seed,
+            tab: None,
+        })? {
+            ReplyOk::TabTree(tab) => Ok(TabCreated {
+                tab_id: tab.id.to_string(),
+                pane_id: pane,
+            }),
+            other => Err(unexpected("TabCreate", &other)),
+        }
     }
 }
 

@@ -8,6 +8,7 @@
 //! cargo run -p tty7-mobile-client --example probe -- type <pane-id> 'echo hi'
 //! ```
 //!
+//! `newtab <workspace-id> [cwd]` opens a shell in a new tab, as the app does.
 //! Keeps its key and host in `$TTY7_PROBE_DIR` (default `./probe-state`).
 
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, bail};
 use iroh::SecretKey;
 use tty7_mobile_client::{Host, PaneItem, Session};
-use tty7_mobile_proto::ControlEvent;
+use tty7_mobile_proto::{ControlEvent, GridSize};
 
 fn dir() -> PathBuf {
     std::env::var_os("TTY7_PROBE_DIR")
@@ -114,7 +115,18 @@ async fn main() -> Result<()> {
             println!("after return:\n{}", String::from_utf8_lossy(&out));
             println!("link: {:?}", session.link());
         }
-        _ => bail!("usage: probe pair <code> | tree | type <pane> <text>"),
+        Some("newtab") => {
+            let ws = args.get(1).context("newtab <workspace-id> [cwd]")?;
+            let cwd = args.get(2).cloned();
+            let session = Session::connect(&endpoint, &host()?).await?;
+            let size = GridSize { cols: 56, rows: 40 };
+            let created = session.new_tab(ws, cwd, Some(size)).await?;
+            println!(
+                "opened tab {} with pane {}",
+                created.tab_id, created.pane_id
+            );
+        }
+        _ => bail!("usage: probe pair <code> | tree | type <pane> <text> | newtab <ws> [cwd]"),
     }
     endpoint.close().await;
     Ok(())

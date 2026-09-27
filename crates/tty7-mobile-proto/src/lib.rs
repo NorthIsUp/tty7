@@ -12,7 +12,9 @@
 //! - a [`Open::Control`] stream carrying [`Tree`] snapshots of every
 //!   workspace, tab, pane and agent status on the machine;
 //! - a [`Open::Pane`] stream per terminal on screen: raw output down, raw
-//!   keystrokes up, and a few [`PaneEvent`]s beside them.
+//!   keystrokes up, and a few [`PaneEvent`]s beside them;
+//! - a one-shot [`Open::NewTab`] stream that starts a shell in a new tab and
+//!   answers with a [`TabCreated`].
 //!
 //! Every frame is `u32` little-endian length, a one-byte kind, then the
 //! payload — the same shape as the daemon's frames, so there is one framing
@@ -57,6 +59,35 @@ pub enum Open {
     /// Keystrokes go in beside the observer, so the phone can drive the pane
     /// without owning it.
     Pane { pane_id: u64 },
+    /// Start a shell in a new tab at the end of a workspace. One-shot: the
+    /// gateway creates the tab first, then answers `Ok` followed by a
+    /// [`TabCreated`], or `Denied` with what went wrong.
+    ///
+    /// A gateway older than this variant cannot parse it and drops the stream
+    /// unanswered.
+    NewTab {
+        workspace_id: String,
+        /// Where the shell starts; the server's default (home) when absent.
+        #[serde(default)]
+        cwd: Option<String>,
+        /// The grid the shell starts at — the phone's screen, since no desktop
+        /// window is showing the tab yet. One that later does resizes it.
+        #[serde(default)]
+        size: Option<GridSize>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// The answer on a [`Open::NewTab`] stream, after its `Ok`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TabCreated {
+    pub tab_id: String,
+    pub pane_id: u64,
 }
 
 /// The gateway's answer to an [`Open`].
@@ -416,6 +447,21 @@ mod tests {
         assert_eq!(json, serde_json::json!({"type": "exited", "code": 1}));
         let json = serde_json::to_value(AgentStatus::Waiting).unwrap();
         assert_eq!(json, serde_json::json!("waiting"));
+    }
+
+    #[test]
+    fn a_new_tab_asks_with_only_a_workspace() {
+        let open: Open =
+            serde_json::from_value(serde_json::json!({"type": "new_tab", "workspace_id": "w"}))
+                .unwrap();
+        assert_eq!(
+            open,
+            Open::NewTab {
+                workspace_id: "w".into(),
+                cwd: None,
+                size: None
+            }
+        );
     }
 
     #[cfg(feature = "tokio")]

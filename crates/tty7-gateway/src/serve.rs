@@ -20,8 +20,8 @@ use tty7_core::core::machine::Machine;
 use tty7_core::daemon::control::PaneAgentState;
 use tty7_core::daemon::protocol::DaemonMsg;
 use tty7_mobile_proto::{
-    ControlEvent, ControlRequest, Frame, Open, OpenReply, PROTOCOL_VERSION, PaneEvent, Tree,
-    read_frame, write_bytes, write_msg,
+    ControlEvent, ControlRequest, Frame, GridSize, Open, OpenReply, PROTOCOL_VERSION, PaneEvent,
+    TabCreated, Tree, read_frame, write_bytes, write_msg,
 };
 
 use crate::state::State;
@@ -49,6 +49,13 @@ pub trait Backend: Send + Sync + 'static {
     fn snapshot(&self) -> io::Result<(Machine, Vec<PaneAgentState>)>;
     fn observe(&self, pane_id: u64) -> io::Result<Box<dyn PaneFeed>>;
     fn send_input(&self, pane_id: u64, bytes: &[u8]) -> io::Result<()>;
+    /// Starts a shell in a new tab at the end of `workspace_id`.
+    fn new_tab(
+        &self,
+        workspace_id: &str,
+        cwd: Option<String>,
+        size: Option<GridSize>,
+    ) -> io::Result<TabCreated>;
 }
 
 /// A read-only view onto one pane's output, as the daemon sends it.
@@ -141,6 +148,27 @@ async fn serve_stream(
         Open::Control => {
             write_msg(&mut send, &ok).await?;
             control_stream(send, recv, backend).await
+        }
+        Open::NewTab {
+            workspace_id,
+            cwd,
+            size,
+        } => {
+            let created = {
+                let backend = backend.clone();
+                tokio::task::spawn_blocking(move || backend.new_tab(&workspace_id, cwd, size))
+                    .await
+                    .map_err(io::Error::other)?
+            };
+            match created {
+                Ok(created) => {
+                    write_msg(&mut send, &ok).await?;
+                    write_msg(&mut send, &created).await?;
+                }
+                Err(e) => write_msg(&mut send, &denied(&e.to_string())).await?,
+            }
+            finish(send).await;
+            Ok(())
         }
         Open::Pane { pane_id } => {
             let feed = {

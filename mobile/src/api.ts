@@ -92,6 +92,18 @@ export function paneOpen(
   return invoke<number>("pane_open", { hostId, paneId, onOutput: channel });
 }
 
+export interface TabCreated {
+  tab_id: string;
+  pane_id: number;
+}
+
+export const tabNew = (
+  hostId: string,
+  workspaceId: string,
+  cwd: string | null,
+  size: { cols: number; rows: number } | null,
+) => invoke<TabCreated>("tab_new", { hostId, workspaceId, cwd, size });
+
 export const paneInput = (handle: number, data: string) =>
   invoke<void>("pane_input", { handle, data });
 

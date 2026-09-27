@@ -15,7 +15,7 @@ use tty7_core::daemon::protocol::{DaemonMsg, WinSize};
 use tty7_gateway::serve::{self, Backend, PaneFeed};
 use tty7_gateway::state::State;
 use tty7_mobile_client::{PaneItem, Session};
-use tty7_mobile_proto::{ALPN, ControlEvent, PairCode, PaneEvent};
+use tty7_mobile_proto::{ALPN, ControlEvent, GridSize, PairCode, PaneEvent, TabCreated};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -83,6 +83,23 @@ impl Backend for FakeMachine {
             .ok_or_else(|| io::Error::other("not observed"))?
             .send(bytes.to_vec())
             .map_err(io::Error::other)
+    }
+
+    fn new_tab(
+        &self,
+        workspace_id: &str,
+        cwd: Option<String>,
+        size: Option<GridSize>,
+    ) -> io::Result<TabCreated> {
+        if workspace_id != self.machine.workspaces[0].id.to_string() {
+            return Err(io::Error::other(format!("no workspace {workspace_id}")));
+        }
+        // Echo what was asked for in the tab id, so the test can see it
+        // crossed intact.
+        Ok(TabCreated {
+            tab_id: format!("{cwd:?} {size:?}"),
+            pane_id: 2,
+        })
     }
 }
 
@@ -250,5 +267,51 @@ async fn a_revoked_phone_is_cut_off_at_its_next_stream() {
     let id = rig.phone.id().to_string();
     assert_eq!(rig.state.revoke(&id[..8]).unwrap().len(), 1);
     let err = within(session.control()).await.err().expect("revoked");
+    assert!(err.to_string().contains("not paired"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_phone_opens_a_tab() {
+    let rig = Rig::new().await;
+    let session = within(rig.paired()).await;
+    let (_, mut tree) = within(session.control()).await.unwrap().split();
+    let Some(ControlEvent::Tree(first)) = within(tree.next()).await.unwrap() else {
+        panic!("expected a tree first");
+    };
+    let ws = &first.workspaces[0].id;
+
+    let size = GridSize { cols: 56, rows: 40 };
+    let created = within(session.new_tab(ws, Some("/src/demo".into()), Some(size)))
+        .await
+        .unwrap();
+    assert_eq!(created.pane_id, 2);
+    assert_eq!(
+        created.tab_id,
+        format!("{:?} {:?}", Some("/src/demo"), Some(size))
+    );
+
+    let err = within(session.new_tab("nope", None, None))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("no workspace nope"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpaired_phone_cannot_open_a_tab() {
+    let rig = Rig::new().await;
+    let host = tty7_mobile_client::Host {
+        id: rig.gateway.id().to_string(),
+        name: "fake-host".into(),
+        relay: None,
+        addrs: rig
+            .gateway
+            .addr()
+            .ip_addrs()
+            .map(|a| a.to_string())
+            .collect(),
+    };
+    let session = Session::connect(&rig.phone, &host).await.unwrap();
+    let ws = FakeMachine::new().machine.workspaces[0].id.to_string();
+    let err = within(session.new_tab(&ws, None, None)).await.unwrap_err();
     assert!(err.to_string().contains("not paired"), "{err}");
 }

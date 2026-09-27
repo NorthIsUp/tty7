@@ -13,8 +13,8 @@ use iroh::endpoint::{Connection, RecvStream, SendStream, presets};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use tty7_mobile_proto::{
-    ALPN, ControlEvent, ControlRequest, Frame, Open, OpenReply, PROTOCOL_VERSION, PairCode,
-    PaneEvent, read_frame, write_bytes, write_msg,
+    ALPN, ControlEvent, ControlRequest, Frame, GridSize, Open, OpenReply, PROTOCOL_VERSION,
+    PairCode, PaneEvent, TabCreated, read_frame, write_bytes, write_msg,
 };
 
 /// How long to wait for a gateway to answer an [`Open`].
@@ -145,6 +145,39 @@ impl Session {
     pub async fn pane(&self, pane_id: u64) -> Result<(PaneWriter, PaneReader)> {
         let (send, recv) = open(&self.conn, &Open::Pane { pane_id }).await?;
         Ok((PaneWriter { send }, PaneReader { recv }))
+    }
+}
+
+impl Session {
+    /// Starts a shell in a new tab at the end of a workspace, returning the
+    /// pane to open with [`Session::pane`].
+    pub async fn new_tab(
+        &self,
+        workspace_id: &str,
+        cwd: Option<String>,
+        size: Option<GridSize>,
+    ) -> Result<TabCreated> {
+        let ask = Open::NewTab {
+            workspace_id: workspace_id.to_string(),
+            cwd,
+            size,
+        };
+        // A gateway from before new tabs cannot parse the ask and drops the
+        // stream without a word; say what that means rather than that it hung
+        // up.
+        let (mut send, mut recv) = open(&self.conn, &ask).await.map_err(|e| {
+            if e.to_string().contains("without answering") {
+                anyhow!("this machine's tty7-gateway is too old to open tabs — update it")
+            } else {
+                e
+            }
+        })?;
+        let _ = send.finish();
+        let created = read_frame(&mut recv)
+            .await?
+            .ok_or_else(|| anyhow!("the machine did not say which tab it opened"))?
+            .msg::<TabCreated>()?;
+        Ok(created)
     }
 }
 
