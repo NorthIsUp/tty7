@@ -904,6 +904,7 @@ pub struct Tty7App {
     pub(crate) sftp_panel: crate::ui::sftp::SftpPanelState,
     pub(crate) right_panel: crate::ui::right_panel::RightPanelState,
     pub(crate) scm: crate::ui::scm::ScmPanelState,
+    pub(crate) github: crate::ui::github::GitHubPanelState,
     pub(crate) diff_probes_inflight:
         std::collections::HashSet<(crate::ui::host_ops::HostId, std::path::PathBuf)>,
     pub(crate) diff_probes_restale:
@@ -1544,6 +1545,7 @@ impl Tty7App {
                 },
                 ..Default::default()
             },
+            github: Default::default(),
             diff_probes_inflight: Default::default(),
             diff_probes_restale: Default::default(),
             file_tree,
