@@ -237,7 +237,7 @@ fn watch_tree(
                 failing = true;
                 last = None;
                 Some(ControlEvent::Error {
-                    message: format!("lost the tty7 server: {e}"),
+                    message: server_down(&host, &e),
                 })
             }
             Err(_) => None,
@@ -252,6 +252,18 @@ fn watch_tree(
             Err(std_mpsc::RecvTimeoutError::Timeout) => false,
             Err(std_mpsc::RecvTimeoutError::Disconnected) => return,
         };
+    }
+}
+
+/// What to say when the tty7 server can't be reached. No socket at all means
+/// no server is running, which is the common case and has a fix to name; any
+/// other failure is passed on as it came.
+pub fn server_down(host: &str, e: &io::Error) -> String {
+    match e.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
+            format!("tty7 isn't running on {host} — open tty7 there, or run `tty7 server start`")
+        }
+        _ => format!("lost the tty7 server on {host}: {e}"),
     }
 }
 
@@ -378,4 +390,20 @@ fn agent_event(agent: Option<CLIAgent>, status: Option<&AgentSessionState>) -> P
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(10)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_server_names_the_fix() {
+        for kind in [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused] {
+            let message = server_down("studio", &io::Error::from(kind));
+            assert!(message.contains("tty7 server start"), "{message}");
+            assert!(message.contains("studio"), "{message}");
+        }
+        let other = server_down("studio", &io::Error::other("bad dialect"));
+        assert!(other.contains("bad dialect"), "{other}");
+    }
 }

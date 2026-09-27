@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use iroh::Endpoint;
 use iroh::endpoint::presets;
 use tty7_gateway::daemon::{Daemon, hostname};
-use tty7_gateway::serve;
+use tty7_gateway::serve::{self, Backend as _};
 use tty7_gateway::state::{Reachable, State};
 use tty7_mobile_proto::{ALPN, PairCode};
 
@@ -41,10 +41,22 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let state = State::open_default()?;
     match cli.command {
-        Command::Serve => tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()?
-            .block_on(serve_forever(state)),
+        Command::Serve => {
+            let _lock = state.lock_serve()?;
+            let daemon = Arc::new(Daemon::default());
+            // Not fatal: tty7 may well be opened after the gateway, and phones
+            // are told the same thing until it is.
+            if let Err(e) = daemon.snapshot() {
+                eprintln!(
+                    "tty7-gateway: {}",
+                    serve::server_down(&daemon.hostname(), &e)
+                );
+            }
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(serve_forever(state, daemon))
+        }
         Command::Pair { ttl } => pair(&state, ttl),
         Command::Devices => {
             let devices = state.devices()?;
@@ -69,7 +81,7 @@ fn main() -> Result<()> {
     }
 }
 
-async fn serve_forever(state: State) -> Result<()> {
+async fn serve_forever(state: State, daemon: Arc<Daemon>) -> Result<()> {
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(state.secret_key()?)
         .alpns(vec![ALPN.to_vec()])
@@ -100,7 +112,7 @@ async fn serve_forever(state: State) -> Result<()> {
         }
     });
 
-    serve::run(endpoint, state, Arc::new(Daemon::default())).await;
+    serve::run(endpoint, state, daemon).await;
     Ok(())
 }
 

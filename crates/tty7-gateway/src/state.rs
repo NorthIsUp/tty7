@@ -20,10 +20,19 @@ const KEY_FILE: &str = "gateway.key";
 const DEVICES_FILE: &str = "devices.json";
 const PAIRING_FILE: &str = "pairing.json";
 const ADDR_FILE: &str = "addr.json";
+const LOCK_FILE: &str = "serve.lock";
 
 #[derive(Debug, Clone)]
 pub struct State {
     dir: PathBuf,
+}
+
+/// Proof that this process is the one `serve` for its state directory. The
+/// lock goes with the file, so it lasts exactly as long as this value does —
+/// and as long as the process, however it dies.
+#[derive(Debug)]
+pub struct ServeLock {
+    _file: fs::File,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +90,45 @@ impl State {
             }
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
+    }
+
+    /// Claims the right to serve. Two gateways on one key are two endpoints
+    /// answering to one address: a phone reaches whichever the network hands
+    /// it, so the second one is refused rather than left to race the first.
+    pub fn lock_serve(&self) -> Result<ServeLock> {
+        let path = self.dir.join(LOCK_FILE);
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                let holder = fs::read_to_string(&path).unwrap_or_default();
+                let holder = holder.trim();
+                let pid = if holder.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (pid {holder})")
+                };
+                anyhow::bail!(
+                    "another tty7-gateway is already serving{pid} — stop it first; \
+                     it holds {}",
+                    path.display()
+                );
+            }
+            Err(fs::TryLockError::Error(e)) => {
+                return Err(e).with_context(|| format!("locking {}", path.display()));
+            }
+        }
+        // Only the holder writes, so the pid a refused `serve` reports is the
+        // live one, never a dead predecessor's.
+        file.set_len(0)?;
+        write!(file, "{}", std::process::id())?;
+        Ok(ServeLock { _file: file })
     }
 
     pub fn devices(&self) -> Result<Vec<Device>> {
@@ -258,6 +306,22 @@ mod tests {
         p.expires_at = unix_now() - 1;
         write_json(&path, &p).unwrap();
         assert!(!state.take_pairing(&secret));
+    }
+
+    #[test]
+    fn only_one_serve_holds_the_lock() {
+        let (_tmp, state) = state();
+        let held = state.lock_serve().unwrap();
+        let refused = state.lock_serve().unwrap_err().to_string();
+        assert!(refused.contains("already serving"), "{refused}");
+        assert!(
+            refused.contains(&std::process::id().to_string()),
+            "{refused}"
+        );
+        drop(held);
+        state
+            .lock_serve()
+            .expect("free again once the holder is gone");
     }
 
     #[test]
