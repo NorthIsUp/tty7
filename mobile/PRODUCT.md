@@ -34,7 +34,7 @@ connects peer-to-peer over iroh by public key, end-to-end encrypted.
 - Pairing: `tty7-gateway pair` on the desktop prints a QR code and a `tty7pair:` code;
   the app currently accepts the pasted code (QR scanning is planned).
 - A paired machine shows its tree live: workspaces → tabs → panes, with each pane's
-  title, cwd, and agent status. Panes whose agent is waiting or done are surfaced first.
+  title, cwd, and agent status, under the workspace it belongs to.
 - A pane is **observed, not attached**: it keeps the desktop's size (cols × rows), and
   the phone fits that width by shrinking the font. Input goes in beside the desktop.
 - Connection state matters and is shown: direct vs relay path, round-trip time,

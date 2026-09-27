@@ -460,20 +460,6 @@ type Place = { key: string; name: string } | null;
 function renderTree(host: Host, tree: Tree, failed: (message: string) => void): Node[] {
   const out: Node[] = [];
   const remotes = tree.remotes ?? [];
-  const everywhere: [Place, WorkspaceView][] = [
-    ...tree.workspaces.map((ws): [Place, WorkspaceView] => [null, ws]),
-    ...remotes.flatMap((r) => r.workspaces.map((ws): [Place, WorkspaceView] => [r, ws])),
-  ];
-
-  const waiting: Node[] = [];
-  for (const [place, ws] of everywhere)
-    for (const tab of ws.tabs)
-      for (const pane of tab.panes)
-        if (pane.agent && (pane.agent.status === "waiting" || pane.agent.status === "done")) {
-          const where = place ? `${place.name} › ${workspaceName(ws.name)}` : workspaceName(ws.name);
-          waiting.push(paneRow(host, place, tab, pane, where));
-        }
-  if (waiting.length) out.push(section("Needs you", ...waiting));
 
   out.push(...tree.workspaces.map((ws) => workspaceGroup(host, null, ws, failed)));
   if (tree.workspaces.length === 0) {
@@ -554,7 +540,7 @@ function workspaceGroup(host: Host, place: Place, ws: WorkspaceView, failed: (me
     h(
       "div",
       { class: "card" },
-      ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, place, tab, pane, null))),
+      ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, place, tab, pane))),
     ),
   );
 }
@@ -596,9 +582,8 @@ function workspaceName(name: string) {
 }
 
 /** A pane's row: its tab's name first, as on the desktop, then what the pane
- * is doing — its agent's state, or where its shell is. `where` names the
- * workspace when the row sits outside it, in "Needs you". */
-function paneRow(host: Host, place: Place, tab: TabView, pane: PaneView, where: string | null) {
+ * is doing — its agent's state, or where its shell is. */
+function paneRow(host: Host, place: Place, tab: TabView, pane: PaneView) {
   const agent = pane.agent;
   const sub: Child[] = [];
   if (agent && agent.status !== "idle")
@@ -608,7 +593,7 @@ function paneRow(host: Host, place: Place, tab: TabView, pane: PaneView, where: 
   const namedByPath = /^[~/]/.test(tab.name);
   const split = tab.panes.length > 1 || namedByPath ? pane.title : null;
   const dir = agent || namedByPath ? null : shortPath(pane.cwd);
-  const detail = [where, split, agent?.message ?? dir].filter(Boolean).join(" · ");
+  const detail = [split, agent?.message ?? dir].filter(Boolean).join(" · ");
   if (detail) sub.push(sub.length ? ` · ${detail}` : detail);
   return h(
     "button",
