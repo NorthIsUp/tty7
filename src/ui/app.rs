@@ -6638,7 +6638,10 @@ impl Tty7App {
         let http_proxy_input = self.build_http_proxy_input(&mut subs, window, cx);
         // One query box for whichever popover is open — a theme list or a
         // font list — since only one is ever open at a time.
-        let menu_query = cx.new(|cx| InputState::new(window, cx));
+        // Shared by every searchable dropdown on the page, so the hint is the
+        // generic one; without it the field was a bare caret under the list.
+        let menu_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t(L10nKey::SearchTheme)));
         subs.push(
             cx.subscribe_in(&menu_query, window, |this, input, ev, _w, cx| {
                 if matches!(ev, InputEvent::Change) {
