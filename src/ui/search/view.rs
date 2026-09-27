@@ -12,9 +12,9 @@ use gpui_component::{
     v_flex,
 };
 
-use super::SearchTab;
 use super::command::{CommandKind, Item};
 use super::sources::{Catalog, Row, Section, plain};
+use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -234,7 +234,22 @@ impl ListDelegate for SearchDelegate {
     ) -> impl IntoElement {
         // The SSH hint only where typing user@host would actually connect. A
         // theme picker with no matches teaching SSH is a crossed wire (#602).
+        let mut headline = t(L10nKey::SearchNoResults);
         let hint = match self.scope {
+            // An empty Files tab is rarely "nothing matches": say which of the
+            // other reasons it is, since each has a different way out.
+            Scope::Tab(SearchTab::Files) => match &self.catalog.files {
+                FileList::NoRoots => {
+                    headline = t(L10nKey::SearchFilesNoRoots);
+                    t(L10nKey::SearchFilesNoRootsHint)
+                }
+                FileList::Indexing => {
+                    headline = t(L10nKey::SearchFilesIndexing);
+                    ""
+                }
+                FileList::Failed => t(L10nKey::SearchFilesFailed),
+                FileList::Ready(_) => t(L10nKey::PaletteTryDifferentSearch),
+            },
             Scope::Tab(SearchTab::All | SearchTab::Hosts) => t(L10nKey::ConnectSshHint),
             Scope::Tab(SearchTab::Sessions) if self.query.trim().is_empty() => {
                 t(L10nKey::SearchSessionsEmptyHint)
@@ -251,13 +266,15 @@ impl ListDelegate for SearchDelegate {
             .items_center()
             .text_size(rems(ROW_TEXT))
             .text_color(theme.foreground)
-            .child(t(L10nKey::SearchNoResults))
-            .child(
-                div()
-                    .text_size(rems(ROW_META))
-                    .text_color(theme.muted_foreground)
-                    .child(hint),
-            )
+            .child(headline)
+            .when(!hint.is_empty(), |d| {
+                d.child(
+                    div()
+                        .text_size(rems(ROW_META))
+                        .text_color(theme.muted_foreground)
+                        .child(hint),
+                )
+            })
     }
 
     fn render_item(
@@ -453,9 +470,7 @@ impl SearchView {
     }
 
     /// The Sessions tab's rows, arrived from a scan that finished after the
-    /// search opened. The highlight stays on the row it was on when that row
-    /// is still there, so a list that fills in under the cursor does not
-    /// move what Return runs.
+    /// search opened.
     pub(crate) fn set_sessions(
         &mut self,
         sessions: Vec<Item>,
@@ -464,9 +479,38 @@ impl SearchView {
         cx: &mut Context<Self>,
     ) {
         self.sessions_landed += 1;
+        self.update_catalog(
+            |catalog| {
+                catalog.sessions = sessions;
+                catalog.sessions_here = here;
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// The Files tab's list, arrived from a walk that finished after the
+    /// search opened.
+    pub(crate) fn set_files(
+        &mut self,
+        files: FileList,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_catalog(|catalog| catalog.files = files, window, cx);
+    }
+
+    /// Changes part of the catalog under an open list. The highlight stays on
+    /// the row it was on when that row is still there, so a list that fills in
+    /// under the cursor does not move what Return runs.
+    fn update_catalog(
+        &mut self,
+        change: impl FnOnce(&mut Catalog),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let mut catalog = (*self.catalog).clone();
-        catalog.sessions = sessions;
-        catalog.sessions_here = here;
+        change(&mut catalog);
         self.catalog = Rc::new(catalog);
         if self.in_sub_list() {
             return;
@@ -482,6 +526,11 @@ impl SearchView {
             state.set_selected_index(target, window, cx);
         });
         cx.notify();
+    }
+
+    /// The tab showing — or, in a row's own list, the one Escape returns to.
+    pub(crate) fn tab(&self) -> SearchTab {
+        self.tab
     }
 
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -600,6 +649,9 @@ impl SearchView {
                         // What was typed found this row; it is not an address.
                         CommandKind::SearchHosts => {
                             self.set_tab(SearchTab::Hosts, Some(""), window, cx)
+                        }
+                        CommandKind::QuickOpenFile => {
+                            self.set_tab(SearchTab::Files, Some(""), window, cx)
                         }
                         kind => cx.emit(SearchEvent::Confirm(kind)),
                     },
@@ -930,7 +982,8 @@ mod tests {
         vcx.run_until_parked();
         let view = open(&app, &mut vcx);
 
-        vcx.simulate_keystrokes("tab");
+        // Past Files, which comes right after All.
+        vcx.simulate_keystrokes("tab tab");
         vcx.run_until_parked();
         view.read_with(&vcx, |view, cx| {
             assert_eq!(view.tab, SearchTab::Actions);
@@ -939,7 +992,7 @@ mod tests {
         assert_eq!(first_kind(&view, &mut vcx), Some(CommandKind::SplitRight));
 
         // Backwards, and round the end.
-        vcx.simulate_keystrokes("shift-tab shift-tab");
+        vcx.simulate_keystrokes("shift-tab shift-tab shift-tab");
         vcx.run_until_parked();
         view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Hosts));
         assert!(
@@ -997,6 +1050,81 @@ mod tests {
             assert_eq!(view.tab, SearchTab::Hosts);
             assert_eq!(view.list.read(cx).delegate().query, "");
         });
+    }
+
+    /// The quick-open chord lands on the Files tab, from nowhere or from
+    /// another tab, and puts the search away when it is already there.
+    #[gpui::test]
+    fn quick_open_goes_to_the_files_tab_and_back_out(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Files));
+
+        view.update_in(&mut vcx, |view, window, cx| {
+            view.set_tab(SearchTab::Actions, None, window, cx)
+        });
+        app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Files));
+
+        app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
+        vcx.run_until_parked();
+        assert!(app.read_with(&vcx, |app, _| app.search.is_none()));
+    }
+
+    /// The Actions tab's "Go to File…" row moves the search to its Files tab
+    /// rather than closing it, with whatever found the row cleared away.
+    #[gpui::test]
+    fn go_to_file_moves_to_an_empty_files_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::Actions, "go-to-file", window, cx)
+        });
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+        assert_eq!(
+            first_kind(&view, &mut vcx),
+            Some(CommandKind::QuickOpenFile)
+        );
+
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, cx| {
+            assert_eq!(view.tab, SearchTab::Files);
+            assert_eq!(view.list.read(cx).delegate().query, "");
+        });
+    }
+
+    /// A walk that lands after the search opened fills the Files tab in place.
+    #[gpui::test]
+    fn a_file_list_that_lands_late_fills_the_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::Files, "lib", window, cx)
+        });
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+        assert_eq!(first_kind(&view, &mut vcx), None);
+
+        let root = std::path::PathBuf::from("/repo");
+        let index = super::super::files::build_index(
+            std::slice::from_ref(&root),
+            vec![root.join("src/lib.rs")],
+            false,
+        );
+        view.update_in(&mut vcx, |view, window, cx| {
+            view.set_files(FileList::Ready(std::sync::Arc::new(index)), window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(matches!(
+            first_kind(&view, &mut vcx),
+            Some(CommandKind::OpenFile { .. })
+        ));
     }
 
     fn past_session(id: &str) -> Item {

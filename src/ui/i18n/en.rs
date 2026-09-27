@@ -125,10 +125,21 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabActions => "Actions",
         L10nKey::SearchTabTerminals => "Terminals",
         L10nKey::SearchTabHosts => "Hosts",
-        L10nKey::SearchPlaceholderAll => "Search actions, terminals and hosts…",
+        L10nKey::SearchPlaceholderAll => "Search files, actions, terminals and hosts…",
         L10nKey::SearchPlaceholderActions => "Search actions…",
         L10nKey::SearchPlaceholderTerminals => "Search open tabs, shells and agents…",
         L10nKey::SearchPlaceholderHosts => "Search hosts, or type user@host to connect…",
+        L10nKey::SearchTabFiles => "Files",
+        L10nKey::SearchPlaceholderFiles => "Go to a file by name — add :line to jump to it…",
+        L10nKey::SearchFilesNoRoots => "No project to search",
+        L10nKey::SearchFilesNoRootsHint => {
+            "Files are found in the project your terminal is in. cd into one to search it."
+        }
+        L10nKey::SearchFilesIndexing => "Indexing files…",
+        L10nKey::SearchFilesFailed => "The project's files could not be listed.",
+        L10nKey::SearchFilesGoToLine => "line {line}",
+        L10nKey::SearchFilesCapped => "Large project — only the first {count} files are searched",
+        L10nKey::CmdGoToFile => "Go to File…",
         L10nKey::SearchTabSessions => "Sessions",
         L10nKey::SearchPlaceholderSessions => "Search past agent sessions…",
         L10nKey::SearchSessionsEmptyHint => {
@@ -1170,6 +1181,33 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorWrapOff => "Wrap: off",
         L10nKey::EditorFileTooLarge => "\"{path}\" is too large for the editor ({size} MB)",
         L10nKey::EditorBinaryFile => "\"{path}\" looks like a binary file",
+        L10nKey::EditorUntitled => "Untitled-{n}",
+        L10nKey::EditorUnsavedChangesMany => "{count} files have unsaved changes",
+        L10nKey::EditorSaveAll => "Save All",
+        L10nKey::EditorSaveConflictTitle => "\"{name}\" changed on disk",
+        L10nKey::EditorSaveConflictBody => {
+            "Another program changed it after it was opened here. Overwriting replaces those changes with yours."
+        }
+        L10nKey::EditorOverwrite => "Overwrite",
+        L10nKey::EditorEncodeFailedTitle => "Can't save \"{name}\" as {encoding}",
+        L10nKey::EditorEncodeFailedBody => {
+            "It contains \"{ch}\", which {encoding} can't represent. Save it as UTF-8 instead?"
+        }
+        L10nKey::EditorSaveAsUtf8 => "Save as UTF-8",
+        L10nKey::EditorAlreadyOpen => "\"{path}\" is already open in the editor",
+        L10nKey::EditorGoToLine => "Go to line",
+        L10nKey::EditorGoToLineAction => "Go to Line…",
+        L10nKey::EditorGoToLinePlaceholder => "Line, or line:column (1–{total})",
+        L10nKey::EditorSaveAs => "Save as",
+        L10nKey::EditorSaveAsAction => "Save As…",
+        L10nKey::EditorSaveAsPlaceholder => "Full path to save to",
+        L10nKey::EditorReplaceExisting => "\"{path}\" already exists. Replace it?",
+        L10nKey::EditorReplace => "Replace",
+        L10nKey::EditorNewFile => "New File",
+        L10nKey::EditorOrphanAdopted => "Unsaved \"{name}\" was moved here from a tab that closed",
+        L10nKey::EditorFileDeletedOnDisk => "This file was deleted on disk",
+        L10nKey::EditorIndentSpaces => "Spaces: {n}",
+        L10nKey::EditorIndentTabs => "Tab Size: {n}",
         L10nKey::PanelInfoTitle => "Info",
         L10nKey::PanelChangesTitle => "Changes",
         L10nKey::PanelScmTitle => "Changes",

@@ -884,15 +884,14 @@ impl Tty7App {
         if !code.visible {
             return None;
         }
-        let open = code.active_file()?;
         // The file's host, not the window's. They are the same for everything
         // the tree can open, but a buffer read over SFTP carries a path from
         // another machine, and pairing it with this one's host would resolve
         // it against a local repository that merely shares the path.
-        let host = open.host.id();
+        let (host, path) = self.editor_active_location()?;
         let root = cx
             .try_global::<crate::terminal::git_status::GitStatusCache>()?
-            .repo_root_for(host, open.path.parent()?)?;
+            .repo_root_for(host, path.parent()?)?;
         Some((host, root.to_path_buf()))
     }
 

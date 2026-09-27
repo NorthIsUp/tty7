@@ -9903,6 +9903,8 @@ dependencies = [
  "anyhow",
  "async_zip 0.0.19",
  "core-foundation 0.10.0",
+ "encoding_rs",
+ "globset",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
