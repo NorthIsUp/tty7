@@ -806,6 +806,16 @@ fn settings_search_entries() -> &'static [SearchEntry] {
             keywords: SettingsSearchCursorCliKeywords,
         },
         SearchEntry {
+            section: Agents,
+            title: SettingsAgentPrimeAgent,
+            keywords: SettingsSearchPrimeAgentKeywords,
+        },
+        SearchEntry {
+            section: Agents,
+            title: SettingsAgentAntigravity,
+            keywords: SettingsSearchAntigravityKeywords,
+        },
+        SearchEntry {
             section: General,
             title: SettingsStartupWindow,
             keywords: SettingsSearchStartupWindowKeywords,

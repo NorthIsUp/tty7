@@ -27,8 +27,8 @@ use super::typeahead::{RawInput, Typeahead};
 use crate::core::actions::{
     CloseActiveTab, CopyLinkPathUnderPointer, DecreaseFontSize, ForkAgentSessionDown,
     ForkAgentSessionLeft, ForkAgentSessionRight, ForkAgentSessionUp, IncreaseFontSize, NewTab,
-    OpenLinkUnderPointer, RevealLinkUnderPointer, SaveAgentLaunchArgs, SendBackTab, SendTab,
-    SplitDown, SplitRight, ToggleMaximizePane,
+    OpenLinkUnderPointer, OpenLinkWithDefaultApp, RevealLinkUnderPointer, SaveAgentLaunchArgs,
+    SendBackTab, SendTab, SplitDown, SplitRight, ToggleMaximizePane,
 };
 use crate::core::config::{BellMode, Config, LinkFileOpen, MouseZoomModifier, NotifyMode};
 use crate::core::shell_quote::quote_for_shell;
@@ -458,7 +458,6 @@ pub struct TerminalView {
     history_counts: std::collections::HashMap<String, u32>,
     history_cwds: std::collections::HashMap<String, std::collections::HashSet<String>>,
     history_meta: std::collections::HashMap<String, super::history::EntryMeta>,
-    history_ranked: Vec<String>,
     history_frecency: Vec<f64>,
     history_scope: super::history::Scope,
     /// What each scope this pane has already loaded held when it was left, so
@@ -1579,12 +1578,6 @@ impl TerminalView {
         window.focus(&focus_handle, cx);
 
         let history = super::history::load(&super::history::Scope::Local);
-        let history_ranked = super::history::rank_by_frecency(
-            &history.entries,
-            &history.counts,
-            &history.cwds,
-            None,
-        );
         let history_frecency =
             super::history::frecency_scores(&history.entries, &history.counts, &history.cwds, None);
 
@@ -1676,7 +1669,6 @@ impl TerminalView {
             history_counts: history.counts,
             history_cwds: history.cwds,
             history_meta: history.meta,
-            history_ranked,
             history_frecency,
             history_scope: super::history::Scope::Local,
             history_cache: Vec::new(),
@@ -3908,7 +3900,6 @@ impl TerminalView {
                 self.history_ready = false;
             }
         }
-        self.history_ranked.clear();
         self.history_frecency.clear();
         self.history_nav = None;
         self.reverse_search = None;
@@ -4684,9 +4675,11 @@ impl TerminalView {
                     exit: None,
                 },
             );
-            if self.history.last().map(String::as_str) != Some(line.as_str()) {
-                self.history.push(line.clone());
-            }
+            // One entry per command, at its latest run: the same global
+            // dedup `normalize` applies on load, so ↑ does not step onto a
+            // command twice and a restart does not reorder anything.
+            self.history.retain(|h| *h != line);
+            self.history.push(line.clone());
             self.flush_pending_history();
             self.pending_history = Some(PendingHistory {
                 line: line.clone(),
@@ -4696,7 +4689,10 @@ impl TerminalView {
             });
             self.rerank_history(cwd.as_deref());
         }
+        // The dedup above can shift entries down, so nothing may keep an
+        // index into `history` across a submit.
         self.history_nav = None;
+        self.last_word_nav = None;
         self.history_stash.clear();
         self.history_prefix.clear();
         self.close_completion();
@@ -4806,12 +4802,6 @@ impl TerminalView {
 
     fn rerank_history(&mut self, cwd: Option<&std::path::Path>) {
         let cwd_str = cwd.and_then(|p| p.to_str());
-        self.history_ranked = super::history::rank_by_frecency(
-            &self.history,
-            &self.history_counts,
-            &self.history_cwds,
-            cwd_str,
-        );
         self.history_frecency = super::history::frecency_scores(
             &self.history,
             &self.history_counts,
@@ -4836,15 +4826,42 @@ impl TerminalView {
         super::history::append(&self.history_scope, &p.line, p.cwd.as_deref(), p.ts, exit);
     }
 
+    /// The inline suggestion: the most recent entry that extends the line,
+    /// preferring one run in the current directory and falling back to the
+    /// most recent anywhere. Commands that last exited non-zero are never
+    /// offered. Pure recency, not frecency, so the ghost names what ↑ would
+    /// recall rather than an older command that merely ran more often; Ctrl+R
+    /// is where frecency ranks.
     fn ghost_suggestion(&self) -> Option<String> {
         if self.cmd.is_empty() || self.cmd.cursor() != self.cmd.len() {
             return None;
         }
         let line = self.cmd.text();
-        self.history_ranked
-            .iter()
-            .find(|h| h.len() > line.len() && h.starts_with(&line))
-            .cloned()
+        let cwd = self.ranked_cwd.as_deref().and_then(|p| p.to_str());
+        let mut elsewhere = None;
+        for h in self.history.iter().rev() {
+            if h.len() <= line.len() || !h.starts_with(&line) {
+                continue;
+            }
+            if self
+                .history_meta
+                .get(h)
+                .and_then(|m| m.exit)
+                .is_some_and(|code| code != 0)
+            {
+                continue;
+            }
+            let here = cwd.is_some_and(|dir| {
+                self.history_cwds
+                    .get(h)
+                    .is_some_and(|dirs| dirs.contains(dir))
+            });
+            if here || cwd.is_none() {
+                return Some(h.clone());
+            }
+            elsewhere.get_or_insert(h);
+        }
+        elsewhere.cloned()
     }
 
     fn note_integration_gap(&mut self, cx: &mut Context<Self>) {
@@ -5973,6 +5990,22 @@ impl TerminalView {
             return;
         };
         self.open_file_link(path, line, column, is_dir, window, cx);
+    }
+
+    /// "Open with Default App": the file link under the menu, handed to the
+    /// OS association whatever `link_file_open` says "Open" does.
+    fn open_menu_link_with_default_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The menu only offers this for a local pane; a key binding could
+        // still fire it on a remote one, where the path means nothing here.
+        if !self.host_id.is_local() {
+            return;
+        }
+        let Some(path) = self.menu_link_path().map(std::path::Path::to_path_buf) else {
+            return;
+        };
+        if let Err(e) = open_file_path(&path) {
+            self.warn_file_open_failed(&path, &e, window, cx);
+        }
     }
 
     fn reveal_menu_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -7257,6 +7290,9 @@ impl Render for TerminalView {
             .on_action(cx.listener(|this, _: &OpenLinkUnderPointer, window, cx| {
                 this.open_menu_link(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &OpenLinkWithDefaultApp, window, cx| {
+                this.open_menu_link_with_default_app(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &RevealLinkUnderPointer, window, cx| {
                 this.reveal_menu_link(window, cx);
             }))
@@ -7304,10 +7340,18 @@ impl Render for TerminalView {
                             false => L10nKey::AppMenuRevealInFolder,
                         };
                         let label = link_menu_label(path);
+                        let default_app =
+                            offers_default_app_open(local, cx.global::<Config>().file_open_mode());
                         menu.min_w(px(220.))
                             .action_context(menu_focus.clone())
                             .label(label)
                             .menu(t(L10nKey::AppMenuOpenLink), Box::new(OpenLinkUnderPointer))
+                            .when(default_app, |menu| {
+                                menu.menu(
+                                    t(L10nKey::AppMenuOpenLinkWithDefaultApp),
+                                    Box::new(OpenLinkWithDefaultApp),
+                                )
+                            })
                             // A file on another machine has no folder here to
                             // show it in, and naming this one's would show
                             // whatever it happens to keep at that path.
@@ -7653,9 +7697,23 @@ fn select_end_copy(enabled: bool, grid: bool, editor: bool) -> SelectEndCopy {
     }
 }
 
+/// Whether a file link's menu offers "Open with Default App" beside "Open".
+///
+/// Only for a file on this machine: the OS opener is handed a local path, and
+/// a remote pane's path names nothing here — or worse, this machine's copy.
+/// And not when "Open" already goes to the OS association, where the two rows
+/// would do the same thing.
+fn offers_default_app_open(host_is_local: bool, open_mode: LinkFileOpen) -> bool {
+    host_is_local && open_mode != LinkFileOpen::System
+}
+
 /// Hands a path to whatever the OS has it associated with. Also the fallback
 /// for a directory the file tree cannot reach.
+///
+/// The path is spelled this OS's way first: Explorer takes `c:/a.png` as a
+/// request to show Documents.
 pub(crate) fn open_file_path(path: &std::path::Path) -> std::io::Result<()> {
+    let path = &super::search::spelled_for(super::search::PathStyle::NATIVE, path);
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(windows) {
@@ -7673,6 +7731,7 @@ pub(crate) fn open_file_path(path: &std::path::Path) -> std::io::Result<()> {
 /// no desktop-neutral Linux equivalent exists, so there the folder is opened
 /// and the file is left for the eye to find.
 pub(crate) fn reveal_file_path(path: &std::path::Path) -> std::io::Result<()> {
+    let path = &super::search::spelled_for(super::search::PathStyle::NATIVE, path);
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut c = std::process::Command::new("open");
@@ -10059,6 +10118,30 @@ mod tests {
             [("g", true), ("it ", false), ("st", true), ("atus", false)]
         );
         assert!(highlight_runs("", &[]).is_empty());
+    }
+
+    /// "Open with Default App" sits beside "Open" only where it adds
+    /// something: on a local file, and when "Open" is not already the OS
+    /// association.
+    #[test]
+    fn the_default_app_row_is_offered_only_where_it_differs_from_open() {
+        use super::{LinkFileOpen, offers_default_app_open};
+        assert!(offers_default_app_open(true, LinkFileOpen::Internal));
+        assert!(offers_default_app_open(true, LinkFileOpen::Command));
+        assert!(
+            !offers_default_app_open(true, LinkFileOpen::System),
+            "it would repeat Open"
+        );
+        for mode in [
+            LinkFileOpen::Internal,
+            LinkFileOpen::System,
+            LinkFileOpen::Command,
+        ] {
+            assert!(
+                !offers_default_app_open(false, mode),
+                "a remote file has nothing here for the OS to open ({mode:?})"
+            );
+        }
     }
 
     #[test]
@@ -14042,7 +14125,7 @@ mod gpui_tests {
         window
             .update(cx, |view, _, cx| {
                 assert!(view.input_active(), "the local editor owns a fresh prompt");
-                view.history_ranked = vec!["git log --oneline".to_string()];
+                view.history = vec!["git log --oneline".to_string()];
                 view.cmd.set("git l");
 
                 view.handle_editor_key(&key("ctrl-e"), cx);
@@ -14066,7 +14149,7 @@ mod gpui_tests {
         let (window, _daemon) = harness(cx);
         window
             .update(cx, |view, _, cx| {
-                view.history_ranked = vec!["git log --oneline".to_string()];
+                view.history = vec!["git log --oneline".to_string()];
                 view.cmd.set_with_cursor("git l", 2);
 
                 view.handle_editor_key(&key("ctrl-e"), cx);
@@ -16438,6 +16521,182 @@ mod gpui_tests {
         .unwrap();
         wait_for(cx, &|view| !view.terminal.at_prompt());
         assert_eq!(shape(cx), None, "a running command gets cursor_style back");
+    }
+
+    /// Seeds a pane's history for the ghost tests: `(command, dirs, exit)`,
+    /// oldest first, with `cwd` as the directory the pane is in.
+    fn seed_ghost_history(
+        view: &mut TerminalView,
+        entries: &[(&str, &[&str], Option<i32>)],
+        cwd: Option<&str>,
+    ) {
+        view.history = entries.iter().map(|(cmd, _, _)| cmd.to_string()).collect();
+        view.history_cwds.clear();
+        view.history_meta.clear();
+        for (cmd, dirs, exit) in entries {
+            view.history_cwds.insert(
+                cmd.to_string(),
+                dirs.iter().map(|d| d.to_string()).collect(),
+            );
+            view.history_meta.insert(
+                cmd.to_string(),
+                crate::terminal::history::EntryMeta {
+                    ts: None,
+                    exit: *exit,
+                },
+            );
+        }
+        view.rerank_history(cwd.map(std::path::Path::new));
+    }
+
+    #[gpui::test]
+    fn ghost_suggests_the_command_just_run_over_a_frequent_one(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, _| {
+                seed_ghost_history(
+                    view,
+                    &[
+                        ("git checkout main", &["/work/proj"], Some(0)),
+                        ("git commit -m x", &["/work/proj"], Some(0)),
+                    ],
+                    Some("/work/proj"),
+                );
+                view.history_counts
+                    .insert("git checkout main".to_string(), 20);
+                view.rerank_history(Some(std::path::Path::new("/work/proj")));
+                view.cmd.set("git c");
+                assert_eq!(
+                    view.ghost_suggestion().as_deref(),
+                    Some("git commit -m x"),
+                    "recency decides the ghost, however often the older one ran"
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn ghost_prefers_this_directory_then_falls_back_to_anywhere(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, _| {
+                seed_ghost_history(
+                    view,
+                    &[
+                        ("cargo build", &["/work/proj"], None),
+                        ("cargo test --all", &["/elsewhere"], None),
+                        ("npm run dev", &["/elsewhere"], None),
+                    ],
+                    Some("/work/proj"),
+                );
+                view.cmd.set("cargo ");
+                assert_eq!(
+                    view.ghost_suggestion().as_deref(),
+                    Some("cargo build"),
+                    "an older match run here beats a newer one run elsewhere"
+                );
+                view.cmd.set("npm ");
+                assert_eq!(
+                    view.ghost_suggestion().as_deref(),
+                    Some("npm run dev"),
+                    "with nothing run here, the newest match anywhere is offered"
+                );
+                view.cmd.set("python ");
+                assert_eq!(view.ghost_suggestion(), None);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn ghost_skips_commands_that_failed(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, _| {
+                seed_ghost_history(
+                    view,
+                    &[
+                        ("make test", &["/work/proj"], Some(0)),
+                        ("make tset", &["/work/proj"], Some(2)),
+                        ("make lint", &["/work/proj"], Some(1)),
+                    ],
+                    Some("/work/proj"),
+                );
+                view.cmd.set("make t");
+                assert_eq!(
+                    view.ghost_suggestion().as_deref(),
+                    Some("make test"),
+                    "the newer typo exited 2, so the older success is offered"
+                );
+                view.cmd.set("make l");
+                assert_eq!(
+                    view.ghost_suggestion(),
+                    None,
+                    "a command whose only run failed is never offered"
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn ghost_names_what_up_arrow_recalls(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, cx| {
+                seed_ghost_history(
+                    view,
+                    &[
+                        ("git status", &[], None),
+                        ("git log --oneline", &[], None),
+                        ("ls", &[], None),
+                        ("git push", &[], None),
+                        ("echo hi", &[], None),
+                    ],
+                    None,
+                );
+                view.history_counts.insert("git status".to_string(), 50);
+                view.rerank_history(None);
+                for typed in ["git", "git l", "e", "l"] {
+                    view.history_nav = None;
+                    view.cmd.set(typed);
+                    let ghost = view.ghost_suggestion();
+                    view.handle_editor_key(&key("up"), cx);
+                    assert_eq!(
+                        ghost.as_deref(),
+                        Some(view.cmd.text().as_str()),
+                        "ghost and ↑ disagree on {typed:?}"
+                    );
+                }
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn submitting_a_command_again_moves_it_to_the_newest_entry(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        let (window, mut daemon) = harness(cx);
+        prompt_ready(&window, cx, &mut daemon);
+
+        window
+            .update(cx, |view, _, cx| {
+                view.history = ["git status", "ls", "make"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect();
+                view.cmd.set("git status");
+                view.submit_command(cx);
+                assert_eq!(
+                    view.history,
+                    ["ls", "make", "git status"],
+                    "one entry per command, at its latest run, as a reload leaves it"
+                );
+
+                view.cmd.set("");
+                view.handle_editor_key(&key("up"), cx);
+                assert_eq!(view.cmd.text(), "git status");
+                view.handle_editor_key(&key("up"), cx);
+                assert_eq!(view.cmd.text(), "make", "↑ never lands on a command twice");
+            })
+            .unwrap();
     }
 }
 

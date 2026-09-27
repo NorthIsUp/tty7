@@ -622,6 +622,8 @@ l10n_keys! {
     SettingsAgentCrush,
     SettingsAgentCodeBuddy,
     SettingsAgentCursorCli,
+    SettingsAgentPrimeAgent,
+    SettingsAgentAntigravity,
     SettingsSearchAppHttpProxyKeywords,
     SettingsSearchAboutKeywords,
     SettingsSearchAutoDownloadKeywords,
@@ -682,6 +684,8 @@ l10n_keys! {
     SettingsSearchCrushKeywords,
     SettingsSearchCodeBuddyKeywords,
     SettingsSearchCursorCliKeywords,
+    SettingsSearchPrimeAgentKeywords,
+    SettingsSearchAntigravityKeywords,
     SettingsSearchRememberWindowSizeKeywords,
     SettingsSearchReportMouseToAppsKeywords,
     SettingsSearchRestoreLastLayoutKeywords,
@@ -1045,6 +1049,7 @@ l10n_keys! {
     AppMenuZoomPane,
     AppMenuClearScrollback,
     AppMenuOpenLink,
+    AppMenuOpenLinkWithDefaultApp,
     AppMenuRevealInFinder,
     AppMenuRevealInFolder,
     AppMenuCopyLinkPath,
@@ -1241,6 +1246,8 @@ l10n_keys! {
     CmdSwapPanePrevious,
     CmdNextTab,
     CmdPreviousTab,
+    CmdMoveTabLeft,
+    CmdMoveTabRight,
     CmdRecentTabSwitcher,
     CmdRecentTabSwitcherReverse,
     CmdCopyWorkingDirectory,
@@ -1668,6 +1675,8 @@ mod tests {
             L10nKey::SettingsAgentCrush,
             L10nKey::SettingsAgentCodeBuddy,
             L10nKey::SettingsAgentCursorCli,
+            L10nKey::SettingsAgentPrimeAgent,
+            L10nKey::SettingsAgentAntigravity,
             // Windows names its backdrop materials, and Japanese Windows keeps
             // those names in Latin script — so does this list. Chinese does
             // translate them (云母 / 亚克力), which is what Microsoft's own
