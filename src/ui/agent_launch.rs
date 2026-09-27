@@ -252,8 +252,11 @@ impl Tty7App {
             return;
         };
         // A directory that is gone cannot hold the session either; say so
-        // rather than resume into a history the agent will not find.
-        if let Some(dir) = cwd.as_ref().filter(|dir| !dir.is_dir()) {
+        // rather than resume into a history the agent will not find. Only
+        // asked of this machine: a remote session's directory is not here.
+        if self.spawn_host(cx).is_local()
+            && let Some(dir) = cwd.as_ref().filter(|dir| !dir.is_dir())
+        {
             window.push_notification(
                 t_fmt(
                     L10nKey::AppSessionDirectoryGone,

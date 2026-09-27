@@ -32,7 +32,9 @@ const TAIL_BYTES: u64 = 128 * 1024;
 /// How much of a prompt a title keeps.
 const TITLE_CHARS: usize = 120;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Crosses the control protocol: a remote workspace's server scans its own
+/// machine and sends back what it found.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PastSession {
     pub agent: CLIAgent,
     pub id: String,
@@ -70,6 +72,13 @@ pub struct Roots {
     pub qoder: PathBuf,
     /// `$CODEBUDDY_CONFIG_DIR`, else `~/.codebuddy`.
     pub codebuddy: PathBuf,
+    /// `$CURSOR_CONFIG_DIR`, else `~/.cursor`.
+    pub cursor: PathBuf,
+    /// Where OpenCode's databases are: `$XDG_DATA_HOME/opencode`, else
+    /// `~/.local/share/opencode` — on Windows too.
+    pub opencode: PathBuf,
+    /// `$OPENCODE_DB`: one database file, instead of those in `opencode`.
+    pub opencode_db: Option<PathBuf>,
 }
 
 impl Roots {
@@ -87,6 +96,9 @@ impl Roots {
             droid: home.join(".factory"),
             qoder: home.join(".qoder"),
             codebuddy: home.join(".codebuddy"),
+            cursor: home.join(".cursor"),
+            opencode: home.join(".local").join("share").join("opencode"),
+            opencode_db: None,
         }
     }
 
@@ -127,12 +139,28 @@ impl Roots {
         if let Some(dir) = var("CODEBUDDY_CONFIG_DIR") {
             roots.codebuddy = dir;
         }
+        if let Some(dir) = var("CURSOR_CONFIG_DIR") {
+            roots.cursor = dir;
+        }
+        if let Some(dir) = var("XDG_DATA_HOME") {
+            roots.opencode = dir.join("opencode");
+        }
+        roots.opencode_db = var("OPENCODE_DB");
         roots
+    }
+
+    /// This computer's agents, under the current user's home.
+    pub fn local() -> Option<Self> {
+        home().map(|home| Self::from_env(&home))
     }
 }
 
 /// Every past session found under `roots`, most recently used first.
-pub fn scan(roots: &Roots) -> Vec<PastSession> {
+///
+/// `known_dirs` are directories the caller knows of — open tabs'. Cursor
+/// records where a chat ran only as a hash of the directory, which one of
+/// these, or a directory another agent's session ran in, may answer.
+pub fn scan(roots: &Roots, known_dirs: &[PathBuf]) -> Vec<PastSession> {
     let mut files = claude_files(&roots.claude.join("projects"), CLIAgent::Claude);
     files.extend(codex_files(&roots.codex));
     files.extend(claude_files(
@@ -150,6 +178,7 @@ pub fn scan(roots: &Roots) -> Vec<PastSession> {
     files.extend(kimi_files(&roots.kimi));
     files.extend(copilot_files(&roots.copilot));
     files.extend(droid_files(&roots.droid));
+    files.extend(cursor_files(&roots.cursor));
     files.sort_by_key(|f| std::cmp::Reverse(f.modified));
     files.truncate(MAX_SESSIONS);
     // Codex names a thread after the fact, in an index beside the sessions
@@ -188,16 +217,45 @@ pub fn scan(roots: &Roots) -> Vec<PastSession> {
     }
     // What was not seen this time was deleted or fell off the end.
     *cache = seen;
+    drop(cache);
+
+    out.extend(opencode_sessions(roots));
+    resolve_cursor_dirs(&mut out, known_dirs);
+    out.sort_by_key(|s| std::cmp::Reverse(s.updated));
+    out.truncate(MAX_SESSIONS);
     out
 }
 
-/// What the last [`scan`] found, without touching the disk — what the list
-/// shows while a new scan runs.
-pub fn cached() -> Vec<PastSession> {
-    let cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    let mut out: Vec<PastSession> = cache.values().filter_map(|c| c.session.clone()).collect();
-    out.sort_by_key(|s| std::cmp::Reverse(s.updated));
-    out
+/// Fill in where each Cursor chat ran from the hash it is filed under, and
+/// leave out those no known directory hashes to: resumed anywhere else, the
+/// agent would not find them.
+fn resolve_cursor_dirs(sessions: &mut Vec<PastSession>, known_dirs: &[PathBuf]) {
+    if !sessions.iter().any(|s| s.agent == CLIAgent::Cursor) {
+        return;
+    }
+    let mut by_hash: HashMap<String, PathBuf> = HashMap::new();
+    let candidates = known_dirs
+        .iter()
+        .cloned()
+        .chain(sessions.iter().filter_map(|s| s.cwd.clone()));
+    for dir in candidates {
+        by_hash.entry(cursor_dir_hash(&dir)).or_insert(dir);
+    }
+    sessions.retain_mut(|s| {
+        if s.agent != CLIAgent::Cursor || s.cwd.is_some() {
+            return true;
+        }
+        let Some(hash) = s.branch.take() else {
+            return false;
+        };
+        s.cwd = by_hash.get(&hash).cloned();
+        s.cwd.is_some()
+    });
+}
+
+/// Cursor files a chat under the md5 of `path.resolve(cwd)`.
+fn cursor_dir_hash(dir: &Path) -> String {
+    format!("{:x}", md5::compute(dir.to_string_lossy().as_bytes()))
 }
 
 /// How a session is named in `hidden_agent_sessions`: ids are only unique
@@ -292,6 +350,7 @@ fn read(file: &Found) -> Option<PastSession> {
             let (head, _) = ends(&file.path, file.len).ok()?;
             parse_droid(&head, updated)
         }
+        CLIAgent::Cursor => read_cursor(&file.path, updated),
         _ => None,
     }
 }
@@ -388,6 +447,224 @@ fn copilot_files(root: &Path) -> Vec<Found> {
         .flat_map(|session| files_in(&session, |n| n == "events.jsonl"))
         .map(|(path, meta)| found(CLIAgent::Copilot, path, &meta))
         .collect()
+}
+
+/// Cursor CLI: `chats/<md5 of the directory>/<chat id>/meta.json`, with the
+/// chat itself in `store.db` beside it.
+fn cursor_files(root: &Path) -> Vec<Found> {
+    dirs_in(&root.join("chats"))
+        .into_iter()
+        .flat_map(|project| dirs_in(&project))
+        .flat_map(|chat| files_in(&chat, |n| n == "meta.json"))
+        .map(|(path, meta)| found(CLIAgent::Cursor, path, &meta))
+        .collect()
+}
+
+/// A Cursor chat from its `meta.json`, and its name from `store.db` when
+/// the meta has none. A chat whose meta does not say where it ran carries
+/// its directory's hash in `branch` until [`resolve_cursor_dirs`] turns it
+/// into a path — Cursor records no branch.
+fn read_cursor(meta_path: &Path, updated: u64) -> Option<PastSession> {
+    let chat = meta_path.parent()?;
+    let id = chat.file_name()?.to_str()?.to_string();
+    let hash = chat.parent()?.file_name()?.to_str()?.to_string();
+    let meta: Value = serde_json::from_str(&std::fs::read_to_string(meta_path).ok()?).ok()?;
+    let title = str_field(&meta, "title")
+        .map(str::to_string)
+        .or_else(|| cursor_store_name(&chat.join("store.db")));
+    parse_cursor(id, hash, &meta, title, updated)
+}
+
+pub(crate) fn parse_cursor(
+    id: String,
+    hash: String,
+    meta: &Value,
+    title: Option<String>,
+    updated: u64,
+) -> Option<PastSession> {
+    let flag = |key: &str| meta.get(key).and_then(Value::as_bool);
+    if flag("isSubagent") == Some(true) || flag("hasConversation") == Some(false) {
+        return None;
+    }
+    let cwd = str_field(meta, "cwd").map(PathBuf::from);
+    let updated = meta
+        .get("updatedAtMs")
+        .and_then(Value::as_u64)
+        .map_or(updated, |ms| ms / 1000);
+    Some(PastSession {
+        agent: CLIAgent::Cursor,
+        id,
+        branch: cwd.is_none().then_some(hash),
+        cwd,
+        title: real_title(title.as_deref())?,
+        updated,
+    })
+}
+
+/// The chat's name from `store.db`: its `meta` row `0`, hex-encoded JSON.
+fn cursor_store_name(db: &Path) -> Option<String> {
+    let conn = open_read_only(db)?;
+    let value: String = conn
+        .query_row("SELECT value FROM meta WHERE key = '0'", [], |row| {
+            row.get(0)
+        })
+        .ok()?;
+    let json: Value = serde_json::from_slice(&hex::decode(value.trim()).ok()?).ok()?;
+    str_field(&json, "name").map(str::to_string)
+}
+
+/// `path` opened for reading only. An agent may be writing to it right now,
+/// in WAL mode; when the read-only open cannot share its log, the file is
+/// read as it stands on disk instead.
+fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
+    use rusqlite::{Connection, OpenFlags};
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        | OpenFlags::SQLITE_OPEN_URI;
+    let usable = |conn: Connection| {
+        conn.busy_timeout(std::time::Duration::from_millis(500))
+            .ok()?;
+        conn.query_row("SELECT 1", [], |_| Ok(())).ok()?;
+        Some(conn)
+    };
+    if let Some(conn) = Connection::open_with_flags(path, flags)
+        .ok()
+        .and_then(usable)
+    {
+        return Some(conn);
+    }
+    let uri = format!(
+        "file:{}?immutable=1",
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .replace('?', "%3f")
+    );
+    Connection::open_with_flags(uri, flags)
+        .ok()
+        .and_then(usable)
+}
+
+/// OpenCode's databases: `$OPENCODE_DB`, else every `opencode*.db` in its
+/// data directory (release and other channels).
+fn opencode_dbs(roots: &Roots) -> Vec<PathBuf> {
+    if let Some(db) = &roots.opencode_db {
+        return vec![db.clone()];
+    }
+    files_in(&roots.opencode, |n| {
+        n.starts_with("opencode") && n.ends_with(".db")
+    })
+    .into_iter()
+    .map(|(path, _)| path)
+    .collect()
+}
+
+/// A database's stamp: it and its write-ahead log's length and time. The
+/// log is where recent writes land, so the database alone would read as
+/// unchanged.
+fn db_stamp(db: &Path) -> Option<(u64, SystemTime, u64, SystemTime)> {
+    let meta = std::fs::metadata(db).ok()?;
+    let mut wal = db.as_os_str().to_owned();
+    wal.push("-wal");
+    let wal = std::fs::metadata(PathBuf::from(wal)).ok();
+    Some((
+        meta.len(),
+        meta.modified().unwrap_or(UNIX_EPOCH),
+        wal.as_ref().map_or(0, |m| m.len()),
+        wal.and_then(|m| m.modified().ok()).unwrap_or(UNIX_EPOCH),
+    ))
+}
+
+type DbStamp = (u64, SystemTime, u64, SystemTime);
+
+static DB_CACHE: LazyLock<Mutex<HashMap<PathBuf, (DbStamp, Vec<PastSession>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn opencode_sessions(roots: &Roots) -> Vec<PastSession> {
+    let mut cache = DB_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut out = Vec::new();
+    for db in opencode_dbs(roots) {
+        let Some(stamp) = db_stamp(&db) else { continue };
+        if let Some((seen, sessions)) = cache.get(&db)
+            && *seen == stamp
+        {
+            out.extend(sessions.iter().cloned());
+            continue;
+        }
+        let sessions = open_read_only(&db)
+            .map(|conn| read_opencode(&conn))
+            .unwrap_or_default();
+        out.extend(sessions.iter().cloned());
+        cache.insert(db, (stamp, sessions));
+    }
+    out
+}
+
+/// OpenCode's sessions, less subagents and archived ones. A session still
+/// under its placeholder title (`New session - <time>`) is named by its
+/// first prompt.
+pub(crate) fn read_opencode(conn: &rusqlite::Connection) -> Vec<PastSession> {
+    let rows = conn
+        .prepare(
+            "SELECT id, directory, title, time_updated FROM session \
+             WHERE parent_id IS NULL AND time_archived IS NULL \
+             ORDER BY time_updated DESC LIMIT ?1",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([MAX_SESSIONS as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()
+        });
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(e) => {
+            log::warn!("reading OpenCode sessions: {e}");
+            return Vec::new();
+        }
+    };
+    rows.into_iter()
+        .filter_map(|(id, dir, title, updated)| {
+            let title = title
+                .filter(|t| !t.starts_with("New session - ") && !t.starts_with("Child session - "))
+                .and_then(|t| real_title(Some(t.trim())))
+                .or_else(|| opencode_first_prompt(conn, &id))?;
+            Some(PastSession {
+                agent: CLIAgent::OpenCode,
+                cwd: dir.filter(|d| !d.is_empty()).map(PathBuf::from),
+                id,
+                title,
+                branch: None,
+                updated: updated.map_or(0, |ms| (ms / 1000).max(0) as u64),
+            })
+        })
+        .collect()
+}
+
+fn opencode_first_prompt(conn: &rusqlite::Connection, session: &str) -> Option<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.data FROM part p JOIN message m ON m.id = p.message_id \
+             WHERE m.session_id = ?1 AND json_extract(m.data, '$.role') = 'user' \
+             ORDER BY m.time_created, p.id LIMIT 20",
+        )
+        .ok()?;
+    let parts = stmt
+        .query_map([session], |row| row.get::<_, String>(0))
+        .ok()?;
+    parts.flatten().find_map(|data| {
+        let part: Value = serde_json::from_str(&data).ok()?;
+        if str_field(&part, "type") != Some("text")
+            || part.get("synthetic").and_then(Value::as_bool) == Some(true)
+        {
+            return None;
+        }
+        str_field(&part, "text").and_then(prompt_title)
+    })
 }
 
 /// Droid: `sessions/<cwd as dashes>/<id>.jsonl`, or directly in
@@ -1187,7 +1464,7 @@ mod tests {
         std::fs::write(project.join("abc.jsonl"), user("hello")).unwrap();
         std::fs::write(project.join("abc/subagents/agent-1.jsonl"), user("sub")).unwrap();
         std::fs::write(project.join("empty.jsonl"), "").unwrap();
-        let found = scan(&Roots::under(home.path()));
+        let found = scan(&Roots::under(home.path()), &[]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, "abc");
         assert_eq!(found[0].title, "hello");
@@ -1272,7 +1549,7 @@ mod tests {
             .concat(),
         )
         .unwrap();
-        let found = scan(&Roots::under(home.path()));
+        let found = scan(&Roots::under(home.path()), &[]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "Retry logic");
     }
@@ -1434,6 +1711,105 @@ mod tests {
         );
     }
 
+    fn opencode_db(path: &Path) -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT,
+                directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER,
+                time_archived INTEGER);
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT,
+                time_created INTEGER, data TEXT);
+             CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT,
+                data TEXT);
+             INSERT INTO session VALUES
+                ('ses_named', 'p', NULL, 'C:/oc', 'Fix login', 0, 2000, NULL),
+                ('ses_default', 'p', NULL, '/oc', 'New session - 2026-09-27T10:00:00.000Z',
+                    0, 5000, NULL),
+                ('ses_child', 'p', 'ses_named', '/oc', 'sub', 0, 9000, NULL),
+                ('ses_archived', 'p', NULL, '/oc', 'old', 0, 9000, 1);
+             INSERT INTO message VALUES
+                ('m1', 'ses_default', 1, '{\"role\":\"user\"}');
+             INSERT INTO part VALUES
+                ('a', 'm1', 'ses_default', '{\"type\":\"text\",\"text\":\"ctx\",\"synthetic\":true}'),
+                ('b', 'm1', 'ses_default', '{\"type\":\"text\",\"text\":\"add dark mode\"}');",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn opencode_lists_top_level_sessions_and_names_placeholders_by_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = opencode_db(&dir.path().join("opencode.db"));
+        let found: Vec<(String, String, u64)> = read_opencode(&conn)
+            .into_iter()
+            .map(|s| (s.id, s.title, s.updated))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("ses_default".into(), "add dark mode".into(), 5),
+                ("ses_named".into(), "Fix login".into(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn cursor_chats_are_placed_by_the_hash_of_a_known_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let known = home.path().join("repo");
+        let hash = cursor_dir_hash(&known);
+        let chat = home
+            .path()
+            .join(".cursor/chats")
+            .join(&hash)
+            .join("agent-1");
+        std::fs::create_dir_all(&chat).unwrap();
+        std::fs::write(
+            chat.join("meta.json"),
+            json!({"schemaVersion": 1, "hasConversation": true, "title": "Cursor chat",
+                "updatedAtMs": 7000})
+            .to_string(),
+        )
+        .unwrap();
+        let other = home.path().join(".cursor/chats/ffff/agent-2");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(
+            other.join("meta.json"),
+            json!({"title": "lost"}).to_string(),
+        )
+        .unwrap();
+
+        let roots = Roots::under(home.path());
+        assert!(scan(&roots, &[]).is_empty(), "nowhere to resume either");
+        let found = scan(&roots, &[known.clone()]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            (
+                found[0].id.as_str(),
+                found[0].cwd.as_deref(),
+                found[0].branch.as_deref()
+            ),
+            ("agent-1", Some(known.as_path()), None)
+        );
+        assert_eq!(found[0].updated, 7);
+    }
+
+    #[test]
+    fn a_cursor_chat_without_a_title_is_named_from_its_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("store.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let value = hex::encode(json!({"agentId": "a", "name": "Stored name"}).to_string());
+        conn.execute_batch(&format!(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+             INSERT INTO meta VALUES ('0', '{value}');"
+        ))
+        .unwrap();
+        drop(conn);
+        assert_eq!(cursor_store_name(&db).as_deref(), Some("Stored name"));
+    }
+
     #[test]
     fn scan_finds_each_agents_sessions_where_it_keeps_them() {
         let home = tempfile::tempdir().unwrap();
@@ -1481,12 +1857,16 @@ mod tests {
             ".copilot/session-state/cp/workspace.yaml",
             "name: hi copilot\n".into(),
         );
+        opencode_db(&{
+            std::fs::create_dir_all(h.join(".local/share/opencode")).unwrap();
+            h.join(".local/share/opencode/opencode.db")
+        });
         write(
             ".factory/sessions/-d/d1.jsonl",
             line(json!({"type": "session_start", "id": "d1", "title": "hi droid"})),
         );
 
-        let mut found: Vec<(CLIAgent, String, String)> = scan(&Roots::under(h))
+        let mut found: Vec<(CLIAgent, String, String)> = scan(&Roots::under(h), &[])
             .into_iter()
             .map(|s| (s.agent, s.id, s.title))
             .collect();
@@ -1499,6 +1879,12 @@ mod tests {
                 (CLIAgent::Droid, "d1".into(), "hi droid".into()),
                 (CLIAgent::Pi, "p1".into(), "hi pi".into()),
                 (CLIAgent::QoderCLI, "q1".into(), "hello".into()),
+                (
+                    CLIAgent::OpenCode,
+                    "ses_default".into(),
+                    "add dark mode".into()
+                ),
+                (CLIAgent::OpenCode, "ses_named".into(), "Fix login".into()),
                 (CLIAgent::Kimi, "session_k".into(), "hi kimi".into()),
                 (CLIAgent::Qwen, "w1".into(), "hi qwen".into()),
             ]
