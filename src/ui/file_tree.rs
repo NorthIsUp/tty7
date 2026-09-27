@@ -1313,14 +1313,25 @@ impl Tty7App {
             window,
             cx,
             move |h| match &op {
-                TreeWrite::NewFile => h.create_file_new(&target),
-                TreeWrite::NewFolder => h.create_dir(&target, false),
-                TreeWrite::Rename { from } => h.rename(from, &target),
-                TreeWrite::Delete => h.remove(&target, is_dir),
+                TreeWrite::NewFile => h.create_file_new(&target).map(|()| None),
+                TreeWrite::NewFolder => h.create_dir(&target, false).map(|()| None),
+                // Resolved on either side of the move, in the same trip: the
+                // editor keys its buffers on canonical paths, and once the
+                // rename lands the old one can no longer be resolved.
+                TreeWrite::Rename { from } => {
+                    let canon_from = h.canonicalize(from).unwrap_or_else(|_| from.clone());
+                    h.rename(from, &target)?;
+                    let canon_to = h.canonicalize(&target).unwrap_or_else(|_| target.clone());
+                    Ok(Some((canon_from, canon_to)))
+                }
+                TreeWrite::Delete => h.remove(&target, is_dir).map(|()| None),
             },
-            move |app, result: std::io::Result<()>, window, cx| {
+            move |app, result: std::io::Result<Option<(PathBuf, PathBuf)>>, window, cx| {
                 match result {
-                    Ok(()) => {
+                    Ok(moved) => {
+                        if let Some((from, to)) = moved {
+                            app.editor_path_moved(id, &from, &to, cx);
+                        }
                         app.file_tree.invalidate_dir(id, &dir);
                         if matches!(edit, TreeEdit::NewFile { .. }) {
                             app.open_file_in_editor(&new_path, window, cx);
@@ -1449,10 +1460,14 @@ impl Tty7App {
                     host,
                     window,
                     cx,
-                    move |h| h.remove(&target, is_dir),
-                    move |app, result: std::io::Result<()>, window, cx| {
+                    move |h| {
+                        let canon = h.canonicalize(&target).unwrap_or_else(|_| target.clone());
+                        h.remove(&target, is_dir).map(|()| canon)
+                    },
+                    move |app, result: std::io::Result<PathBuf>, window, cx| {
                         match result {
-                            Ok(()) => {
+                            Ok(removed) => {
+                                app.editor_path_removed(id, &removed, cx);
                                 app.file_tree.invalidate_dir(id, &parent);
                             }
                             Err(e) => {
@@ -1848,11 +1863,7 @@ impl Tty7App {
 
         let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
         let tree_host = self.spawn_host(cx);
-        let dirty = self.tab_code().is_some_and(|c| {
-            c.files
-                .iter()
-                .any(|f| f.dirty && f.host.id() == tree_host && f.path == *path)
-        });
+        let dirty = self.editor_is_dirty(tree_host, &path);
 
         let renaming = matches!(
             &self.file_tree.editing,

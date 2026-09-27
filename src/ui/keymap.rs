@@ -279,7 +279,8 @@ fn steals_a_control_code(chord: &str) -> bool {
 
 /// The bindings allowed to sit on a control code anyway.
 ///
-/// `EditorSave` stays on Ctrl+S because its handler in `app.rs` calls
+/// `EditorSave` stays on Ctrl+S — and `EditorGoToLine` on Ctrl+G, as in
+/// every other code editor — because its handler in `app.rs` calls
 /// `cx.propagate()` whenever the editor does not have focus, so the keystroke
 /// reaches the terminal as XOFF instead of dying at the window. Ctrl+V is the
 /// paste chord every Windows and Linux desktop trains its users on; tty7
@@ -290,7 +291,8 @@ fn steals_a_control_code(chord: &str) -> bool {
 /// Anything else added here needs a fall-through of its own; a binding that
 /// simply swallows the byte does not belong on this list.
 fn control_code_binding_allowed(action: &str, chord: &str) -> bool {
-    action == "EditorSave" || (cfg!(not(target_os = "macos")) && chord == "ctrl-v")
+    matches!(action, "EditorSave" | "EditorGoToLine")
+        || (cfg!(not(target_os = "macos")) && chord == "ctrl-v")
 }
 
 fn per_platform(mac: &'static str, other: &'static str) -> &'static str {
@@ -578,6 +580,10 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("ShowRightPanelChanges", ""),
         ("ShowRightPanelGitHub", ""),
         ("EditorSave", "secondary-s"),
+        ("EditorSaveAs", "secondary-shift-s"),
+        ("EditorGoToLine", "ctrl-g"),
+        // Unbound: ⌘N is New Window, and the editor's header has a + for it.
+        ("EditorNewFile", ""),
         ("OpenSshProfiles", ""),
         ("RestartSshSession", "secondary-shift-r"),
         ("Quit", per_platform("secondary-q", "secondary-shift-q")),
@@ -856,6 +862,18 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
             t(L10nKey::KeybindInsertNewline).to_string(),
         ),
         "EditorSave" => (CommandGroup::Terminal, t(L10nKey::Save).to_string()),
+        "EditorSaveAs" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorSaveAsAction).to_string(),
+        ),
+        "EditorGoToLine" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGoToLineAction).to_string(),
+        ),
+        "EditorNewFile" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorNewFile).to_string(),
+        ),
         "OpenSshProfiles" => (
             CommandGroup::Ssh,
             t(L10nKey::CmdSshManageProfiles).to_string(),
@@ -1529,6 +1547,9 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "ToggleDocumentPreview" => KeyBinding::new(keystroke, ToggleDocumentPreview, None),
         "ToggleDocumentWrap" => KeyBinding::new(keystroke, ToggleDocumentWrap, None),
         "EditorSave" => KeyBinding::new(keystroke, EditorSave, None),
+        "EditorSaveAs" => KeyBinding::new(keystroke, EditorSaveAs, None),
+        "EditorGoToLine" => KeyBinding::new(keystroke, EditorGoToLine, None),
+        "EditorNewFile" => KeyBinding::new(keystroke, EditorNewFile, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),
         "Quit" => KeyBinding::new(keystroke, Quit, None),
@@ -2175,6 +2196,7 @@ mod tests {
         );
         assert!(!control_code_binding_allowed("PasteText", "ctrl-d"));
         assert!(control_code_binding_allowed("EditorSave", "secondary-s"));
+        assert!(control_code_binding_allowed("EditorGoToLine", "ctrl-g"));
     }
 
     #[test]

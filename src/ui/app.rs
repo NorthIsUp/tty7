@@ -1648,10 +1648,25 @@ impl Tty7App {
         .detach();
 
         let weak_app = cx.weak_entity();
-        window.on_window_should_close(cx, move |_window, cx| {
-            if let Some(app) = weak_app.upgrade() {
-                app.update(cx, |app, cx| app.prepare_window_close(cx));
+        window.on_window_should_close(cx, move |window, cx| {
+            let Some(app) = weak_app.upgrade() else {
+                return true;
+            };
+            // Unsaved editor buffers hold the window open until the question
+            // about them is answered; the answer closes it.
+            let asked = app.update(cx, |app, cx| {
+                let unsaved = app.editor_unsaved();
+                app.editor_guard_unsaved(
+                    unsaved,
+                    crate::ui::code_editor::AfterUnsaved::CloseWindow,
+                    window,
+                    cx,
+                )
+            });
+            if asked {
+                return false;
             }
+            app.update(cx, |app, cx| app.prepare_window_close(cx));
             true
         });
 
@@ -1742,9 +1757,27 @@ impl Tty7App {
         }
     }
 
-    fn close_window(&self, window: &mut Window, cx: &mut App) {
+    fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let unsaved = self.editor_unsaved();
+        if self.editor_guard_unsaved(
+            unsaved,
+            crate::ui::code_editor::AfterUnsaved::CloseWindow,
+            window,
+            cx,
+        ) {
+            return;
+        }
         self.prepare_window_close(cx);
         window.remove_window();
+    }
+
+    /// The window close a question about unsaved files was holding up.
+    pub(crate) fn close_window_after_unsaved(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_window(window, cx);
     }
 
     pub(crate) fn teardown_workspace_forwards(&self, cx: &gpui::App) {
@@ -2054,6 +2087,34 @@ impl Tty7App {
     fn quit_stop_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.activate(true);
         window.activate_window();
+        // Unsaved editor buffers are asked about first, in the window that
+        // holds them. Quitting ends every window, so another window's
+        // buffers count as much as this one's: hand the quit over to it, and
+        // it asks about its own before carrying the quit on.
+        let unsaved = self.editor_unsaved();
+        if self.editor_guard_unsaved(
+            unsaved,
+            crate::ui::code_editor::AfterUnsaved::Quit,
+            window,
+            cx,
+        ) {
+            return;
+        }
+        let me = cx.entity_id();
+        let elsewhere = crate::ui::windows::WindowRegistry::open_windows(cx)
+            .into_iter()
+            .filter_map(|(ws, app)| Some((ws, app.upgrade()?)))
+            .find(|(_, app)| app.entity_id() != me && !app.read(cx).editor_unsaved().is_empty());
+        if let Some((ws, app)) = elsewhere
+            && let Some(handle) = crate::ui::windows::WindowRegistry::window_for(cx, ws)
+        {
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    app.update(cx, |app, cx| app.quit_stop_sessions(window, cx));
+                });
+            });
+            return;
+        }
         let answer = window.prompt(
             PromptLevel::Warning,
             t(crate::ui::i18n::L10nKey::QuitStopServerTitle),
@@ -2073,6 +2134,11 @@ impl Tty7App {
             let _ = cx.update(|cx| cx.quit());
         })
         .detach();
+    }
+
+    /// The quit a question about unsaved files was holding up.
+    pub(crate) fn quit_after_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.quit_stop_sessions(window, cx);
     }
 
     pub(crate) fn restart_window_daemon(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -4152,6 +4218,24 @@ impl Tty7App {
     /// so it travels with the close rather than being read back off shared
     /// state a second, unrelated close could have overwritten.
     fn close_pane_inner(&mut self, confirmed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        // Closing the last pane closes the tab, and with it the files only
+        // this tab's editor shows.
+        if !confirmed
+            && self
+                .tabs
+                .get(self.active)
+                .is_some_and(|tab| tab.pane.leaves().len() <= 1)
+        {
+            let unsaved = self.editor_unsaved_in_tab(self.active);
+            if self.editor_guard_unsaved(
+                unsaved,
+                crate::ui::code_editor::AfterUnsaved::ClosePane,
+                window,
+                cx,
+            ) {
+                return;
+            }
+        }
         if !confirmed && let Some(reason) = self.focused_pane_close_reason(window, cx) {
             self.ask_before_closing(CloseTarget::Pane, reason, window, cx);
             return;
@@ -4193,6 +4277,11 @@ impl Tty7App {
                 cx.notify();
             }
         }
+    }
+
+    /// The pane close a question about unsaved files was holding up.
+    pub(crate) fn close_pane_after_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_pane_inner(false, window, cx);
     }
 
     fn on_child_exited(
@@ -5022,12 +5111,26 @@ impl Tty7App {
         if index >= self.tabs.len() {
             return;
         }
+        if !confirmed {
+            let id = self.tabs[index].tree_id.get();
+            let unsaved = self.editor_unsaved_in_tab(index);
+            if self.editor_guard_unsaved(
+                unsaved,
+                crate::ui::code_editor::AfterUnsaved::CloseTab(id),
+                window,
+                cx,
+            ) {
+                return;
+            }
+        }
         if !confirmed && let Some(reason) = self.tab_close_reason(index, cx) {
             let id = self.tabs[index].tree_id.get();
             self.ask_before_closing(CloseTarget::Tab(id), reason, window, cx);
             return;
         }
         self.maximized = None;
+        let closing = self.tabs[index].tree_id.get();
+        self.editor_forget_tab(closing, cx);
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);
         self.closed.push(snapshot);
@@ -5164,7 +5267,12 @@ impl Tty7App {
         // that is most of them, and a menu item that quietly closes nothing is
         // worse than one that closes what it says.
         for i in (0..self.tabs.len()).rev() {
-            if i == index || self.tab_has_warn_ssh(i, cx) {
+            // Unsaved editor files are skipped the same way: a bulk close
+            // cannot ask about them one tab at a time, and must not lose them.
+            if i == index
+                || self.tab_has_warn_ssh(i, cx)
+                || !self.editor_unsaved_in_tab(i).is_empty()
+            {
                 continue;
             }
             self.close_tab_inner(i, true, window, cx);
@@ -5179,7 +5287,7 @@ impl Tty7App {
     ) {
         // Same bargain as `close_other_tabs`.
         for i in ((index + 1)..self.tabs.len()).rev() {
-            if self.tab_has_warn_ssh(i, cx) {
+            if self.tab_has_warn_ssh(i, cx) || !self.editor_unsaved_in_tab(i).is_empty() {
                 continue;
             }
             self.close_tab_inner(i, true, window, cx);
@@ -8502,6 +8610,7 @@ impl Render for Tty7App {
         self.touch_active_tab();
         self.declare_displayed_panes(cx);
         self.scm_sync_watchers(window, cx);
+        self.editor_sync(window, cx);
         // Keeps looking for new listening ports on the pane in front, panel
         // open or not — a port that appears while the panel is shut is exactly
         // the one worth forwarding unasked.
@@ -9163,11 +9272,31 @@ impl Render for Tty7App {
                     this.toggle_code_panel(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &EditorSave, window, cx| {
-                    if !this.editor_has_focus(window, cx) {
+                    if !this.editor_panel_has_focus(window, cx) {
                         cx.propagate();
                         return;
                     }
                     this.editor_save_active(window, cx)
+                }))
+                // Same shape as `EditorSave`: the chord belongs to the editor
+                // only while it has the focus, and reaches the terminal
+                // otherwise — Ctrl+G is BEL to a shell.
+                .on_action(cx.listener(|this, _: &EditorSaveAs, window, cx| {
+                    if !this.editor_panel_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.editor_save_as_active(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorGoToLine, window, cx| {
+                    if !this.editor_panel_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.editor_go_to_line(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorNewFile, window, cx| {
+                    this.editor_new_file(window, cx)
                 }))
                 .on_action(
                     cx.listener(|this, _: &Quit, window, cx| this.quit_stop_sessions(window, cx)),

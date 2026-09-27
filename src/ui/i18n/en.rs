@@ -1168,6 +1168,33 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorWrapOff => "Wrap: off",
         L10nKey::EditorFileTooLarge => "\"{path}\" is too large for the editor ({size} MB)",
         L10nKey::EditorBinaryFile => "\"{path}\" looks like a binary file",
+        L10nKey::EditorUntitled => "Untitled-{n}",
+        L10nKey::EditorUnsavedChangesMany => "{count} files have unsaved changes",
+        L10nKey::EditorSaveAll => "Save All",
+        L10nKey::EditorSaveConflictTitle => "\"{name}\" changed on disk",
+        L10nKey::EditorSaveConflictBody => {
+            "Another program changed it after it was opened here. Overwriting replaces those changes with yours."
+        }
+        L10nKey::EditorOverwrite => "Overwrite",
+        L10nKey::EditorEncodeFailedTitle => "Can't save \"{name}\" as {encoding}",
+        L10nKey::EditorEncodeFailedBody => {
+            "It contains \"{ch}\", which {encoding} can't represent. Save it as UTF-8 instead?"
+        }
+        L10nKey::EditorSaveAsUtf8 => "Save as UTF-8",
+        L10nKey::EditorAlreadyOpen => "\"{path}\" is already open in the editor",
+        L10nKey::EditorGoToLine => "Go to line",
+        L10nKey::EditorGoToLineAction => "Go to Line…",
+        L10nKey::EditorGoToLinePlaceholder => "Line, or line:column (1–{total})",
+        L10nKey::EditorSaveAs => "Save as",
+        L10nKey::EditorSaveAsAction => "Save As…",
+        L10nKey::EditorSaveAsPlaceholder => "Full path to save to",
+        L10nKey::EditorReplaceExisting => "\"{path}\" already exists. Replace it?",
+        L10nKey::EditorReplace => "Replace",
+        L10nKey::EditorNewFile => "New File",
+        L10nKey::EditorOrphanAdopted => "Unsaved \"{name}\" was moved here from a tab that closed",
+        L10nKey::EditorFileDeletedOnDisk => "This file was deleted on disk",
+        L10nKey::EditorIndentSpaces => "Spaces: {n}",
+        L10nKey::EditorIndentTabs => "Tab Size: {n}",
         L10nKey::PanelInfoTitle => "Info",
         L10nKey::PanelChangesTitle => "Changes",
         L10nKey::PanelScmTitle => "Changes",

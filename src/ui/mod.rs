@@ -7,8 +7,7 @@ pub mod diff_list;
 pub mod diff_overlay;
 pub mod diff_rows;
 pub mod document_column;
-// Not wired into the code editor yet; the allowance goes when it is.
-#[allow(dead_code)]
+pub mod editor_session;
 pub mod editor_text;
 pub mod file_copy;
 pub mod file_tree;
