@@ -83,6 +83,7 @@ impl Render for SettingsWindow {
         // The workspace window sets this in its own render; a second window
         // has to, or the page lays out against the default 16px rem.
         window.set_rem_size(px(cx.global::<Config>().ui_font_size));
+        crate::ui::settings::kit::note_scale(window);
         let page = self.app.upgrade().map(|app| {
             let page = app.update(cx, |this, cx| {
                 // The state can be gone for a frame between closing and the

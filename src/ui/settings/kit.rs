@@ -47,15 +47,8 @@ pub(crate) struct Tk {
     pub heading: Hsla,
     /// A nav item at rest.
     pub nav: Hsla,
-    /// The one fill every control on the page stands on — field, dropdown,
-    /// secondary button, stepper — the theme's `muted`, the same well the
-    /// dialogs' fields and the sidebar's search sit in. No outline, no drop.
-    pub well: Hsla,
-    /// [`Self::well`] a step firmer, under the pointer or while open.
-    pub well_hover: Hsla,
-    /// The focus ring: the accent, the one colour kept for "the keyboard
-    /// is here".
-    pub focus: Hsla,
+    /// A raised button's fill.
+    pub btn: Hsla,
     /// A popover's fill.
     pub menu: Hsla,
     /// A switch or slider knob at rest.
@@ -83,7 +76,6 @@ impl Tk {
         let page = theme.background;
         let a = |light: f32, dark_a: f32| fg.opacity(if dark { dark_a } else { light });
         let white = gpui::white();
-        let well = theme.muted;
         Self {
             dark,
             fg,
@@ -102,9 +94,7 @@ impl Tk {
             k6: a(0.6, 0.65),
             heading: a(0.9, 0.9),
             nav: a(0.82, 0.8),
-            well,
-            well_hover: well.blend(fg.opacity(if dark { 0.06 } else { 0.05 })),
-            focus: theme.ring,
+            btn: if dark { fg.opacity(0.1) } else { white },
             menu: if dark { lift(page, 0.06) } else { white },
             knob: if dark { fg } else { white },
             chip: if dark { fg.opacity(0.16) } else { white },
@@ -123,6 +113,18 @@ impl Tk {
             vec![
                 ring(gpui::black().opacity(0.08), 0.5, false),
                 drop(gpui::black().opacity(0.06), 1., 2., 0.),
+            ]
+        }
+    }
+
+    /// The same, a step firmer, for a hovered raised control.
+    pub(crate) fn raised_hover(&self) -> Vec<BoxShadow> {
+        if self.dark {
+            vec![ring(self.fg.opacity(0.2), 0.5, false)]
+        } else {
+            vec![
+                ring(gpui::black().opacity(0.16), 0.5, false),
+                drop(gpui::black().opacity(0.08), 1., 2., 0.),
             ]
         }
     }
@@ -316,9 +318,6 @@ impl RenderOnce for Btn {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let tk = Tk::of(cx);
         let kind = self.kind;
-        // A primary with nothing to do yet — disabled, or dimmed with nothing
-        // to save — is drawn on the well rather than faded.
-        let resting_primary = kind == BtnKind::Primary && (self.disabled || self.dimmed);
         let base = h_flex()
             .id(self.id)
             .flex_shrink_0()
@@ -331,31 +330,23 @@ impl RenderOnce for Btn {
                 .px(px(12.))
                 .when(self.icon.is_some(), |b| b.pl(px(9.)).pr(px(11.)))
                 .rounded(px(6.))
-                .bg(tk.well)
+                .bg(tk.btn)
+                .shadow(tk.raised())
                 .text_size(self.size.unwrap_or(fs(12.5)))
                 .text_color(tk.fg)
                 .when(!self.disabled, |b| {
-                    b.hover(move |s| s.bg(tk.well_hover))
-                        .active(move |s| s.bg(tk.well_hover.blend(tk.k05)))
+                    b.hover(move |s| s.shadow(tk.raised_hover()))
+                        .active(move |s| s.bg(tk.k05))
                 }),
-            // Disabled, the ink fill sinks to the well with secondary text —
-            // the fall the dialogs' Create and the Git panel's Commit take. At
-            // 45% opacity a disabled Save was a washed-out black button that
-            // still looked like the thing to press.
             BtnKind::Primary => base
                 .h(px(26.))
                 .px(px(12.))
                 .rounded(px(6.))
-                .bg(if resting_primary { tk.well } else { tk.fg })
+                .bg(tk.fg)
                 .text_size(self.size.unwrap_or(fs(12.5)))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(if resting_primary { tk.k6 } else { tk.page })
-                .when(!self.disabled && !resting_primary, |b| {
-                    b.hover(|s| s.opacity(0.88))
-                })
-                .when(resting_primary && !self.disabled, |b| {
-                    b.hover(move |s| s.bg(tk.well_hover))
-                }),
+                .text_color(tk.page)
+                .when(!self.disabled, |b| b.hover(|s| s.opacity(0.88))),
             BtnKind::Link | BtnKind::Danger => base
                 .text_size(self.size.unwrap_or(fs(12.)))
                 .text_color(if kind == BtnKind::Danger {
@@ -373,21 +364,16 @@ impl RenderOnce for Btn {
                     })
                 }),
         };
-        el.when(self.disabled && kind != BtnKind::Primary, |b| {
-            b.opacity(0.45)
-        })
-        .when(
-            self.dimmed && !self.disabled && kind != BtnKind::Primary,
-            |b| b.opacity(0.55),
-        )
-        .when_some(self.icon, |b, path| {
-            b.child(Icon::empty().path(path).size(px(10.)).text_color(tk.k6))
-        })
-        .child(self.label)
-        .when_some(self.handler.filter(|_| !self.disabled), |b, handler| {
-            b.cursor_pointer()
-                .on_click(move |ev, window, cx| handler(ev, window, cx))
-        })
+        el.when(self.disabled, |b| b.opacity(0.45))
+            .when(self.dimmed && !self.disabled, |b| b.opacity(0.55))
+            .when_some(self.icon, |b, path| {
+                b.child(Icon::empty().path(path).size(px(10.)).text_color(tk.k6))
+            })
+            .child(self.label)
+            .when_some(self.handler.filter(|_| !self.disabled), |b, handler| {
+                b.cursor_pointer()
+                    .on_click(move |ev, window, cx| handler(ev, window, cx))
+            })
     }
 }
 
@@ -423,19 +409,38 @@ pub(crate) fn search_glass(size: f32, tk: &Tk) -> Icon {
         .text_color(tk.k35)
 }
 
-/// The height of a field or a dropdown. Buttons and steppers are a step
-/// lower, at 26.
-pub(crate) const CONTROL_H: f32 = 28.;
+/// A hairline: one device pixel. The design draws field edges at half a
+/// point, which is exactly one pixel on a Retina panel — and on a 1x display
+/// half a pixel at 15% ink is anti-aliased to nothing, so the shell and proxy
+/// fields read as loose monospace text beside the boxed dropdowns.
+///
+/// Read from the scale the settings window last rendered at: the page's
+/// controls are built from `cx` alone, and threading a `Window` through every
+/// row to reach two fields would be a lot of signature for one number. A
+/// thread-local rather than a global, because setting a global from `render`
+/// queues an observer effect on every frame.
+pub(crate) fn hairline() -> f32 {
+    (1. / SCALE.with(std::cell::Cell::get)).max(0.5)
+}
 
-/// A search field on the well, for filtering a list on the page.
+/// Record the scale the page is being drawn at, once per frame.
+pub(crate) fn note_scale(window: &Window) {
+    SCALE.with(|s| s.set(window.scale_factor().max(1.)));
+}
+
+thread_local! {
+    static SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(2.) };
+}
+
+/// A search field with a hairline ring, for filtering a list on the page.
 pub(crate) fn search_field(input: &gpui::Entity<InputState>, tk: &Tk) -> Div {
     h_flex()
-        .h(px(CONTROL_H))
+        .h(px(26.))
         .px(px(8.))
         .gap(px(6.))
         .items_center()
-        .rounded(px(7.))
-        .bg(tk.well)
+        .rounded(px(6.))
+        .shadow(vec![ring(tk.k15, hairline(), true)])
         .child(search_glass(10., tk))
         .child(
             // On the input, not around it: `Input` sets its own `text_sm`
@@ -460,22 +465,24 @@ pub(crate) fn text_field(
     tk: &Tk,
     cx: &App,
 ) -> Div {
-    // At rest a field is only its well. The ring is kept for the two states
-    // that have to be seen at a glance: where the keyboard is, and what is
-    // wrong.
-    let ring_color = match (invalid, focused) {
-        (true, _) => Some(tk.danger),
-        (false, true) => Some(tk.focus),
-        (false, false) => None,
+    let ring_color = if invalid {
+        tk.danger
+    } else if focused {
+        tk.k45
+    } else {
+        tk.k15
     };
     div()
-        .h(px(CONTROL_H))
+        .h(px(26.))
         .px(px(10.))
         .flex()
         .items_center()
         .rounded(px(6.))
-        .bg(tk.well)
-        .when_some(ring_color, |f, c| f.shadow(vec![ring(c, 1., true)]))
+        .shadow(vec![ring(
+            ring_color,
+            if focused || invalid { 1. } else { hairline() },
+            true,
+        )])
         .font_family(Tk::mono(cx))
         .text_color(tk.fg)
         .child(
@@ -535,7 +542,7 @@ pub(crate) fn select_trigger(
 ) -> Stateful<Div> {
     h_flex()
         .id(id)
-        .h(px(CONTROL_H))
+        .h(px(26.))
         .w(px(CONTROL_W))
         .flex_shrink_0()
         .pl(px(if leading.is_some() { 8. } else { 10. }))
@@ -543,8 +550,9 @@ pub(crate) fn select_trigger(
         .gap(px(8.))
         .items_center()
         .rounded(px(6.))
-        .bg(if open { tk.well_hover } else { tk.well })
-        .hover(move |s| s.bg(tk.well_hover))
+        .bg(if open { tk.k05 } else { tk.btn })
+        .shadow(tk.raised())
+        .hover(move |s| s.shadow(tk.raised_hover()))
         .cursor_pointer()
         .text_size(fs(12.5))
         .text_color(tk.fg)
@@ -676,9 +684,7 @@ pub(crate) fn stepper(
             .text_color(tk.k6)
             .when(!enabled, |d| d.opacity(0.35))
             .when(enabled, |d| {
-                d.cursor_pointer()
-                    .hover(move |s| s.bg(tk.well_hover))
-                    .active(move |s| s.bg(tk.well_hover.blend(tk.k05)))
+                d.cursor_pointer().active(move |s| s.bg(tk.k05))
             })
             .child(glyph)
     };
@@ -688,7 +694,8 @@ pub(crate) fn stepper(
         .h(px(26.))
         .items_center()
         .rounded(px(6.))
-        .bg(tk.well)
+        .bg(tk.btn)
+        .shadow(tk.raised())
         .child(
             end("dec", "−", s.can_dec)
                 .rounded_l(px(6.))
