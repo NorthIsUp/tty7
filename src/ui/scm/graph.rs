@@ -63,6 +63,7 @@ use crate::ui::app::{CONTENT_INSET, Tty7App};
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::presets::{ActiveLanes, LANE_SLOTS, Lanes};
 use crate::ui::right_panel::{META, META_MONO, ROW_INSET, TEXT, TEXT_INSET, info_chip};
+use crate::ui::scm::panel::GROUP_CHEVRON;
 use crate::ui::scm::path::{elide_middle, relative_time};
 use crate::ui::scm::state::RepoKey;
 
@@ -99,6 +100,12 @@ const GRAPH_WINDOW_MARGIN: usize = 4;
 /// 32 since the section took the panel's own band rhythm: the header is where
 /// the section starts, and it wants more air than a row of it.
 const GRAPH_HEADER_H: f32 = 32.;
+
+/// The header's height while the section is folded. With no rows under it
+/// the bar is a single line at the window's foot, and the expanded header's
+/// band plus its padding made a strip twice the height of a group header for
+/// one word of content.
+const GRAPH_HEADER_FOLDED_H: f32 = 24.;
 
 /// The header's controls: the filter tile and the scope picker beside it.
 ///
@@ -613,14 +620,18 @@ impl Tty7App {
             // section of its own. It is also the last thing in the window, so
             // it takes some air under it: flush against the bottom edge it
             // sat in the window's rounded corner like a clipped row.
+            //
+            // The same air on both sides, though, not the expanded section's
+            // 4/12: that bottom pad is room under a scrolled list's last row,
+            // and under a lone title it left the bar bottom-heavy — the title
+            // hugging the rule with a dead band beneath it.
             return Some(
                 div()
                     .flex_none()
-                    .pt(px(GRAPH_PAD_TOP))
-                    .pb(px(GRAPH_PAD_BOTTOM))
+                    .py(px(GRAPH_PAD_TOP))
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .child(self.graph_header(repo, None, cx))
+                    .child(self.graph_header(repo, None, GRAPH_HEADER_FOLDED_H, cx))
                     .into_any_element(),
             );
         }
@@ -633,7 +644,7 @@ impl Tty7App {
         let height = self.scm.graph.height.get().clamp(GRAPH_H_MIN, ceiling);
 
         let page = self.scm.graph.page.clone();
-        let header = self.graph_header(repo, page.as_deref(), cx);
+        let header = self.graph_header(repo, page.as_deref(), GRAPH_HEADER_H, cx);
         let search = self.graph_search(cx);
         let naming = self.graph_naming_row(repo, cx);
         let query = self.graph_query(cx);
@@ -1286,6 +1297,7 @@ impl Tty7App {
         &self,
         repo: &RepoKey,
         page: Option<&CommitPage>,
+        height: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let expanded = self.scm.graph.expanded;
@@ -1300,7 +1312,7 @@ impl Tty7App {
             .flex_none()
             .items_center()
             .gap(px(GRAPH_HEADER_GAP))
-            .h(px(GRAPH_HEADER_H))
+            .h(px(height))
             .pl(px(TEXT_INSET))
             .pr(px(TEXT_INSET - GRAPH_SCOPE_PAD))
             .child(
@@ -1312,17 +1324,22 @@ impl Tty7App {
                     .min_w(px(0.))
                     .cursor_pointer()
                     .child(
-                        // A hair under the title it opens: the chevron is a
-                        // mark, not a word, and at the label's own size it
-                        // starts competing with it for the corner. `.xsmall()`
-                        // is that size exactly, which is why this one is still
-                        // a number.
-                        Icon::new(match expanded {
-                            true => IconName::ChevronDown,
-                            false => IconName::ChevronRight,
-                        })
-                        .size(px(11.))
-                        .text_color(muted),
+                        // The change groups' own chevron, in their own box: the
+                        // same mark on the same text column, so "History" starts
+                        // where "Staged Changes" and "Untracked" do above it.
+                        div()
+                            .flex_none()
+                            .w(px(GROUP_CHEVRON))
+                            .flex()
+                            .justify_center()
+                            .text_color(muted)
+                            .child(
+                                Icon::new(match expanded {
+                                    true => IconName::ChevronDown,
+                                    false => IconName::ChevronRight,
+                                })
+                                .size(px(GROUP_CHEVRON)),
+                            ),
                     )
                     .child(
                         div()

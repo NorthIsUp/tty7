@@ -55,7 +55,7 @@ const BADGE_W: f32 = 10.;
 
 /// The group header's disclosure chevron: an 8px mark in an 8px box, so the
 /// label after it lands `8 + 6` = 14px past the text column.
-const GROUP_CHEVRON: f32 = 8.;
+pub(crate) const GROUP_CHEVRON: f32 = 8.;
 const _: () = assert!(GROUP_CHEVRON <= BADGE_W && BADGE_W - GROUP_CHEVRON <= 2.);
 
 /// The key context the message box installs, and the one `ScmCommit` is
