@@ -3438,6 +3438,53 @@ fn keycap(label: impl Into<gpui::SharedString>, cx: &App) -> AnyElement {
 mod tests {
     use super::*;
 
+    /// The workspace row's shape: a `flex_1` column, and in it a truncating
+    /// name sized by its own text beside the slot number. gpui measures that
+    /// name once against the column's zero basis, and used to answer the
+    /// content-size measure after it from the same cache — so every name in
+    /// the list read "…" with the whole column free beside it.
+    #[gpui::test]
+    fn a_truncating_name_beside_its_number_takes_the_room_it_has(cx: &mut gpui::TestAppContext) {
+        use gpui::{AvailableSpace, InteractiveElement as _, point, size};
+
+        let vcx = cx.add_empty_window();
+        vcx.draw(
+            point(px(0.), px(0.)),
+            size(
+                AvailableSpace::Definite(px(LEFT_W)),
+                AvailableSpace::Definite(px(WS_ROW_H)),
+            ),
+            |_, _| {
+                h_flex()
+                    .w(px(LEFT_W))
+                    .gap(px(10.))
+                    .child(div().flex_shrink_0().size(px(WS_AVATAR)))
+                    .child(
+                        v_flex().flex_1().min_w_0().child(
+                            h_flex()
+                                .gap(px(6.))
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .debug_selector(|| "name".into())
+                                        .child("pale-seal"),
+                                )
+                                .child(div().flex_shrink_0().child("1")),
+                        ),
+                    )
+            },
+        );
+        let name = vcx.debug_bounds("name").expect("the name was drawn");
+        // Wider than an ellipsis by a long way: the whole name fits.
+        assert!(
+            name.size.width > px(40.),
+            "the name collapsed to {:?}",
+            name.size.width
+        );
+    }
+
     /// #485 on the path #645 did not cover. A machine the switcher knows only
     /// from a listing snapshot has no store entry to name it, so its group
     /// used to be labelled by the target's own spelling — and a `Profile`
