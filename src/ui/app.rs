@@ -1888,7 +1888,14 @@ impl Tty7App {
             cx,
         );
         if dropped > 0 {
-            window.push_notification(t_plural(L10nKey::AppTabsNotRestored, dropped, &[]), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::warning(t_plural(
+                    L10nKey::AppTabsNotRestored,
+                    dropped,
+                    &[],
+                )),
+                cx,
+            );
         }
         self.tabs = tabs;
         self.active = active;
@@ -1915,7 +1922,10 @@ impl Tty7App {
             window,
             cx,
         ) else {
-            window.push_notification(t(L10nKey::AppReopenTabFailed), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::error(t(L10nKey::AppReopenTabFailed)),
+                cx,
+            );
             self.closed.push(st);
             return;
         };
@@ -3242,7 +3252,10 @@ impl Tty7App {
             }
             Err(e) => {
                 window.push_notification(
-                    t_fmt(L10nKey::ForwardSwitchFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::ForwardSwitchFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 // The refusal changed nothing, but the panel may be behind
@@ -3957,7 +3970,7 @@ impl Tty7App {
                 // A retry from the home screen fails the same way; keep the
                 // reason on screen rather than only in a toast that leaves.
                 self.startup_error = Some(gpui::SharedString::from(text.clone()));
-                window.push_notification(text, cx);
+                window.push_notification(crate::ui::host_ops::failure(text, &e), cx);
                 cx.notify();
                 return None;
             }
@@ -3993,9 +4006,12 @@ impl Tty7App {
             Err(e) => {
                 log::error!("native SSH spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(
-                        L10nKey::AppSshConnectionFailed,
-                        &[("error", &e.to_string())],
+                    crate::ui::host_ops::failure(
+                        t_fmt(
+                            L10nKey::AppSshConnectionFailed,
+                            &[("error", &e.to_string())],
+                        ),
+                        &e,
                     ),
                     cx,
                 );
@@ -4026,7 +4042,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("native SSH respawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppSshReconnectFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppSshReconnectFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;
@@ -4097,9 +4116,12 @@ impl Tty7App {
                     Err(e) => {
                         log::error!("native SSH split spawn failed: {e}");
                         window.push_notification(
-                            t_fmt(
-                                L10nKey::AppSshConnectionFailed,
-                                &[("error", &e.to_string())],
+                            crate::ui::host_ops::failure(
+                                t_fmt(
+                                    L10nKey::AppSshConnectionFailed,
+                                    &[("error", &e.to_string())],
+                                ),
+                                &e,
                             ),
                             cx,
                         );
@@ -4122,7 +4144,10 @@ impl Tty7App {
                     Err(e) => {
                         log::error!("split spawn failed: {e}");
                         window.push_notification(
-                            t_fmt(L10nKey::AppSplitPaneFailed, &[("error", &e.to_string())]),
+                            crate::ui::host_ops::failure(
+                                t_fmt(L10nKey::AppSplitPaneFailed, &[("error", &e.to_string())]),
+                                &e,
+                            ),
                             cx,
                         );
                         return None;
@@ -4931,7 +4956,10 @@ impl Tty7App {
         let tab = &mut self.tabs[index];
         let Some(pane) = pane else {
             tab.asleep = Some(asleep);
-            window.push_notification(t(L10nKey::TabWakeFailed), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::error(t(L10nKey::TabWakeFailed)),
+                cx,
+            );
             return false;
         };
         tab.pane = pane;
@@ -5133,9 +5161,12 @@ impl Tty7App {
                                     cx,
                                 ),
                                 Err(e) => window.push_notification(
-                                    t_fmt(
-                                        L10nKey::AppWorktreeRemoveFailed,
-                                        &[("error", &e.to_string())],
+                                    crate::ui::host_ops::failure(
+                                        t_fmt(
+                                            L10nKey::AppWorktreeRemoveFailed,
+                                            &[("error", &e.to_string())],
+                                        ),
+                                        &e,
                                     ),
                                     cx,
                                 ),
@@ -5297,7 +5328,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("fork spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;
@@ -5457,7 +5491,10 @@ impl Tty7App {
             move |this, result, window, cx| match result {
                 Ok(defaults) => this.open_worktree_prompt(sheet_host, cwd, defaults, window, cx),
                 Err(e) => window.push_notification(
-                    t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 ),
             },
@@ -5484,7 +5521,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("worktree tab spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;

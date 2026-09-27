@@ -119,7 +119,10 @@ impl Tty7App {
                         p.busy = false;
                     }
                     window.push_notification(
-                        t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                        crate::ui::host_ops::failure(
+                            t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                            &e,
+                        ),
                         cx,
                     );
                     cx.notify();

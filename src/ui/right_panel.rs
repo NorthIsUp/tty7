@@ -1670,9 +1670,12 @@ impl Tty7App {
                             }
                         }
                         Err(e) => window.push_notification(
-                            t_fmt(
-                                L10nKey::LoopbackForwardFailed,
-                                &[("port", &port.to_string()), ("error", &e.to_string())],
+                            crate::ui::host_ops::failure(
+                                t_fmt(
+                                    L10nKey::LoopbackForwardFailed,
+                                    &[("port", &port.to_string()), ("error", &e.to_string())],
+                                ),
+                                &e,
                             ),
                             cx,
                         ),

@@ -1073,12 +1073,15 @@ impl Tty7App {
                 if let Err(e) = crate::terminal::view::open_file_path(path) {
                     log::warn!("failed to open {}: {e}", path.display());
                     window.push_notification(
-                        t_fmt(
-                            L10nKey::LinkFileOpenFailed,
-                            &[
-                                ("path", &path.display().to_string()),
-                                ("error", &e.to_string()),
-                            ],
+                        crate::ui::host_ops::failure(
+                            t_fmt(
+                                L10nKey::LinkFileOpenFailed,
+                                &[
+                                    ("path", &path.display().to_string()),
+                                    ("error", &e.to_string()),
+                                ],
+                            ),
+                            &e,
                         ),
                         cx,
                     );
