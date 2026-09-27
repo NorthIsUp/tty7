@@ -43,11 +43,12 @@ connects peer-to-peer over iroh by public key, end-to-end encrypted.
 ## Capabilities and Constraints
 
 - Screens today: machines (paired list + pair form), one machine's tree, one pane's
-  terminal (xterm.js) with an extra-keys bar (esc, tab, ctrl latch, arrows, ^C, | / ~ -).
+  terminal (xterm.js) with an extra-keys bar (esc, tab, ⇧tab, ctrl latch, arrows, ^C, paste,
+  | / ~ -) and a compose box that sends a whole message, then Enter.
 - Forget a machine (requires re-pairing).
 - No framework: vanilla TypeScript with a tiny DOM helper; xterm.js for the terminal.
-- Not yet: QR scanning, push notifications, keychain storage, remote (SSH) machines,
-  taking over a pane at the phone's size.
+- Not yet: QR scanning, push notifications, keychain storage, taking over a pane at the
+  phone's size.
 
 ## Brand Commitments
 

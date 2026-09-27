@@ -109,7 +109,5 @@ devices on local networks" once. On iOS the app declares it in
   but APNs/FCM delivery needs a small native plugin and a push relay.
 - **Keychain / Keystore** for the phone's key. It lives in the app's private data
   directory today.
-- **Remote machines.** The gateway serves the local machine's panes. Panes the desktop
-  reaches over SSH aren't exposed yet.
 - **Take over.** Attaching a pane at the phone's size, for when the desktop isn't in use.
 - **A self-hosted iroh relay** for production, instead of n0's public ones.

@@ -743,17 +743,29 @@ function terminalTheme(): ITheme {
   return theme as ITheme;
 }
 
-type Key = { label: string; seq: string; icon?: keyof typeof icon; latch?: boolean };
+/** A key on the bar: a sequence to send, the ctrl latch, or the clipboard.
+ * `text` is what it shows when that is not its label. */
+type Key = {
+  label: string;
+  seq: string;
+  text?: string;
+  icon?: keyof typeof icon;
+  latch?: boolean;
+  paste?: boolean;
+};
 
 const KEYS: Key[] = [
   { label: "esc", seq: "\x1b" },
   { label: "tab", seq: "\t" },
+  // Claude Code's mode switch, among others.
+  { label: "Shift Tab", text: "⇧tab", seq: "\x1b[Z" },
   { label: "ctrl", seq: "", latch: true },
   { label: "^C", seq: "\x03" },
   { label: "Left", seq: "\x1b[D", icon: "left" },
   { label: "Right", seq: "\x1b[C", icon: "right" },
   { label: "Up", seq: "\x1b[A", icon: "up" },
   { label: "Down", seq: "\x1b[B", icon: "down" },
+  { label: "Paste", seq: "", icon: "paste", paste: true },
   { label: "|", seq: "|" },
   { label: "/", seq: "/" },
   { label: "~", seq: "~" },
@@ -764,6 +776,10 @@ const KEYS: Key[] = [
 const CELL_EM = 0.602;
 /** The smallest font a pane is read at before it pans instead of shrinking. */
 const READABLE_PX = 11;
+
+/** What was typed into a pane's compose box and not sent yet, by pane. Kept
+ * across leaving the pane, and across a send that did not get through. */
+const drafts = new Map<string, string>();
 
 function terminalScreen(host: Host, place: Place, pane: PaneView, title: string) {
   go("push", () => {
@@ -798,12 +814,30 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     const banner = h("div", { class: "term-banner-slot" });
     const keys = h("div", { class: "keys" });
     const keyboard = h("button", { class: "key key-kbd", ariaLabel: "Show or hide the keyboard" }, ico("keyboard"));
-    const keybar = h("div", { class: "keybar" }, keys, keyboard);
+    const composeKey = h("button", { class: "key key-kbd", ariaLabel: "Write a message" }, ico("compose"));
+    const keybar = h("div", { class: "keybar" }, keys, composeKey, keyboard);
+
+    // The compose box: a real text field, so the phone's own keyboard works
+    // in full — autocorrect, dictation, an IME's candidates, moving the
+    // caret — and what is written goes in whole, then Enter.
+    const draftKey = `${host.id}/${place?.key ?? ""}/${pane.id}`;
+    const field = h("textarea", {
+      class: "compose-input",
+      rows: 1,
+      value: drafts.get(draftKey) ?? "",
+      placeholder: pane.agent ? `Reply to ${agentLook(pane.agent.kind).name}` : "Type a command",
+      enterKeyHint: "send",
+      ariaLabel: "Message",
+    });
+    const sendKey = h("button", { class: "compose-send", ariaLabel: "Send" }, ico("send"));
+    const compose = h("div", { class: "compose", hidden: true }, field, sendKey);
+
     const view = h(
       "div",
       { class: "screen term-screen" },
       bar,
       h("div", { class: "term-wrap" }, screenEl, banner),
+      compose,
       keybar,
     );
 
@@ -818,40 +852,138 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     });
 
     let handle: number | null = null;
+    // Whether keystrokes land: set by a successful open, cleared by anything
+    // that says they no longer do.
+    let live = false;
     let ctrl = false;
     let cols = 80;
     let alive = true;
+    let composing = false;
     let ctrlKey: HTMLButtonElement | null = null;
 
+    // Typing that does not get through is said, never dropped quietly: the
+    // pane goes offline with a way back, rather than looking live.
+    const offline = (message: string) => {
+      live = false;
+      setState("offline", "Offline");
+      showBanner(sentence(message), { label: "Reconnect", run: reopen });
+    };
+    // Only the first refusal speaks: a key typed just before it fails on its
+    // own, with a vaguer reason.
+    const refused = (message: string) => {
+      if (alive && live) offline(message);
+    };
+    const input = (data: string): Promise<boolean> => {
+      if (handle === null || !live) return Promise.resolve(false);
+      return api.paneInput(handle, data).then(
+        () => true,
+        (e) => {
+          refused(errorText(e));
+          return false;
+        },
+      );
+    };
     const send = (data: string) => {
-      if (handle === null) return;
       if (ctrl && data.length === 1) {
         const c = data.toUpperCase().charCodeAt(0);
         if (c >= 64 && c <= 95) data = String.fromCharCode(c - 64);
         ctrl = false;
         ctrlKey?.classList.remove("on");
       }
-      api.paneInput(handle, data).catch(() => {});
+      void input(data);
     };
     term.onData(send);
 
+    const canPaste = typeof navigator.clipboard?.readText === "function";
+    const paste = async () => {
+      let text: string;
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        return; // Declined at the system's paste prompt.
+      }
+      if (!text) return;
+      if (composing) {
+        field.setRangeText(text, field.selectionStart, field.selectionEnd, "end");
+        edited();
+      } else term.paste(text);
+    };
+
     for (const k of KEYS) {
-      const key = h("button", { class: "key", ariaLabel: k.label }, k.icon ? ico(k.icon) : k.label);
+      if (k.paste && !canPaste) continue;
+      const key = h("button", { class: "key", ariaLabel: k.label }, k.icon ? ico(k.icon) : (k.text ?? k.label));
       if (k.latch) ctrlKey = key;
-      // Keep focus in the terminal so the soft keyboard stays up.
+      // Keep focus where it is — the terminal or the compose box — so the
+      // soft keyboard stays up.
       key.onpointerdown = (e) => e.preventDefault();
       key.onclick = () => {
         if (k.latch) {
           ctrl = !ctrl;
           key.classList.toggle("on", ctrl);
-        } else send(k.seq);
-        term.focus();
+        } else if (k.paste) void paste();
+        else send(k.seq);
+        if (!composing) term.focus();
       };
       keys.append(key);
     }
+
+    const grow = () => {
+      // Off the page it measures nothing; the first fit comes once it is on.
+      if (!field.isConnected) return;
+      field.style.height = "auto";
+      field.style.height = `${field.scrollHeight}px`;
+    };
+    const edited = () => {
+      if (field.value) drafts.set(draftKey, field.value);
+      else drafts.delete(draftKey);
+      grow();
+    };
+    field.addEventListener("input", edited);
+    const submit = async () => {
+      const body = field.value.replace(/\r?\n/g, "\r");
+      // Several lines go in as one paste where the program asked for that,
+      // so an agent takes them as one message and a shell does not run each.
+      const data = body.includes("\r") && term.modes.bracketedPasteMode ? `\x1b[200~${body}\x1b[201~` : body;
+      if (data && !(await input(data))) return;
+      // Enter as its own write: a program that tells pasting from typing by
+      // how the bytes arrive would otherwise take it as part of the text.
+      // An empty box sends Enter alone.
+      if (!(await input("\r"))) return;
+      field.value = "";
+      edited();
+    };
+    field.addEventListener("keydown", (e) => {
+      // Enter that confirms an IME's candidate is the IME's, not a send.
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      void submit();
+    });
+    sendKey.onpointerdown = (e) => e.preventDefault();
+    sendKey.onclick = () => void submit();
+
+    const setComposing = (on: boolean, focus: boolean) => {
+      composing = on;
+      compose.hidden = !on;
+      composeKey.classList.toggle("on", on);
+      composeKey.ariaLabel = on ? "Type into the terminal" : "Write a message";
+      if (!on) {
+        field.blur();
+        if (focus) term.focus();
+        return;
+      }
+      grow();
+      if (focus) field.focus();
+    };
+    composeKey.onpointerdown = (e) => e.preventDefault();
+    composeKey.onclick = () => setComposing(!composing, true);
+    // An agent's pane opens on the box, keyboard down: read first, then reply.
+    if (pane.agent) setComposing(true, false);
     keyboard.onpointerdown = (e) => e.preventDefault();
     keyboard.onclick = () => {
-      if (screenEl.contains(document.activeElement)) term.blur();
+      const active = document.activeElement;
+      if (screenEl.contains(active)) term.blur();
+      else if (active === field) field.blur();
+      else if (composing) field.focus();
       else term.focus();
     };
 
@@ -908,6 +1040,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       );
 
     const open = async () => {
+      live = false;
       setState("connecting", "Connecting");
       banner.replaceChildren();
       term.reset();
@@ -935,6 +1068,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
                 cwd.textContent = where(event.path);
                 break;
               case "exited":
+                live = false;
                 handle = null;
                 setState("offline", "Closed");
                 showBanner(
@@ -942,15 +1076,15 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
                 );
                 break;
               case "error":
-                setState("offline", "Offline");
-                showBanner(event.message, { label: "Reconnect", run: reopen });
+                offline(event.message);
                 break;
             }
           },
         );
         if (alive) {
+          live = true;
           setState("live", "Live");
-          term.focus();
+          if (!composing) term.focus();
         }
       } catch (e) {
         if (!alive) return;
@@ -982,6 +1116,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         if (!alive) return;
         term.open(screenEl);
         fit();
+        grow();
         open();
       });
     });

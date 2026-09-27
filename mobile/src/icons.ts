@@ -28,6 +28,8 @@ export const icon = {
   paste: stroke(
     `<rect x="6" y="4.5" width="12" height="16" rx="2"/><path d="M9.5 4.5V3.5h5v1M9.5 10.5h5M9.5 14.5h5"/>`,
   ),
+  compose: stroke(`<path d="M20 11.5a8 8 0 0 1-11.6 7.1L4 20l1.4-4.2A8 8 0 1 1 20 11.5Z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>`),
+  send: stroke(`<path d="M12 19V5.5M6 11l6-6 6 6"/>`, 2.4),
   alert: stroke(`<path d="M12 4 2.8 19.5h18.4Z"/><path d="M12 10v4M12 17h.01"/>`),
 };
 
