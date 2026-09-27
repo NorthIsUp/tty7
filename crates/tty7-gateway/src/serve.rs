@@ -87,7 +87,7 @@ pub async fn run(endpoint: Endpoint, state: State, backend: Arc<dyn Backend>) {
         tokio::spawn(async move {
             match incoming.await {
                 Ok(conn) => serve_connection(conn, state, backend).await,
-                Err(e) => eprintln!("tty7-gateway: handshake failed: {e}"),
+                Err(e) => log::debug!("mobile gateway: handshake failed: {e}"),
             }
         });
     }
@@ -101,7 +101,7 @@ async fn serve_connection(conn: Connection, state: State, backend: Arc<dyn Backe
                 let (peer, state, backend) = (peer.clone(), state.clone(), backend.clone());
                 tokio::spawn(async move {
                     if let Err(e) = serve_stream(&peer, send, recv, state, backend).await {
-                        eprintln!("tty7-gateway: stream from {}: {e}", short(&peer));
+                        log::debug!("mobile gateway: stream from {}: {e}", short(&peer));
                     }
                 });
             }
@@ -139,7 +139,7 @@ async fn serve_stream(
                 state
                     .add_device(peer, &device_name)
                     .map_err(io::Error::other)?;
-                eprintln!("tty7-gateway: paired {device_name} ({})", short(peer));
+                log::info!("mobile gateway: paired {device_name} ({})", short(peer));
                 write_msg(&mut send, &ok).await?;
             } else {
                 tokio::time::sleep(PAIR_FAILURE_DELAY).await;
@@ -361,7 +361,7 @@ async fn pane_stream(
         .spawn(move || {
             for bytes in input_rx {
                 if let Err(e) = backend.send_input(machine.as_deref(), pane_id, &bytes) {
-                    eprintln!("tty7-gateway: input to pane {pane_id}: {e}");
+                    log::debug!("mobile gateway: input to pane {pane_id}: {e}");
                     return;
                 }
             }

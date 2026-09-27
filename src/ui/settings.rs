@@ -34,6 +34,7 @@ use crate::ui::presets;
 mod agents;
 mod hosts;
 pub(crate) mod kit;
+pub(crate) mod mobile;
 mod pages;
 mod shell;
 mod shortcuts;
@@ -194,6 +195,7 @@ pub(crate) enum SettingsSection {
     Terminal,
     KeyboardMouse,
     Ssh,
+    Mobile,
     Agents,
     WindowTabs,
     Keybindings,
@@ -201,13 +203,14 @@ pub(crate) enum SettingsSection {
 }
 
 impl SettingsSection {
-    pub(crate) const ALL: [SettingsSection; 8] = [
+    pub(crate) const ALL: [SettingsSection; 9] = [
         SettingsSection::General,
         SettingsSection::Appearance,
         SettingsSection::Terminal,
         SettingsSection::KeyboardMouse,
         SettingsSection::WindowTabs,
         SettingsSection::Ssh,
+        SettingsSection::Mobile,
         SettingsSection::Agents,
         SettingsSection::About,
     ];
@@ -226,6 +229,7 @@ impl SettingsSection {
             Self::Terminal => L10nKey::SettingsNavTerminal,
             Self::KeyboardMouse => L10nKey::SettingsNavInput,
             Self::Ssh => L10nKey::SettingsNavSsh,
+            Self::Mobile => L10nKey::SettingsNavMobile,
             Self::Agents => L10nKey::SettingsNavAgents,
             Self::WindowTabs => L10nKey::SettingsNavWindowTabs,
             Self::Keybindings => L10nKey::SettingsNavKeybindings,
@@ -240,6 +244,7 @@ impl SettingsSection {
             Self::Terminal => "icons/settings/terminal.svg",
             Self::KeyboardMouse | Self::Keybindings => "icons/settings/keyboard.svg",
             Self::Ssh => "icons/settings/ssh.svg",
+            Self::Mobile => "icons/settings/mobile.svg",
             Self::Agents => "icons/settings/integrations.svg",
             Self::WindowTabs => "icons/settings/window.svg",
             Self::About => "icons/settings/about.svg",
@@ -253,6 +258,7 @@ impl SettingsSection {
             SettingsSection::Terminal => "settings:terminal",
             SettingsSection::KeyboardMouse => "settings:keyboard-mouse",
             SettingsSection::Ssh => "settings:ssh",
+            SettingsSection::Mobile => "settings:mobile",
             SettingsSection::Agents => "settings:agents",
             SettingsSection::WindowTabs => "settings:window-tabs",
             SettingsSection::Keybindings => "settings:keybindings",
@@ -727,6 +733,16 @@ fn settings_search_entries() -> &'static [SearchEntry] {
             title: SettingsInstallCliOnPath,
             keywords: SettingsSearchCommandLineToolKeywords,
         },
+        SearchEntry {
+            section: Mobile,
+            title: SettingsMobileAccess,
+            keywords: SettingsSearchMobileKeywords,
+        },
+        SearchEntry {
+            section: Mobile,
+            title: SettingsMobilePair,
+            keywords: SettingsSearchMobileKeywords,
+        },
     ]
 }
 
@@ -794,6 +810,7 @@ impl SearchEntry {
             L10nKey::SettingsCheckUpdatesOnLaunch => "check_for_updates",
             L10nKey::SettingsAutoDownload => "auto_download_updates",
             L10nKey::SettingsUpdateChannel => "update_channel",
+            L10nKey::SettingsMobileAccess => "mobile_access",
             L10nKey::DetectUrls => "link_url",
             L10nKey::ForwardSshLoopbackLinks => "ssh_loopback_forward",
             L10nKey::SettingsVerifyHostKeys => "verify_host_keys",
@@ -940,6 +957,7 @@ impl SearchEntry {
             L10nKey::SettingsRestoreLastLayout => cfg.restore_session != defaults.restore_session,
             L10nKey::SettingsPerPaneHistory => cfg.per_pane_history != defaults.per_pane_history,
             L10nKey::SettingsShowTrayIcon => cfg.show_tray_icon != defaults.show_tray_icon,
+            L10nKey::SettingsMobileAccess => cfg.mobile_access != defaults.mobile_access,
             L10nKey::SettingsOptionAsMeta => {
                 cfg.macos_option_as_alt != defaults.macos_option_as_alt
             }
@@ -1200,6 +1218,11 @@ pub(crate) struct SettingsState {
     /// The host whose ssh command was just copied, for the moment the button
     /// says so.
     pub(crate) ssh_copied: Option<Uuid>,
+    /// Settings → Mobile: the pairing code on screen, if one is.
+    pub(crate) mobile_pairing: Option<mobile::Pairing>,
+    /// The phone the last pairing on screen ended with, said once.
+    pub(crate) mobile_paired: Option<String>,
+    pub(crate) mobile_copied: bool,
     pub(crate) ssh_filter: Entity<InputState>,
     pub(crate) ssh_collapsed_groups: std::collections::HashSet<String>,
     pub(crate) agent_hooks_host: HostId,
@@ -2787,7 +2810,7 @@ mod tests {
             );
             assert!(SettingsSection::ALL.contains(&entry.section));
         }
-        assert_eq!(SettingsSection::ALL.len(), 8);
+        assert_eq!(SettingsSection::ALL.len(), 9);
         assert!(!SettingsSection::ALL.contains(&SettingsSection::Keybindings));
     }
 

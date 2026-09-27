@@ -9,5 +9,6 @@
 pub mod daemon;
 pub mod poller;
 pub mod serve;
+pub mod service;
 pub mod state;
 pub mod tree;

@@ -49,6 +49,39 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDefinedIn => "定義元",
         L10nKey::SettingsConnectInNewTab => "新しいタブで接続",
         L10nKey::SettingsCopied => "コピーしました",
+        L10nKey::SettingsNavMobile => "モバイル",
+        L10nKey::SettingsMobileAccess => "スマートフォンからのアクセスを許可",
+        L10nKey::SettingsMobileAccessDesc => {
+            "ペアリングしたスマートフォンから、このマシンのペインを表示して入力できます。ウインドウをすべて閉じていても使えます。通信はエンドツーエンドで暗号化されます。"
+        }
+        L10nKey::SettingsMobileStatus => "状態",
+        L10nKey::SettingsMobileStatusRunning => {
+            "実行中 — ペアリング済みのスマートフォンから接続できます"
+        }
+        L10nKey::SettingsMobileStatusStarting => "起動しています…",
+        L10nKey::SettingsMobileStatusOff => "オフ",
+        L10nKey::SettingsMobileStatusFailed => "実行されていません: {error}",
+        L10nKey::SettingsMobileStatusElsewhere => "別の tty7-gateway プロセスで実行中",
+        L10nKey::SettingsMobilePair => "スマートフォンをペアリング",
+        L10nKey::SettingsMobileShowCode => "コードを表示",
+        L10nKey::SettingsMobilePairDesc => {
+            "スマートフォンの tty7 アプリ用に、1 回限りのコードを表示します。"
+        }
+        L10nKey::SettingsMobilePairNeedsAccess => {
+            "先にスマートフォンからのアクセスをオンにしてください。"
+        }
+        L10nKey::SettingsMobilePairScan => {
+            "スマートフォンの tty7 アプリでスキャンするか、コードをコピーして貼り付けてください。"
+        }
+        L10nKey::SettingsMobilePairValid => "有効期限は 10 分、1 台のスマートフォンに限ります。",
+        L10nKey::SettingsMobileCopyCode => "コードをコピー",
+        L10nKey::SettingsMobilePaired => "{name} とペアリングしました。",
+        L10nKey::SettingsMobilePhones => "ペアリング済みのスマートフォン",
+        L10nKey::SettingsMobileNoPhones => "ペアリングしたスマートフォンはまだありません。",
+        L10nKey::SettingsMobileUnpair => "ペアリングを解除",
+        L10nKey::SettingsSearchMobileKeywords => {
+            "スマホ モバイル iphone android ipad ペアリング qr コード リモート アクセス"
+        }
         L10nKey::SettingsCopySshCommand => "ssh コマンドをコピー",
         L10nKey::SettingsStoredInTty7 => "tty7 の設定に保存",
         L10nKey::SettingsClickAgainToRemove => "もう一度クリックで削除",

@@ -16,6 +16,7 @@ tty7-core = { path = "../tty7-core" }
 tty7-mobile-proto = { path = "../tty7-mobile-proto", features = ["tokio"] }
 
 anyhow.workspace = true
+log.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 

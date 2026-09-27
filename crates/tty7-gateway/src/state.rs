@@ -22,6 +22,7 @@ const PAIRING_FILE: &str = "pairing.json";
 const ADDR_FILE: &str = "addr.json";
 const LOCK_FILE: &str = "serve.lock";
 const PORT_FILE: &str = "port";
+const STATUS_FILE: &str = "status.json";
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -49,6 +50,36 @@ pub struct Device {
 struct Pairing {
     secret: String,
     expires_at: u64,
+}
+
+/// How the gateway last said it was doing, for whoever shows it: the GUI's
+/// Settings. A gateway that dies without a word leaves `running` behind, so a
+/// reader checks [`State::serving`] too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum Status {
+    Running { id: String, since: u64 },
+    Stopped,
+    Failed { error: String },
+}
+
+impl Status {
+    pub fn running(id: &str) -> Status {
+        Status::Running {
+            id: id.to_string(),
+            since: unix_now(),
+        }
+    }
+
+    pub fn stopped() -> Status {
+        Status::Stopped
+    }
+
+    pub fn failed(e: &anyhow::Error) -> Status {
+        Status::Failed {
+            error: format!("{e:#}"),
+        }
+    }
 }
 
 /// Where the running gateway was last reachable, so `pair` can put it in the
@@ -211,6 +242,31 @@ impl State {
         write_private(&self.dir.join(PORT_FILE), port.to_string().as_bytes())
     }
 
+    pub fn status(&self) -> Option<Status> {
+        read_json(&self.dir.join(STATUS_FILE)).ok().flatten()
+    }
+
+    pub fn set_status(&self, status: &Status) -> Result<()> {
+        write_json(&self.dir.join(STATUS_FILE), status)
+    }
+
+    /// Whether some process holds the serve lock right now — the one fact
+    /// about a gateway a crash cannot leave stale.
+    pub fn serving(&self) -> bool {
+        let path = self.dir.join(LOCK_FILE);
+        let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            return false;
+        };
+        match file.try_lock() {
+            Ok(()) => {
+                let _ = file.unlock();
+                false
+            }
+            Err(fs::TryLockError::WouldBlock) => true,
+            Err(fs::TryLockError::Error(_)) => false,
+        }
+    }
+
     pub fn reachable(&self) -> Reachable {
         read_json(&self.dir.join(ADDR_FILE))
             .ok()
@@ -339,6 +395,24 @@ mod tests {
         state
             .lock_serve()
             .expect("free again once the holder is gone");
+    }
+
+    #[test]
+    fn serving_follows_the_lock() {
+        let (_tmp, state) = state();
+        assert!(!state.serving());
+        let held = state.lock_serve().unwrap();
+        assert!(state.serving());
+        drop(held);
+        assert!(!state.serving());
+    }
+
+    #[test]
+    fn status_round_trips() {
+        let (_tmp, state) = state();
+        assert_eq!(state.status(), None);
+        state.set_status(&Status::running("abc")).unwrap();
+        assert!(matches!(state.status(), Some(Status::Running { id, .. }) if id == "abc"));
     }
 
     #[test]
