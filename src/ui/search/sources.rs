@@ -154,7 +154,7 @@ impl Catalog {
         let mut found: Vec<(i32, Section)> = tabs
             .filter_map(|s| {
                 let hits = s.search(query, cx);
-                let best = hits.first()?.0;
+                let best = hits.first()?.0 - section_bias(s.tab());
                 let hidden = hits.len().saturating_sub(ALL_TAB_ROWS);
                 let mut rows: Vec<Row> = hits
                     .into_iter()
@@ -178,6 +178,25 @@ impl Catalog {
             .collect();
         found.sort_by_key(|(best, _)| std::cmp::Reverse(*best));
         found.into_iter().map(|(_, section)| section).collect()
+    }
+}
+
+/// How far a past session's best row stands back when the All tab orders its
+/// sections — a little more than a prefix match is worth.
+///
+/// A session is titled with the first thing someone typed to an agent, and
+/// people start those with the words the commands are named after:
+/// `Worktree cleanup` took the prefix bonus from `New Worktree Tab…`, so
+/// `worktree` then Return resumed an agent instead of opening the dialog —
+/// the heaviest thing on the page picked by a two-word guess. A session
+/// still leads when it is plainly the better answer; the Sessions tab itself
+/// ranks untouched.
+const SESSION_SECTION_BIAS: i32 = 64;
+
+fn section_bias(tab: SearchTab) -> i32 {
+    match tab {
+        SearchTab::Sessions => SESSION_SECTION_BIAS,
+        _ => 0,
     }
 }
 
@@ -691,6 +710,26 @@ mod tests {
             },
         )
         .in_section(section.to_string())
+    }
+
+    #[gpui::test]
+    fn a_session_named_like_a_command_does_not_take_return_from_it(cx: &mut TestAppContext) {
+        with_config(cx);
+        let mut catalog = Catalog::new(
+            vec![Item::new("New Worktree Tab…", CommandKind::NewWorktreeTab)],
+            Vec::new(),
+            Vec::new(),
+        );
+        catalog.sessions = vec![session("Worktree cleanup", "Recent")];
+        cx.update(|cx| {
+            let sections = catalog.sections(SearchTab::All, "worktree", cx);
+            let headers: Vec<_> = sections.iter().filter_map(|s| s.title.clone()).collect();
+            assert_eq!(headers, vec!["Actions", "Sessions"]);
+
+            // Typed out, the session is the answer, and it leads.
+            let sections = catalog.sections(SearchTab::All, "worktree cleanup", cx);
+            assert_eq!(sections[0].title.as_deref(), Some("Sessions"));
+        });
     }
 
     /// Before anything is typed, the All tab offers to pick up where you left
