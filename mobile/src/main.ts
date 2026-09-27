@@ -298,6 +298,27 @@ function guessDeviceName() {
 // One machine: what needs you first, then every workspace as the desktop
 // groups it.
 
+/** Tries again after a dropped connection, sooner at first: 1s, 2s, 4s … up
+ * to 15s between tries, for as long as the screen is up. */
+function retrier(run: () => void) {
+  let attempt = 0;
+  let timer: number | undefined;
+  return {
+    schedule() {
+      clearTimeout(timer);
+      timer = window.setTimeout(run, Math.min(15_000, 1000 * 2 ** attempt++));
+    },
+    /** It worked: the next drop starts from the shortest wait again. */
+    reset() {
+      attempt = 0;
+      clearTimeout(timer);
+    },
+    cancel() {
+      clearTimeout(timer);
+    },
+  };
+}
+
 /** How long a machine may stay silent before the screen says so. */
 const SLOW_CONNECT_MS = 10_000;
 
@@ -335,15 +356,30 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
       body: [notice, body],
     });
 
+    const retry = retrier(() => start());
+    let offlineNow = false;
+    // The notice on screen is the dropped connection's, for a tree to clear.
+    let dropped = false;
+    // A network that comes back is the moment to try, not the next tick.
+    const online = () => {
+      if (offlineNow) start();
+    };
+    window.addEventListener("online", online);
+
     onLeave = () => {
       alive = false;
       clearTimeout(slow);
+      retry.cancel();
+      window.removeEventListener("online", online);
     };
 
     const failed = (message: string) =>
       notice.replaceChildren(noticeCard({ title: "Couldn't open a tab", body: [sentence(message)] }));
 
     const offline = (message: string) => {
+      offlineNow = true;
+      dropped = true;
+      retry.schedule();
       renderLink(link, null);
       notice.replaceChildren(
         noticeCard({
@@ -355,7 +391,7 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
             ` is running on ${host.name}.`,
           ],
           actions: [
-            { label: "Try again", run: start },
+            { label: "Try now", run: start },
             { label: "Pair again", run: () => pairScreen() },
           ],
         }),
@@ -364,8 +400,12 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
     };
 
     const start = async () => {
+      offlineNow = false;
+      retry.cancel();
       clearTimeout(slow);
-      notice.replaceChildren();
+      // Retrying under a tree, the dropped connection's notice stays up to
+      // say why the tree may be stale, until a new one replaces it.
+      if (!(lastTree && dropped)) notice.replaceChildren();
       renderLink(link, { path: "connecting", rtt_ms: 0 });
       if (!lastTree) body.replaceChildren(skeleton());
       // A machine that never answers leaves nothing to show but a spinner;
@@ -391,7 +431,9 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
           switch (msg.type) {
             case "tree":
               clearTimeout(slow);
-              if (!lastTree) notice.replaceChildren();
+              retry.reset();
+              if (!lastTree || dropped) notice.replaceChildren();
+              dropped = false;
               lastTree = msg.tree;
               body.replaceChildren(...renderTree(host, msg.tree, failed));
               break;
@@ -793,6 +835,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     const cwd = h("span", { class: "term-cwd" }, where(pane.cwd));
     const sub = h("span", { class: "term-sub" }, state, cwd);
     const zoom = h("button", { class: "nav-icon", ariaLabel: "Fit the whole width" }, ico("fit"));
+    const select = h("button", { class: "nav-icon", ariaLabel: "Select text" }, ico("copy"));
     let head = avatar(pane.agent, "avatar small");
     const bar = h(
       "header",
@@ -808,10 +851,21 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         head,
         h("div", { class: "term-titles" }, h("span", { class: "term-title" }, title), sub),
       ),
-      h("div", { class: "nav-trail" }, zoom),
+      h("div", { class: "nav-trail" }, select, zoom),
     );
     const screenEl = h("div", { class: "term" });
     const banner = h("div", { class: "term-banner-slot" });
+    // Selecting in xterm itself does not work by touch. The pane's text is
+    // laid out here instead, as a plain page the phone selects in its own
+    // way — handles, magnifier, Copy.
+    const copyText = h("pre", { class: "term-copy-text" });
+    const copyDone = h("button", { class: "button tinted small" }, "Done");
+    const copyView = h(
+      "div",
+      { class: "term-copy", hidden: true },
+      h("div", { class: "term-copy-bar" }, h("span", {}, "Select text to copy"), copyDone),
+      copyText,
+    );
     const keys = h("div", { class: "keys" });
     const keyboard = h("button", { class: "key key-kbd", ariaLabel: "Show or hide the keyboard" }, ico("keyboard"));
     const composeKey = h("button", { class: "key key-kbd", ariaLabel: "Write a message" }, ico("compose"));
@@ -836,7 +890,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       "div",
       { class: "screen term-screen" },
       bar,
-      h("div", { class: "term-wrap" }, screenEl, banner),
+      h("div", { class: "term-wrap" }, screenEl, copyView, banner),
       compose,
       keybar,
     );
@@ -859,14 +913,20 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     let cols = 80;
     let alive = true;
     let composing = false;
+    // The pane exited: nothing to reconnect to.
+    let ended = false;
     let ctrlKey: HTMLButtonElement | null = null;
 
     // Typing that does not get through is said, never dropped quietly: the
     // pane goes offline with a way back, rather than looking live.
+    // A drop is retried on its own, sooner at first; the pane stays on
+    // screen as it was until the new stream replaces it.
+    const retry = retrier(() => reopen());
     const offline = (message: string) => {
       live = false;
-      setState("offline", "Offline");
-      showBanner(sentence(message), { label: "Reconnect", run: reopen });
+      setState("connecting", "Reconnecting");
+      showBanner(`${sentence(message)} Reconnecting…`, { label: "Try now", run: reopen });
+      retry.schedule();
     };
     // Only the first refusal speaks: a key typed just before it fails on its
     // own, with a vaguer reason.
@@ -1019,6 +1079,38 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       fit();
     };
     term.onCursorMove(follow);
+    // The whole buffer, scrollback included, as lines of text. A row the
+    // terminal wrapped joins the one before it, so a long URL or path comes
+    // out whole; its trailing blanks are real and kept.
+    const bufferText = () => {
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let y = 0; y < buf.length; y++) {
+        const line = buf.getLine(y);
+        if (!line) continue;
+        const text = line.translateToString(!buf.getLine(y + 1)?.isWrapped);
+        if (line.isWrapped && lines.length) lines[lines.length - 1] += text;
+        else lines.push(text);
+      }
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      return lines.join("\n");
+    };
+    const selecting = (on: boolean) => {
+      copyView.hidden = !on;
+      select.classList.toggle("on", on);
+      if (!on) {
+        getSelection()?.removeAllRanges();
+        copyText.textContent = "";
+        return;
+      }
+      term.blur();
+      field.blur();
+      copyText.textContent = bufferText();
+      copyText.scrollTop = copyText.scrollHeight;
+    };
+    select.onclick = () => selecting(copyView.hidden);
+    copyDone.onclick = () => selecting(false);
+
     const retheme = () => {
       term.options.theme = terminalTheme();
     };
@@ -1039,19 +1131,36 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         ),
       );
 
+    // Which open is current. A stream that was replaced may still deliver
+    // its last bytes or its error; those are not this pane's any more.
+    let generation = 0;
     const open = async () => {
+      const mine = ++generation;
+      const current = () => alive && mine === generation;
+      // The screen is cleared for the replay when it starts, not before, so a
+      // retry that fails leaves the last good screen up.
+      let replayed = false;
+      const replay = () => {
+        if (replayed) return;
+        replayed = true;
+        term.reset();
+      };
       live = false;
-      setState("connecting", "Connecting");
-      banner.replaceChildren();
-      term.reset();
+      retry.cancel();
+      if (!banner.hasChildNodes()) setState("connecting", "Connecting");
       try {
-        handle = await api.paneOpen(
+        const opened = await api.paneOpen(
           host.id,
           place?.key ?? null,
           pane.id,
-          (bytes) => term.write(bytes),
+          (bytes) => {
+            if (!current()) return;
+            replay();
+            term.write(bytes);
+          },
           (event) => {
-            if (!alive) return;
+            if (!current()) return;
+            if (event.type === "size") replay();
             switch (event.type) {
               case "size":
                 cols = event.cols;
@@ -1068,8 +1177,10 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
                 cwd.textContent = where(event.path);
                 break;
               case "exited":
+                ended = true;
                 live = false;
                 handle = null;
+                retry.cancel();
                 setState("offline", "Closed");
                 showBanner(
                   event.code === null ? "This pane closed." : `This pane exited with code ${event.code}.`,
@@ -1081,15 +1192,18 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
             }
           },
         );
-        if (alive) {
-          live = true;
-          setState("live", "Live");
-          if (!composing) term.focus();
+        if (!current()) {
+          api.paneClose(opened);
+          return;
         }
+        handle = opened;
+        live = true;
+        retry.reset();
+        banner.replaceChildren();
+        setState("live", "Live");
+        if (!composing) term.focus();
       } catch (e) {
-        if (!alive) return;
-        setState("offline", "Offline");
-        showBanner(errorText(e), { label: "Reconnect", run: reopen });
+        if (current()) offline(errorText(e));
       }
     };
     const reopen = () => {
@@ -1097,9 +1211,15 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       handle = null;
       open();
     };
+    const online = () => {
+      if (!live && !ended) reopen();
+    };
+    window.addEventListener("online", online);
 
     onLeave = () => {
       alive = false;
+      retry.cancel();
+      window.removeEventListener("online", online);
       window.removeEventListener("resize", fit);
       darkScheme.removeEventListener("change", retheme);
       if (handle !== null) api.paneClose(handle);

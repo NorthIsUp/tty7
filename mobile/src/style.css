@@ -1069,6 +1069,49 @@ code {
   user-select: text;
 }
 
+.term-copy {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--term);
+}
+
+.term-copy-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  box-shadow: 0 0.5px 0 var(--hair);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.term-copy-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font: 12.5px/1.45 var(--mono);
+  color: var(--ink);
+  /* Wrapped to the phone, not the desktop's width, so nothing needs panning
+     to select. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.nav-icon.on {
+  background: var(--tint);
+}
+
 .term-banner-slot {
   position: absolute;
   top: 10px;
