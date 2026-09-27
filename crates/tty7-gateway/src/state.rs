@@ -21,6 +21,7 @@ const DEVICES_FILE: &str = "devices.json";
 const PAIRING_FILE: &str = "pairing.json";
 const ADDR_FILE: &str = "addr.json";
 const LOCK_FILE: &str = "serve.lock";
+const PORT_FILE: &str = "port";
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -194,6 +195,22 @@ impl State {
         pairing.expires_at >= unix_now() && constant_time_eq(&pairing.secret, secret)
     }
 
+    /// The UDP port `serve` last listened on. A phone dials the addresses in
+    /// its pairing code first, so keeping the port keeps those addresses good
+    /// across restarts.
+    pub fn port(&self) -> Option<u16> {
+        fs::read_to_string(self.dir.join(PORT_FILE))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
+            .filter(|&port| port != 0)
+    }
+
+    pub fn set_port(&self, port: u16) -> Result<()> {
+        write_private(&self.dir.join(PORT_FILE), port.to_string().as_bytes())
+    }
+
     pub fn reachable(&self) -> Reachable {
         read_json(&self.dir.join(ADDR_FILE))
             .ok()
@@ -322,6 +339,14 @@ mod tests {
         state
             .lock_serve()
             .expect("free again once the holder is gone");
+    }
+
+    #[test]
+    fn the_port_is_kept() {
+        let (_tmp, state) = state();
+        assert_eq!(state.port(), None);
+        state.set_port(41641).unwrap();
+        assert_eq!(state.port(), Some(41641));
     }
 
     #[test]

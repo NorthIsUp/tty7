@@ -30,6 +30,10 @@ use serde::{Deserialize, Serialize};
 /// during the handshake, before a byte of this protocol is read.
 pub const ALPN: &[u8] = b"tty7/mobile/1";
 
+/// The mDNS service both ends use to find each other on a local network,
+/// whatever addresses the gateway has moved to since pairing.
+pub const MDNS_SERVICE: &str = "tty7";
+
 /// Bumped when a message changes shape. Carried in [`OpenReply::Ok`] so an app
 /// can tell the user to update rather than misread a newer gateway.
 pub const PROTOCOL_VERSION: u32 = 1;

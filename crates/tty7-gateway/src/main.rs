@@ -3,12 +3,15 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-use iroh::Endpoint;
-use iroh::endpoint::presets;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+
+use iroh::endpoint::{BindOpts, presets};
+use iroh::{Endpoint, SecretKey};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use tty7_gateway::daemon::{Daemon, hostname};
 use tty7_gateway::serve::{self, Backend as _};
 use tty7_gateway::state::{Reachable, State};
-use tty7_mobile_proto::{ALPN, PairCode};
+use tty7_mobile_proto::{ALPN, MDNS_SERVICE, PairCode};
 
 #[derive(Parser)]
 #[command(
@@ -82,12 +85,16 @@ fn main() -> Result<()> {
 }
 
 async fn serve_forever(state: State, daemon: Arc<Daemon>) -> Result<()> {
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(state.secret_key()?)
-        .alpns(vec![ALPN.to_vec()])
-        .bind()
-        .await
-        .context("starting the iroh endpoint")?;
+    let endpoint = bind(state.secret_key()?, state.port()).await?;
+    if let Some(port) = endpoint
+        .bound_sockets()
+        .iter()
+        .map(SocketAddr::port)
+        .find(|&p| p != 0)
+        && state.port() != Some(port)
+    {
+        state.set_port(port).context("remembering the port")?;
+    }
     println!("tty7-gateway: listening as {}", endpoint.id());
 
     // Keep the addresses `pair` puts in a code current. The local ones are
@@ -114,6 +121,54 @@ async fn serve_forever(state: State, daemon: Arc<Daemon>) -> Result<()> {
 
     serve::run(endpoint, state, daemon).await;
     Ok(())
+}
+
+/// Binds the gateway's endpoint on the port it had last time, so the
+/// addresses in phones' pairing codes still reach it, and advertises it on the
+/// local network. Each of those is given up, with a note, rather than let it
+/// keep the gateway from starting: the port may be taken, and multicast may be
+/// off.
+async fn bind(key: SecretKey, port: Option<u16>) -> Result<Endpoint> {
+    let mut attempts = Vec::new();
+    if let Some(port) = port {
+        attempts.extend([(port, true), (port, false)]);
+    }
+    attempts.extend([(0, true), (0, false)]);
+
+    let mut failures = Vec::new();
+    for (port, mdns) in attempts {
+        let builder = Endpoint::builder(presets::N0)
+            .secret_key(key.clone())
+            .alpns(vec![ALPN.to_vec()])
+            .clear_ip_transports()
+            .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))?
+            // IPv6 is a bonus, as it is in iroh's own defaults.
+            .bind_addr_with_opts(
+                SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)),
+                BindOpts::default().set_is_required(false),
+            )?;
+        let builder = match mdns {
+            true => builder.address_lookup(MdnsAddressLookup::builder().service_name(MDNS_SERVICE)),
+            false => builder,
+        };
+        match builder.bind().await {
+            Ok(endpoint) => {
+                for failure in failures {
+                    eprintln!("tty7-gateway: {failure} — carrying on without it");
+                }
+                return Ok(endpoint);
+            }
+            Err(e) => {
+                let what = match (port, mdns) {
+                    (0, true) => "local network discovery".to_string(),
+                    (0, false) => "the iroh endpoint".to_string(),
+                    (port, _) => format!("port {port}"),
+                };
+                failures.push(format!("{what}: {e}"));
+            }
+        }
+    }
+    anyhow::bail!("could not start: {}", failures.join("; "))
 }
 
 fn pair(state: &State, ttl: u64) -> Result<()> {

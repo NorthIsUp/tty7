@@ -75,6 +75,20 @@ cargo run -p tty7-mobile-client --example probe -- tree
 cargo run -p tty7-mobile-client --example probe -- type 1 'echo hi'
 ```
 
+## Finding the computer again
+
+A pairing code carries the gateway's addresses at the time it was made. Those
+stay good across restarts: `serve` listens on the same UDP port every time
+(`<config dir>/mobile/port`, a fresh one only if it is taken). When they go stale
+anyway — a new DHCP lease, a new IPv6 prefix — the phone looks the gateway up by
+key: through n0's relay and DNS where those are reachable, and by mDNS
+(`_tty7._udp`) on the same local network where they are not.
+
+mDNS needs the OS's local-network permission on both ends. On macOS that belongs
+to whatever launched the gateway (your terminal), and it answers "Allow … to find
+devices on local networks" once. On iOS the app declares it in
+`src-tauri/Info.ios.plist`. Without it, known addresses and the relay still work.
+
 ## Not done yet
 
 - **QR scanning.** The app takes a pasted code for now. Next step is

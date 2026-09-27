@@ -11,10 +11,11 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, anyhow, bail};
 use iroh::endpoint::{Connection, RecvStream, SendStream, presets};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use serde::{Deserialize, Serialize};
 use tty7_mobile_proto::{
-    ALPN, ControlEvent, ControlRequest, Frame, GridSize, Open, OpenReply, PROTOCOL_VERSION,
-    PairCode, PaneEvent, TabCreated, read_frame, write_bytes, write_msg,
+    ALPN, ControlEvent, ControlRequest, Frame, GridSize, MDNS_SERVICE, Open, OpenReply,
+    PROTOCOL_VERSION, PairCode, PaneEvent, TabCreated, read_frame, write_bytes, write_msg,
 };
 
 /// How long to wait for a gateway to answer an [`Open`].
@@ -52,13 +53,28 @@ impl Host {
     }
 }
 
-/// Binds the phone's endpoint with iroh's public relays and address lookup.
+/// Binds the phone's endpoint with iroh's public relays and address lookup,
+/// plus mDNS: on the gateway's own network that finds it by key even when the
+/// addresses the phone knows are stale and no relay can be reached. The phone
+/// only listens; it has no reason to announce itself. Where multicast is not
+/// allowed it does without.
 pub async fn bind(secret: SecretKey) -> Result<Endpoint> {
-    Endpoint::builder(presets::N0)
-        .secret_key(secret)
+    let mdns = MdnsAddressLookup::builder()
+        .service_name(MDNS_SERVICE)
+        .advertise(false);
+    match Endpoint::builder(presets::N0)
+        .secret_key(secret.clone())
+        .address_lookup(mdns)
         .bind()
         .await
-        .context("starting the iroh endpoint")
+    {
+        Ok(endpoint) => Ok(endpoint),
+        Err(_) => Endpoint::builder(presets::N0)
+            .secret_key(secret)
+            .bind()
+            .await
+            .context("starting the iroh endpoint"),
+    }
 }
 
 /// Trades a pairing code for a [`Host`] the app can store and dial later.
