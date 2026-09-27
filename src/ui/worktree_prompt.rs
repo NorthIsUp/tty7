@@ -170,7 +170,7 @@ impl Tty7App {
                                 div()
                                     .truncate()
                                     .text_size(rems(META_MONO))
-                                    .font_family("monospace")
+                                    .font_family(cx.theme().mono_font_family.clone())
                                     .text_color(muted)
                                     .child(preview),
                             ),
