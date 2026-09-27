@@ -97,6 +97,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Every pick-one setting is a dropdown.** Settings drew a single choice two
+  ways — a row of segmented buttons for most, a dropdown for the language, the
+  window backdrop and the rest — with nothing to say which got which, and the
+  segmented rows ran to whatever width their labels made, so the right-hand
+  column never lined up. All of them are dropdowns now, one width. A value set
+  by hand off the presets (scrollback, the notification threshold) shows as a
+  checked "Custom (N)" at the foot of the menu, as the extra segment did.
+
 - **The mouse wheel no longer zooms the font by default.** ⌘ (Ctrl elsewhere)
   plus the wheel used to resize the font, and ⌘ is held for so much else that
   the text jumped size mid-scroll. `mouse_zoom_modifier` now defaults to
