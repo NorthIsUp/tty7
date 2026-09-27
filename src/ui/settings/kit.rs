@@ -318,6 +318,11 @@ impl RenderOnce for Btn {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let tk = Tk::of(cx);
         let kind = self.kind;
+        // A primary with nothing to do yet — disabled, or dimmed with nothing
+        // to save — falls to the faint fill with secondary text, the way v4's
+        // Commit button and the dialogs' Create do. Faded to half opacity it
+        // stayed a black button that still looked like the thing to press.
+        let resting_primary = kind == BtnKind::Primary && (self.disabled || self.dimmed);
         let base = h_flex()
             .id(self.id)
             .flex_shrink_0()
@@ -342,11 +347,14 @@ impl RenderOnce for Btn {
                 .h(px(26.))
                 .px(px(12.))
                 .rounded(px(6.))
-                .bg(tk.fg)
+                .bg(if resting_primary { tk.k05 } else { tk.fg })
                 .text_size(self.size.unwrap_or(fs(12.5)))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(tk.page)
-                .when(!self.disabled, |b| b.hover(|s| s.opacity(0.88))),
+                .text_color(if resting_primary { tk.k45 } else { tk.page })
+                .when(!resting_primary, |b| b.hover(|s| s.opacity(0.88)))
+                .when(resting_primary && !self.disabled, |b| {
+                    b.hover(move |s| s.bg(tk.k08))
+                }),
             BtnKind::Link | BtnKind::Danger => base
                 .text_size(self.size.unwrap_or(fs(12.)))
                 .text_color(if kind == BtnKind::Danger {
@@ -364,8 +372,9 @@ impl RenderOnce for Btn {
                     })
                 }),
         };
-        el.when(self.disabled, |b| b.opacity(0.45))
-            .when(self.dimmed && !self.disabled, |b| b.opacity(0.55))
+        let fades = kind != BtnKind::Primary;
+        el.when(fades && self.disabled, |b| b.opacity(0.45))
+            .when(fades && self.dimmed && !self.disabled, |b| b.opacity(0.55))
             .when_some(self.icon, |b, path| {
                 b.child(Icon::empty().path(path).size(px(10.)).text_color(tk.k6))
             })
