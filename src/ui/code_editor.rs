@@ -2917,7 +2917,9 @@ impl Tty7App {
         let Some(state) = editor_session::get(cx, tab_id) else {
             return;
         };
-        if state.files.is_empty() {
+        // The left group can be empty while the right is not: it held only
+        // files that are not recorded (untitled, remote).
+        if state.files.is_empty() && state.split.as_ref().is_none_or(|s| s.files.is_empty()) {
             return;
         }
         let Some(host) = self.active_host(cx) else {

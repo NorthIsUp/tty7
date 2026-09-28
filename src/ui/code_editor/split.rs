@@ -567,4 +567,50 @@ mod gpui_tests {
         let recorded = vcx.update(|_, cx| editor_session::get(cx, tab)).unwrap();
         assert_eq!(recorded, state);
     }
+
+    #[gpui::test]
+    fn a_split_with_nothing_on_the_left_still_comes_back(cx: &mut TestAppContext) {
+        // The left group held only untitled or remote buffers, which are
+        // not recorded: only the right group's files were written down.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let c = root.join("c.rs");
+        std::fs::write(&c, "fn main() {}\n").unwrap();
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        let state = TabEditor {
+            files: vec![],
+            active: 0,
+            visible: true,
+            split: Some(SplitEditor {
+                files: vec![c.clone()],
+                active: 0,
+                focused: true,
+            }),
+        };
+        let tab = app.read_with(&vcx, |app, _| app.tabs[0].tree_id.get());
+        vcx.update(|_, cx| editor_session::put(cx, tab, state.clone()));
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.editor.restored.remove(&tab);
+            app.editor_restore_active(window, cx);
+        });
+        let has_files = |app: &Entity<Tty7App>, vcx: &mut VisualTestContext| {
+            app.read_with(vcx, |app, _| {
+                app.tab_code().is_some_and(|c| c.active_id().is_some())
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !has_files(&app, &mut vcx) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the right group's file never came back"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            vcx.run_until_parked();
+        }
+        app.read_with(&vcx, |app, _| {
+            let code = app.tab_code().unwrap();
+            assert_eq!(app.buffer(code.active_id().unwrap()).unwrap().path, c);
+        });
+    }
 }
