@@ -91,6 +91,15 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         ));
         bindings.push(KeyBinding::new("secondary-alt-up", AddCursorAbove, input));
         bindings.push(KeyBinding::new("secondary-alt-down", AddCursorBelow, input));
+        // ⌘K ⌘D: a chord whose first key is `ClearScrollback` on macOS. gpui
+        // drops a pending chord that ranks below a complete match, so this
+        // too has to come after tty7's table. Code editor only: in any other
+        // field ⌘K goes straight through, without waiting for a second key.
+        bindings.push(KeyBinding::new(
+            "secondary-k secondary-d",
+            gpui_component::input::SkipOccurrence,
+            Some(gpui_component::input::CODE_EDITOR_CONTEXT),
+        ));
     }
     // The language-server commands, on the keys VS Code taught everyone, and
     // only inside a text field: F2 and F12 in a terminal belong to the
@@ -3126,6 +3135,35 @@ mod gpui_tests {
                     "a terminal still splits on ⌘D"
                 );
             }
+
+            // ⌘K ⌘D in the code editor skips to the next occurrence, and ⌘K
+            // there waits for the chord's second key.
+            let editor = [
+                gpui::KeyContext::parse("Workspace").expect("the context parses"),
+                gpui::KeyContext::parse("Input CodeEditor").expect("the context parses"),
+            ];
+            let keymap = cx.key_bindings();
+            let keymap = keymap.borrow();
+            let chord = [
+                Keystroke::parse("secondary-k").unwrap(),
+                Keystroke::parse("secondary-d").unwrap(),
+            ];
+            let (hits, _) = keymap.bindings_for_input(&chord, &editor);
+            assert_eq!(
+                hits.first().map(|b| b.action().name()),
+                Some(gpui_component::input::SkipOccurrence::name_for_type())
+            );
+            let (_, pending) =
+                keymap.bindings_for_input(&[Keystroke::parse("secondary-k").unwrap()], &editor);
+            assert!(pending, "⌘K waits for the chord in the code editor");
+            // A plain text field isn't held up.
+            let field = [
+                gpui::KeyContext::parse("Workspace").expect("the context parses"),
+                gpui::KeyContext::parse("Input").expect("the context parses"),
+            ];
+            let (_, pending) =
+                keymap.bindings_for_input(&[Keystroke::parse("secondary-k").unwrap()], &field);
+            assert!(!pending, "⌘K goes straight through in other fields");
         });
     }
 
