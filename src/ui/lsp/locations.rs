@@ -215,7 +215,7 @@ impl Tty7App {
     /// What the Symbols tab asks as its query changes: the front file's
     /// language server, for symbols anywhere in the project. `None` when
     /// there is no such server, and the tab lists the file's own alone.
-    pub(crate) fn lsp_workspace_live_query(
+    pub(crate) fn lsp_project_symbol_query(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -256,7 +256,7 @@ impl Tty7App {
         if query.trim().is_empty() {
             if let Some(view) = self.search.clone() {
                 view.update(cx, |view, cx| {
-                    view.set_workspace_symbols(Vec::new(), window, cx)
+                    view.set_project_symbols(Vec::new(), window, cx)
                 });
             }
             return;
@@ -317,7 +317,7 @@ impl Tty7App {
                 if let Some(view) = app.search.clone()
                     && view.read(cx).tab() == SearchTab::Symbols
                 {
-                    view.update(cx, |view, cx| view.set_workspace_symbols(items, window, cx));
+                    view.update(cx, |view, cx| view.set_project_symbols(items, window, cx));
                 }
             });
         })
@@ -343,10 +343,11 @@ impl Tty7App {
     }
 }
 
-/// The most workspace symbols listed for one query.
+/// The most project symbols (LSP `workspace/symbol`) listed for one query.
 const MAX_WORKSPACE_SYMBOLS: usize = 200;
 
-/// One workspace symbol, before its column is measured.
+/// One project symbol, before its column is measured. "Workspace" is the
+/// protocol's word for the server's project root — not a tty7 workspace.
 pub(crate) struct WorkspaceHit {
     pub(crate) name: String,
     pub(crate) kind: lsp_types::SymbolKind,

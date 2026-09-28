@@ -1314,7 +1314,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdEditorGoToSymbol => "エディタ: シンボルへ移動…",
         L10nKey::SearchHeadingReferences => "参照",
         L10nKey::SearchSectionThisFile => "このファイル",
-        L10nKey::SearchSectionWorkspace => "ワークスペース",
+        L10nKey::SearchSectionProject => "プロジェクト",
         L10nKey::SearchHeadingDefinitions => "定義",
         L10nKey::CmdEditorGoBack => "エディタ: 戻る",
         L10nKey::CmdEditorGoForward => "エディタ: 進む",

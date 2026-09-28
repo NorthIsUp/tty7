@@ -1180,7 +1180,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdEditorGoToSymbol => "编辑器：跳转到符号…",
         L10nKey::SearchHeadingReferences => "引用",
         L10nKey::SearchSectionThisFile => "本文件",
-        L10nKey::SearchSectionWorkspace => "工作区",
+        L10nKey::SearchSectionProject => "项目",
         L10nKey::SearchHeadingDefinitions => "定义",
         L10nKey::CmdEditorGoBack => "编辑器：后退",
         L10nKey::CmdEditorGoForward => "编辑器：前进",

@@ -99,9 +99,9 @@ pub(crate) struct Catalog {
     pub locations: Vec<Item>,
     /// What the front file's language server found across the project for
     /// the Symbols tab's query (`ui::lsp`), listed after the file's own.
-    pub workspace_symbols: Vec<Item>,
+    pub project_symbols: Vec<Item>,
     /// Asked with every query the Symbols tab is given; its answer comes
-    /// back through `SearchView::set_workspace_symbols`.
+    /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
 }
 
@@ -127,7 +127,7 @@ impl Catalog {
             files: FileList::default(),
             symbols: Vec::new(),
             locations: Vec::new(),
-            workspace_symbols: Vec::new(),
+            project_symbols: Vec::new(),
             live_query: None,
         }
     }
@@ -151,8 +151,8 @@ impl Catalog {
     /// The sections `tab` shows for `query`.
     pub(crate) fn sections(&self, tab: SearchTab, query: &str, cx: &App) -> Vec<Section> {
         let query = query.trim();
-        if tab == SearchTab::Symbols && !query.is_empty() && !self.workspace_symbols.is_empty() {
-            return self.symbols_here_and_everywhere(query, cx);
+        if tab == SearchTab::Symbols && !query.is_empty() && !self.project_symbols.is_empty() {
+            return self.symbols_here_and_in_the_project(query, cx);
         }
         if let Some(source) = self.source(tab) {
             return match query.is_empty() {
@@ -166,16 +166,16 @@ impl Catalog {
     /// A Symbols search once the language server has answered: the file's
     /// own symbols first, since the one in front is the likeliest meant, then
     /// the project's — each under a heading only when both have rows.
-    fn symbols_here_and_everywhere(&self, query: &str, cx: &App) -> Vec<Section> {
+    fn symbols_here_and_in_the_project(&self, query: &str, cx: &App) -> Vec<Section> {
         let rows = |hits: Vec<(i32, Item)>| -> Vec<Row> {
             hits.into_iter().map(|(_, item)| Row::Item(item)).collect()
         };
         let here = rows(Symbols(&self.symbols).search(query, cx));
-        let everywhere = rows(rank(&self.workspace_symbols, query, |_| 0));
+        let everywhere = rows(rank(&self.project_symbols, query, |_| 0));
         let both = !here.is_empty() && !everywhere.is_empty();
         [
             (L10nKey::SearchSectionThisFile, here),
-            (L10nKey::SearchSectionWorkspace, everywhere),
+            (L10nKey::SearchSectionProject, everywhere),
         ]
         .into_iter()
         .filter(|(_, rows)| !rows.is_empty())
@@ -771,12 +771,12 @@ mod tests {
             shape(&catalog, "render", cx),
             vec![(None, vec!["render".to_string()])]
         );
-        catalog.workspace_symbols = vec![there("render_row"), there("unrelated")];
+        catalog.project_symbols = vec![there("render_row"), there("unrelated")];
         assert_eq!(
             shape(&catalog, "render", cx),
             vec![
                 (Some("In This File".into()), vec!["render".to_string()]),
-                (Some("Workspace".into()), vec!["render_row".to_string()]),
+                (Some("Project".into()), vec!["render_row".to_string()]),
             ]
         );
         // Nothing here: the project's rows need no heading.

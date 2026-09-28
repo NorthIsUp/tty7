@@ -566,7 +566,7 @@ impl Tty7App {
             origin,
             scroll,
         });
-        let live = self.lsp_workspace_live_query(window, cx);
+        let live = self.lsp_project_symbol_query(window, cx);
         if let Some(view) = self.search.clone() {
             view.update(cx, |view, cx| {
                 view.set_symbols(rows, here, window, cx);

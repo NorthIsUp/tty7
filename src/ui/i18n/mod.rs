@@ -984,7 +984,7 @@ l10n_keys! {
     CmdEditorGoToSymbol,
     SearchHeadingReferences,
     SearchSectionThisFile,
-    SearchSectionWorkspace,
+    SearchSectionProject,
     SearchHeadingDefinitions,
     CmdEditorGoBack,
     CmdEditorGoForward,

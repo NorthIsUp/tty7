@@ -1268,7 +1268,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdEditorGoToSymbol => "Editor: Go to Symbol…",
         L10nKey::SearchHeadingReferences => "References",
         L10nKey::SearchSectionThisFile => "In This File",
-        L10nKey::SearchSectionWorkspace => "Workspace",
+        L10nKey::SearchSectionProject => "Project",
         L10nKey::SearchHeadingDefinitions => "Definitions",
         L10nKey::CmdEditorGoBack => "Editor: Go Back",
         L10nKey::CmdEditorGoForward => "Editor: Go Forward",

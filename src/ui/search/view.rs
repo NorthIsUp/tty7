@@ -649,13 +649,13 @@ impl SearchView {
 
     /// What the language server found across the project for the Symbols
     /// tab's current query, listed after the file's own symbols.
-    pub(crate) fn set_workspace_symbols(
+    pub(crate) fn set_project_symbols(
         &mut self,
         symbols: Vec<Item>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_catalog(|catalog| catalog.workspace_symbols = symbols, window, cx);
+        self.update_catalog(|catalog| catalog.project_symbols = symbols, window, cx);
     }
 
     /// Sets what the Symbols tab asks the language server as the query
