@@ -2948,4 +2948,51 @@ mod gpui_tests {
             }
         });
     }
+
+    /// Go to Symbol and Back/Forward sit on chords the window already uses
+    /// (⌘⇧O is the workspace switcher; off macOS Alt+←/→ move between
+    /// panes). Bound at the text field's depth and after the window's table,
+    /// they rank first inside the editor, and a terminal never sees them.
+    #[gpui::test]
+    fn editor_navigation_chords_outrank_the_window_inside_a_text_field(cx: &mut TestAppContext) {
+        use gpui::Action as _;
+        cx.update(|cx| {
+            running_on_json(cx, "{}");
+            let in_input = |keys: &str| -> Vec<&'static str> {
+                let input = [Keystroke::parse(keys).expect("the keystroke parses")];
+                let context = [
+                    gpui::KeyContext::parse("Workspace").expect("the context parses"),
+                    gpui::KeyContext::parse("Input").expect("the context parses"),
+                ];
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &context)
+                    .0
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect()
+            };
+            let (back, forward) = match cfg!(target_os = "macos") {
+                true => ("ctrl--", "ctrl-shift--"),
+                false => ("alt-left", "alt-right"),
+            };
+            for (keys, action) in [
+                ("secondary-shift-o", EditorGoToSymbol::name_for_type()),
+                (back, EditorNavigateBack::name_for_type()),
+                (forward, EditorNavigateForward::name_for_type()),
+            ] {
+                assert_eq!(
+                    in_input(keys).first(),
+                    Some(&action),
+                    "{keys} in the editor"
+                );
+                assert!(!fired(cx, keys).contains(&action), "{keys} in a terminal");
+            }
+            assert_eq!(
+                fired(cx, "secondary-shift-o").first(),
+                Some(&ToggleSwitcher::name_for_type()),
+                "a terminal still opens the switcher"
+            );
+        });
+    }
 }
