@@ -70,6 +70,28 @@ fn fixed_bindings() -> Vec<KeyBinding> {
     let search = Some(crate::ui::search::KEY_CONTEXT);
     bindings.push(KeyBinding::new("tab", SearchNextTab, search));
     bindings.push(KeyBinding::new("shift-tab", SearchPrevTab, search));
+    // The code editor's multi-cursor chords, laid down again after tty7's
+    // own table. gpui ranks a context-free binding as deep as the focused
+    // context, and breaks the tie by whichever was added last — so the copies
+    // gpui-component installs lose ⌘D to `SplitRight` and ⌘⌥↑/↓ to
+    // `FocusPaneUp`/`Down`, whose handlers sit on the workspace root and take
+    // the key before the editor is asked. Re-added here they win inside an
+    // `Input`; only the code editor handles them, so in any other text field
+    // gpui falls through to the pane binding next in line.
+    {
+        use gpui_component::input::{
+            AddCursorAbove, AddCursorBelow, SelectAllOccurrences, SelectNextOccurrence,
+        };
+        let input = Some("Input");
+        bindings.push(KeyBinding::new("secondary-d", SelectNextOccurrence, input));
+        bindings.push(KeyBinding::new(
+            "secondary-shift-l",
+            SelectAllOccurrences,
+            input,
+        ));
+        bindings.push(KeyBinding::new("secondary-alt-up", AddCursorAbove, input));
+        bindings.push(KeyBinding::new("secondary-alt-down", AddCursorBelow, input));
+    }
     bindings
 }
 
@@ -2831,6 +2853,54 @@ mod gpui_tests {
             assert_eq!(backspace(cx), inherited, "init must not drop them");
             rebind(cx);
             assert_eq!(backspace(cx), inherited, "nor may a rebind");
+        });
+    }
+
+    /// The code editor's multi-cursor chords sit on keys tty7 ships for panes
+    /// (⌘D split, ⌘⌥↑/↓ focus). `fixed_bindings` re-adds them after the
+    /// pane table so they rank first inside an `Input`; any other text field
+    /// has no handler for them, and gpui falls through to the pane binding
+    /// listed after. A terminal never sees them.
+    #[gpui::test]
+    fn editor_multi_cursor_chords_outrank_the_pane_bindings(cx: &mut TestAppContext) {
+        use gpui::Action as _;
+        use gpui_component::input::{
+            AddCursorAbove, AddCursorBelow, SelectAllOccurrences, SelectNextOccurrence,
+        };
+        cx.update(|cx| {
+            running_on_json(cx, "{}");
+            let in_input = |keys: &str| -> Vec<&'static str> {
+                let input = [Keystroke::parse(keys).expect("the keystroke parses")];
+                let context = [
+                    gpui::KeyContext::parse("Workspace").expect("the context parses"),
+                    gpui::KeyContext::parse("Input").expect("the context parses"),
+                ];
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &context)
+                    .0
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect()
+            };
+            let cases = [
+                ("secondary-d", SelectNextOccurrence::name_for_type()),
+                ("secondary-shift-l", SelectAllOccurrences::name_for_type()),
+                ("secondary-alt-up", AddCursorAbove::name_for_type()),
+                ("secondary-alt-down", AddCursorBelow::name_for_type()),
+            ];
+            for (keys, editor_action) in cases {
+                let hits = in_input(keys);
+                assert_eq!(hits.first(), Some(&editor_action), "{keys} in the editor");
+            }
+            if cfg!(target_os = "macos") {
+                assert!(in_input("secondary-d").contains(&SplitRight::name_for_type()));
+                assert_eq!(
+                    fired(cx, "secondary-d").first(),
+                    Some(&SplitRight::name_for_type()),
+                    "a terminal still splits on ⌘D"
+                );
+            }
         });
     }
 }
