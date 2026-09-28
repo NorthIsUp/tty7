@@ -107,6 +107,15 @@ pub enum CommandKind {
     OpenThemePicker,
     /// Moves the search to its Hosts tab, where typing an address connects.
     SearchHosts,
+    /// Moves the search to its Files tab — quick open by name.
+    QuickOpenFile,
+    /// A file the Files tab found, opened in the editor — on `line` and
+    /// `column` when the query named them (`main.rs:120:5`).
+    OpenFile {
+        path: std::path::PathBuf,
+        line: Option<u32>,
+        column: Option<u32>,
+    },
     /// Connect with a typed `ssh` command line (`-p`, `-J`, an alias…).
     OpenSshConnect(String),
     SetTheme(usize),
@@ -120,6 +129,19 @@ pub enum CommandKind {
         agent: CLIAgent,
         session_id: String,
         cwd: Option<std::path::PathBuf>,
+    },
+    /// A past agent session, branched into a new tab where it ran.
+    ForkSession {
+        agent: CLIAgent,
+        session_id: String,
+        cwd: Option<std::path::PathBuf>,
+    },
+    CopySessionId(String),
+    /// Leave a past session out of the Sessions tab from now on. Its files
+    /// are the agent's and stay where they are.
+    HideSession {
+        agent: CLIAgent,
+        session_id: String,
     },
     ConnectSavedProfile(Uuid),
     EditSavedProfile(Uuid),
@@ -194,6 +216,8 @@ impl CommandKind {
             // even though the panel is now called Source Control.
             ShowRightPanel(RightPanelTab::Scm) => "right-panel-changes",
             ShowRightPanel(RightPanelTab::Files) => "right-panel-files",
+            ShowRightPanel(RightPanelTab::Search) => "right-panel-search",
+            ShowRightPanel(RightPanelTab::GitHub) => "right-panel-github",
             ClearTerminal => "clear-scrollback",
             FindInTerminal => "find",
             FindNext => "find-next",
@@ -239,12 +263,17 @@ impl CommandKind {
             SendGitDiffToAgent => "agent-send-diff",
             OpenThemePicker => "change-theme",
             SearchHosts => "ssh-add-connection",
+            QuickOpenFile => "go-to-file",
             OpenSshProfiles => "ssh-manage-profiles",
             SaveSshSessionAsHost => "ssh-save-connection",
             OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | OpenFile { .. }
             | ResumeSession { .. }
+            | ForkSession { .. }
+            | CopySessionId(_)
+            | HideSession { .. }
             | ConnectSavedProfile(_)
             | EditSavedProfile(_)
             | OpenShell(_)
@@ -320,6 +349,8 @@ impl CommandKind {
                 RightPanelTab::Info => "ShowRightPanelInfo",
                 RightPanelTab::Scm => "ShowRightPanelChanges",
                 RightPanelTab::Files => "ShowRightPanelFiles",
+                RightPanelTab::Search => "ShowRightPanelSearch",
+                RightPanelTab::GitHub => "ShowRightPanelGitHub",
             },
             ClearTerminal => "ClearScrollback",
             FindInTerminal => "FindInTerminal",
@@ -357,6 +388,7 @@ impl CommandKind {
             ScmCreateBranch => "ScmCreateBranch",
             OpenBranchPicker => "ScmCheckoutBranch",
             ToggleDiffViewMode => "ToggleDiffViewMode",
+            QuickOpenFile => "QuickOpenFile",
             CopyText
             | CutText
             | PasteText
@@ -373,7 +405,11 @@ impl CommandKind {
             | OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | OpenFile { .. }
             | ResumeSession { .. }
+            | ForkSession { .. }
+            | CopySessionId(_)
+            | HideSession { .. }
             | ConnectSavedProfile(_)
             | EditSavedProfile(_)
             | OpenShell(_)
@@ -605,6 +641,7 @@ impl Item {
                 ToggleRightPanel,
             ),
             Item::localized(L10nKey::CmdShowCodePanel, ToggleCodePanel),
+            Item::localized(L10nKey::CmdGoToFile, QuickOpenFile),
             Item::localized(
                 if document_filled {
                     L10nKey::CmdDocumentDock
@@ -631,12 +668,20 @@ impl Item {
                 ShowRightPanel(RightPanelTab::Info),
             ),
             Item::localized(
+                L10nKey::CmdRightPanelFiles,
+                ShowRightPanel(RightPanelTab::Files),
+            ),
+            Item::localized(
+                L10nKey::CmdRightPanelSearch,
+                ShowRightPanel(RightPanelTab::Search),
+            ),
+            Item::localized(
                 L10nKey::CmdRightPanelChanges,
                 ShowRightPanel(RightPanelTab::Scm),
             ),
             Item::localized(
-                L10nKey::CmdRightPanelFiles,
-                ShowRightPanel(RightPanelTab::Files),
+                L10nKey::CmdRightPanelGitHub,
+                ShowRightPanel(RightPanelTab::GitHub),
             ),
             Item::localized(L10nKey::CmdChangeTheme, OpenThemePicker),
             Item::localized(L10nKey::CmdResetFontSize, ResetFontSize),
@@ -758,6 +803,55 @@ impl Item {
             .collect()
     }
 
+    /// What can be done with the past session `kind` resumes: the list its
+    /// row opens. `None` for any other row.
+    pub fn session_actions(kind: &CommandKind, cx: &App) -> Option<Vec<Item>> {
+        let CommandKind::ResumeSession {
+            agent,
+            session_id,
+            cwd,
+        } = kind
+        else {
+            return None;
+        };
+        let launch = &cx.global::<Config>().agent_launch;
+        let mut out = vec![
+            Item::localized(L10nKey::SessionActionResume, kind.clone())
+                .with_subtitle(t(L10nKey::SessionActionResumeSubtitle)),
+        ];
+        if crate::ui::agent_launch::fork_line(*agent, session_id, launch).is_some() {
+            out.push(
+                Item::localized(
+                    L10nKey::CmdForkSession,
+                    CommandKind::ForkSession {
+                        agent: *agent,
+                        session_id: session_id.clone(),
+                        cwd: cwd.clone(),
+                    },
+                )
+                .with_subtitle(t(L10nKey::CmdForkSessionSubtitle)),
+            );
+        }
+        out.push(
+            Item::localized(
+                L10nKey::CmdCopySessionId,
+                CommandKind::CopySessionId(session_id.clone()),
+            )
+            .with_subtitle(session_id.clone()),
+        );
+        out.push(
+            Item::localized(
+                L10nKey::SessionActionHide,
+                CommandKind::HideSession {
+                    agent: *agent,
+                    session_id: session_id.clone(),
+                },
+            )
+            .with_subtitle(t(L10nKey::SessionActionHideSubtitle)),
+        );
+        Some(out)
+    }
+
     /// Row of the preset already in use, so the theme picker can open on it
     /// instead of previewing something else the moment it is opened.
     pub fn active_theme_index(cx: &App) -> Option<usize> {
@@ -792,6 +886,8 @@ mod tests {
             CommandKind::Quit,
             CommandKind::ShowRightPanel(RightPanelTab::Info),
             CommandKind::ShowRightPanel(RightPanelTab::Files),
+            CommandKind::ShowRightPanel(RightPanelTab::Search),
+            CommandKind::ShowRightPanel(RightPanelTab::GitHub),
         ] {
             let id = kind.id().expect("static command has an id");
             assert!(seen.insert(id), "duplicate command id {id:?}");

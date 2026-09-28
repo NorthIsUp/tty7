@@ -85,6 +85,7 @@ pub(crate) fn set_menus(cx: &mut App) {
         ]),
         Menu::new(t(L10nKey::AppMenuView)).items([
             MenuItem::action(t(L10nKey::AppMenuSearchEverywhere), TogglePalette),
+            MenuItem::action(t(L10nKey::CmdGoToFile), QuickOpenFile),
             MenuItem::separator(),
             MenuItem::action(t(L10nKey::AppMenuIncreaseFontSize), IncreaseFontSize),
             MenuItem::action(t(L10nKey::AppMenuDecreaseFontSize), DecreaseFontSize),
@@ -1269,4 +1270,14 @@ mod tests {
             &[WindowBackdrop::Auto, WindowBackdrop::Off]
         );
     }
+}
+
+/// The text view's style for rendered Markdown, wherever tty7 shows it.
+///
+/// Inline `code` gets a faint neutral fill. The text view's own default is the
+/// theme's `accent`, which tty7 also paints selection with, so every code span
+/// read as selected text.
+pub(crate) fn markdown_style(cx: &gpui::App) -> gpui_component::text::TextViewStyle {
+    gpui_component::text::TextViewStyle::default()
+        .inline_code_background(cx.theme().foreground.opacity(0.08))
 }

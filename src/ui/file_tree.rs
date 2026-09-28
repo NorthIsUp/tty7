@@ -207,6 +207,10 @@ pub(crate) struct FileTreeState {
     repo_roots: ByHost<PathBuf, PathBuf>,
     repo_root_loads: InFlight<DirKey>,
     search: SearchState,
+    /// Every file under the project, for the search's Files tab
+    /// (`ui::search::files`). Kept here, beside the tree it is a flat copy of,
+    /// so it outlives the search it was walked for.
+    pub(crate) quick_open: crate::ui::search::FileIndexStore,
     pub(crate) show_hidden: bool,
     pub(crate) editing: Option<TreeEdit>,
     editing_subs: Vec<Subscription>,
@@ -250,6 +254,7 @@ impl FileTreeState {
             repo_roots: ByHost::default(),
             repo_root_loads: InFlight::default(),
             search: SearchState::default(),
+            quick_open: Default::default(),
             show_hidden: false,
             editing: None,
             editing_subs: Vec::new(),
@@ -755,9 +760,42 @@ impl Tty7App {
 
     pub(crate) fn file_tree_refresh_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let id = self.spawn_host(cx);
-        let Some(host) = self.active_host(cx) else {
+        let Some((host, mut roots)) = self.project_roots(cx) else {
             return;
         };
+        if roots.is_empty()
+            && id.is_local()
+            && let Some(home) = std::env::var_os("HOME")
+        {
+            roots.push(PathBuf::from(home));
+        }
+        let _ = window;
+        let Some(code) = self.tab_code_mut_or_init() else {
+            return;
+        };
+        if roots != code.roots {
+            code.roots = roots;
+            self.file_tree.invalidate_all();
+            cx.notify();
+        }
+        self.file_tree_sync_watch(host, cx);
+    }
+
+    /// The project directories behind the active tab, on the host they live
+    /// on: each pane's repository root, or its directory where it is not in
+    /// one. `None` while a root is still being asked for (the ask is sent from
+    /// here); an empty list where no pane has a directory on this host.
+    ///
+    /// The tree and the Search tab both start from this, so what Search looks
+    /// through is always what the tree shows. Only the tree falls back to the
+    /// home directory — a folder to browse is harmless, a search of all of it
+    /// is not.
+    pub(crate) fn project_roots(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(SharedHost, Vec<PathBuf>)> {
+        let id = self.spawn_host(cx);
+        let host = self.active_host(cx)?;
         let leaves = match self.tabs.get(self.active) {
             Some(tab) => tab.pane.terminals(),
             None => Vec::new(),
@@ -788,25 +826,7 @@ impl Tty7App {
                 }
             }
         }
-        if !resolved {
-            return;
-        }
-        if roots.is_empty()
-            && id.is_local()
-            && let Some(home) = std::env::var_os("HOME")
-        {
-            roots.push(PathBuf::from(home));
-        }
-        let _ = window;
-        let Some(code) = self.tab_code_mut_or_init() else {
-            return;
-        };
-        if roots != code.roots {
-            code.roots = roots;
-            self.file_tree.invalidate_all();
-            cx.notify();
-        }
-        self.file_tree_sync_watch(host, cx);
+        resolved.then_some((host, roots))
     }
 
     fn file_tree_sync_watch(&mut self, host: SharedHost, cx: &mut Context<Self>) {
@@ -1058,12 +1078,15 @@ impl Tty7App {
                 if let Err(e) = crate::terminal::view::open_file_path(path) {
                     log::warn!("failed to open {}: {e}", path.display());
                     window.push_notification(
-                        t_fmt(
-                            L10nKey::LinkFileOpenFailed,
-                            &[
-                                ("path", &path.display().to_string()),
-                                ("error", &e.to_string()),
-                            ],
+                        crate::ui::host_ops::failure(
+                            t_fmt(
+                                L10nKey::LinkFileOpenFailed,
+                                &[
+                                    ("path", &path.display().to_string()),
+                                    ("error", &e.to_string()),
+                                ],
+                            ),
+                            &e,
                         ),
                         cx,
                     );
@@ -1298,14 +1321,25 @@ impl Tty7App {
             window,
             cx,
             move |h| match &op {
-                TreeWrite::NewFile => h.create_file_new(&target),
-                TreeWrite::NewFolder => h.create_dir(&target, false),
-                TreeWrite::Rename { from } => h.rename(from, &target),
-                TreeWrite::Delete => h.remove(&target, is_dir),
+                TreeWrite::NewFile => h.create_file_new(&target).map(|()| None),
+                TreeWrite::NewFolder => h.create_dir(&target, false).map(|()| None),
+                // Resolved on either side of the move, in the same trip: the
+                // editor keys its buffers on canonical paths, and once the
+                // rename lands the old one can no longer be resolved.
+                TreeWrite::Rename { from } => {
+                    let canon_from = h.canonicalize(from).unwrap_or_else(|_| from.clone());
+                    h.rename(from, &target)?;
+                    let canon_to = h.canonicalize(&target).unwrap_or_else(|_| target.clone());
+                    Ok(Some((canon_from, canon_to)))
+                }
+                TreeWrite::Delete => h.remove(&target, is_dir).map(|()| None),
             },
-            move |app, result: std::io::Result<()>, window, cx| {
+            move |app, result: std::io::Result<Option<(PathBuf, PathBuf)>>, window, cx| {
                 match result {
-                    Ok(()) => {
+                    Ok(moved) => {
+                        if let Some((from, to)) = moved {
+                            app.editor_path_moved(id, &from, &to, cx);
+                        }
                         app.file_tree.invalidate_dir(id, &dir);
                         if matches!(edit, TreeEdit::NewFile { .. }) {
                             app.open_file_in_editor(&new_path, window, cx);
@@ -1434,10 +1468,14 @@ impl Tty7App {
                     host,
                     window,
                     cx,
-                    move |h| h.remove(&target, is_dir),
-                    move |app, result: std::io::Result<()>, window, cx| {
+                    move |h| {
+                        let canon = h.canonicalize(&target).unwrap_or_else(|_| target.clone());
+                        h.remove(&target, is_dir).map(|()| canon)
+                    },
+                    move |app, result: std::io::Result<PathBuf>, window, cx| {
                         match result {
-                            Ok(()) => {
+                            Ok(removed) => {
+                                app.editor_path_removed(id, &removed, cx);
                                 app.file_tree.invalidate_dir(id, &parent);
                             }
                             Err(e) => {
@@ -1569,20 +1607,38 @@ impl Tty7App {
     }
 
     fn file_tree_attach_to_agent(&mut self, path: &Path, cx: &mut Context<Self>) {
+        self.attach_path_to_agent(path, "", cx);
+    }
+
+    /// Types `@path` into the running agent's prompt, relative to the tree's
+    /// root when the file is under one. `suffix` goes straight after the
+    /// path — the editor adds the selected lines as `#L3-9`.
+    pub(crate) fn attach_path_to_agent(
+        &mut self,
+        path: &Path,
+        suffix: &str,
+        cx: &mut Context<Self>,
+    ) {
         let Some(target) = self.agent_target_leaf(cx) else {
             crate::terminal::notify_desktop(Some("tty7"), t(L10nKey::AppNoRunningCodingAgent));
             return;
         };
         let rel = self
-            .tab_code()
+            .path_under_tree_root(path)
+            .unwrap_or_else(|| path.to_path_buf());
+        target.update(cx, |view, cx| {
+            view.paste(format!("@{}{suffix} ", rel.display()), cx);
+        });
+    }
+
+    /// `path` relative to the first of this tab's tree roots it sits under.
+    pub(crate) fn path_under_tree_root(&self, path: &Path) -> Option<PathBuf> {
+        self.tab_code()
             .into_iter()
             .flat_map(|c| c.roots.iter())
             .find_map(|r| path.strip_prefix(r).ok())
+            .filter(|p| !p.as_os_str().is_empty())
             .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| path.to_path_buf());
-        target.update(cx, |view, cx| {
-            view.paste(format!("@{} ", rel.display()), cx);
-        });
     }
 }
 
@@ -1639,11 +1695,28 @@ impl Tty7App {
         // A search that found nothing, and a tab with no directory behind it,
         // both used to render as an empty column that looks identical to a
         // tree still loading.
-        let blank = rows.is_empty().then(|| {
-            let text = match self.file_tree_searching(cx) {
-                true => t_fmt(L10nKey::SettingsNothingMatches, &[("query", &query)]),
-                false => t(L10nKey::OpenFileFromTree).to_string(),
-            };
+        // Searching, the column is v5's two sections: the names that match,
+        // then what the files say. Either can be empty; the contents section
+        // speaks for itself, so a names section with nothing in it just
+        // steps aside.
+        let searching = self.file_tree_searching(cx);
+        let names_heading = (searching && !rows.is_empty()).then(|| {
+            let found = rows.iter().filter(|r| r.note.is_none()).count();
+            search_section_heading(
+                t(L10nKey::PanelFilesNameMatches),
+                Some(found.to_string()),
+                cx,
+            )
+        });
+        // Asked for either way: with the field emptied, this is what lets the
+        // content search drop its last answer.
+        let contents = self.panel_search_section(window, cx);
+        let contents = match searching {
+            true => contents,
+            false => Vec::new(),
+        };
+        let blank = (rows.is_empty() && !searching).then(|| {
+            let text = t(L10nKey::OpenFileFromTree).to_string();
             div()
                 .px(px(ROW_INSET))
                 .py_4()
@@ -1664,7 +1737,13 @@ impl Tty7App {
                 this.file_tree_key_down(ev, window, cx);
             }))
             .children(blank)
+            .children(names_heading)
             .children(self.render_tree_children(&rows, &decor, window, cx))
+            .when(!contents.is_empty(), |column| {
+                column
+                    .child(div().flex_none().h(px(SEARCH_SECTION_GAP)))
+                    .children(contents)
+            })
             // Everything the rows do not cover — the gap below the last one,
             // and the whole column while the tree is still empty — belongs to
             // the top of the tree. A row under the cursor wins: gpui hands a
@@ -1833,11 +1912,7 @@ impl Tty7App {
 
         let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
         let tree_host = self.spawn_host(cx);
-        let dirty = self.tab_code().is_some_and(|c| {
-            c.files
-                .iter()
-                .any(|f| f.dirty && f.host.id() == tree_host && f.path == *path)
-        });
+        let dirty = self.editor_is_dirty(tree_host, &path);
 
         let renaming = matches!(
             &self.file_tree.editing,
@@ -2415,6 +2490,38 @@ fn event_can_change_a_row(path: &Path, show_hidden: bool) -> bool {
         || !path
             .file_name()
             .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+}
+
+/// Between the Files tab's two search sections.
+const SEARCH_SECTION_GAP: f32 = 10.;
+
+/// A heading over one of the Files tab's search sections — "File names",
+/// "In file contents" — with its tally at the trailing edge, in caption ink.
+pub(crate) fn search_section_heading(label: &str, tally: Option<String>, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .flex_none()
+        .h(px(22.))
+        .px(px(ROW_INSET))
+        .items_center()
+        .gap(px(8.))
+        .text_size(gpui::rems(crate::ui::right_panel::HEADING))
+        .text_color(muted)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .child(label.to_string()),
+        )
+        .children(tally.map(|n| {
+            div()
+                .flex_none()
+                .font_features(crate::ui::theme::tabular_figures())
+                .child(n)
+        }))
+        .into_any_element()
 }
 
 #[cfg(test)]

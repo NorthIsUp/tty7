@@ -15,8 +15,7 @@ use uuid::Uuid;
 
 use crate::core::config::{
     BellMode, Config, CursorStyle, LinkFileOpen, MouseZoomModifier, NewTabPosition, NotifyMode,
-    PromptCursorStyle, SshTabTitle, TabBarPosition, UI_FONT_SIZE_DEFAULT, UpdateChannel,
-    WindowBackdrop,
+    PromptCursorStyle, TabBarPosition, UI_FONT_SIZE_DEFAULT, UpdateChannel, WindowBackdrop,
 };
 use crate::core::keychain::{
     CredentialRef, CredentialStore as _, OsCredentialStore, key_account_from_contents,
@@ -90,8 +89,13 @@ fn ui_scale(cx: &App) -> f32 {
     cx.global::<Config>().ui_font_size / UI_FONT_SIZE_DEFAULT
 }
 
-/// How wide a text field in the right-hand column is.
-const FIELD_W: f32 = 180.;
+/// How wide a text field in the right-hand column is — the dropdowns' width,
+/// so the column is one straight edge whichever control a row holds.
+const FIELD_W: f32 = crate::ui::settings::kit::CONTROL_W;
+
+/// A field for a path or a command line: the one kind of value unreadable cut
+/// short, so the one kind allowed past [`FIELD_W`].
+const PATH_FIELD_W: f32 = 240.;
 
 /// The host editor's label column, and how wide a field beside one grows to.
 const SSH_LABEL_W: f32 = 96.;
@@ -197,18 +201,16 @@ pub(crate) enum SettingsSection {
     Ssh,
     Mobile,
     Agents,
-    WindowTabs,
     Keybindings,
     About,
 }
 
 impl SettingsSection {
-    pub(crate) const ALL: [SettingsSection; 9] = [
+    pub(crate) const ALL: [SettingsSection; 8] = [
         SettingsSection::General,
         SettingsSection::Appearance,
         SettingsSection::Terminal,
         SettingsSection::KeyboardMouse,
-        SettingsSection::WindowTabs,
         SettingsSection::Ssh,
         SettingsSection::Mobile,
         SettingsSection::Agents,
@@ -231,7 +233,6 @@ impl SettingsSection {
             Self::Ssh => L10nKey::SettingsNavSsh,
             Self::Mobile => L10nKey::SettingsNavMobile,
             Self::Agents => L10nKey::SettingsNavAgents,
-            Self::WindowTabs => L10nKey::SettingsNavWindowTabs,
             Self::Keybindings => L10nKey::SettingsNavKeybindings,
             Self::About => L10nKey::SettingsNavAbout,
         }
@@ -246,7 +247,6 @@ impl SettingsSection {
             Self::Ssh => "icons/settings/ssh.svg",
             Self::Mobile => "icons/settings/mobile.svg",
             Self::Agents => "icons/settings/integrations.svg",
-            Self::WindowTabs => "icons/settings/window.svg",
             Self::About => "icons/settings/about.svg",
         }
     }
@@ -260,7 +260,6 @@ impl SettingsSection {
             SettingsSection::Ssh => "settings:ssh",
             SettingsSection::Mobile => "settings:mobile",
             SettingsSection::Agents => "settings:agents",
-            SettingsSection::WindowTabs => "settings:window-tabs",
             SettingsSection::Keybindings => "settings:keybindings",
             SettingsSection::About => "settings:about",
         }
@@ -620,6 +619,11 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: Agents,
+            title: SettingsAgentQoderCn,
+            keywords: SettingsSearchQoderCnKeywords,
+        },
+        SearchEntry {
+            section: Agents,
             title: SettingsAgentCrush,
             keywords: SettingsSearchCrushKeywords,
         },
@@ -664,29 +668,19 @@ fn settings_search_entries() -> &'static [SearchEntry] {
             keywords: SettingsSearchShowTrayIconKeywords,
         },
         SearchEntry {
-            section: WindowTabs,
+            section: General,
             title: SettingsNewTabPosition,
             keywords: SettingsSearchNewTabPositionKeywords,
         },
         SearchEntry {
-            section: WindowTabs,
+            section: General,
             title: SettingsTabBarPosition,
             keywords: SettingsSearchTabBarPositionKeywords,
         },
         SearchEntry {
-            section: WindowTabs,
+            section: General,
             title: SettingsSidebarGrouping,
             keywords: SettingsSearchSidebarGroupingKeywords,
-        },
-        SearchEntry {
-            section: WindowTabs,
-            title: SettingsDiffPreviewFromCounts,
-            keywords: SettingsSearchDiffPreviewFromCountsKeywords,
-        },
-        SearchEntry {
-            section: WindowTabs,
-            title: SettingsSshTabTitle,
-            keywords: SettingsSearchSshTabTitleKeywords,
         },
         SearchEntry {
             section: General,
@@ -784,8 +778,6 @@ impl SearchEntry {
             L10nKey::SettingsNewTabPosition => "new_tab_position",
             L10nKey::SettingsTabBarPosition => "tab_bar_position",
             L10nKey::SettingsSidebarGrouping => "sidebar_auto_grouping",
-            L10nKey::SettingsDiffPreviewFromCounts => "sidebar_diff_preview",
-            L10nKey::SettingsSshTabTitle => "ssh_tab_title",
             L10nKey::SettingsNotifyOnCommandFinish => "notify_on_command_finish",
             L10nKey::SettingsNotifyThreshold => "notify_threshold_secs",
             L10nKey::SettingsTerminalBell => "bell",
@@ -896,8 +888,6 @@ impl SearchEntry {
             L10nKey::SettingsNewTabPosition => t(L10nKey::SettingsNewTabPositionDesc),
             L10nKey::SettingsTabBarPosition => t(L10nKey::SettingsTabBarPositionDesc),
             L10nKey::SettingsSidebarGrouping => t(L10nKey::SettingsSidebarGroupingDesc),
-            L10nKey::SettingsDiffPreviewFromCounts => t(L10nKey::SettingsDiffPreviewFromCountsDesc),
-            L10nKey::SettingsSshTabTitle => t(L10nKey::SettingsSshTabTitleDesc),
             L10nKey::SettingsNotifyOnCommandFinish => t(L10nKey::SettingsNotifyOnCommandFinishDesc),
             L10nKey::SettingsNotifyThreshold => t(L10nKey::SettingsNotifyThresholdDesc),
             L10nKey::SettingsAppHttpProxy => t(L10nKey::SettingsAppHttpProxyDesc),
@@ -943,10 +933,6 @@ impl SearchEntry {
             L10nKey::SettingsSidebarGrouping => {
                 cfg.sidebar_auto_grouping != defaults.sidebar_auto_grouping
             }
-            L10nKey::SettingsDiffPreviewFromCounts => {
-                cfg.sidebar_diff_preview != defaults.sidebar_diff_preview
-            }
-            L10nKey::SettingsSshTabTitle => cfg.ssh_tab_title != defaults.ssh_tab_title,
             L10nKey::SettingsNotifyOnCommandFinish => {
                 cfg.notify_on_command_finish != defaults.notify_on_command_finish
             }
@@ -2812,7 +2798,7 @@ mod tests {
             );
             assert!(SettingsSection::ALL.contains(&entry.section));
         }
-        assert_eq!(SettingsSection::ALL.len(), 9);
+        assert_eq!(SettingsSection::ALL.len(), 8);
         assert!(!SettingsSection::ALL.contains(&SettingsSection::Keybindings));
     }
 
@@ -3262,7 +3248,7 @@ mod tests {
             ("blur", Appearance),
             ("completion", Terminal),
             ("ctrl-r", Terminal),
-            ("grouping", WindowTabs),
+            ("grouping", General),
             ("threshold", General),
             ("report mouse", KeyboardMouse),
             ("nushell", Terminal),
@@ -3966,11 +3952,11 @@ mod gpui_tests {
     ) {
         let (app, mut vcx) = harness(cx);
         app.update_in(&mut vcx, |app, window, cx| {
-            app.open_settings_section(SettingsSection::WindowTabs, window, cx);
+            app.open_settings_section(SettingsSection::Appearance, window, cx);
             let search = app.active_settings().unwrap().search.clone();
             search.update(cx, |s, cx| s.set_value("mouse", window, cx));
             app.autoselect_settings_search(cx);
-            assert!(app.active_settings().unwrap().section == SettingsSection::WindowTabs);
+            assert!(app.active_settings().unwrap().section == SettingsSection::Appearance);
             search.update(cx, |s, cx| s.set_value("", window, cx));
             app.autoselect_settings_search(cx);
             assert!(!app.active_settings().unwrap().search_active);

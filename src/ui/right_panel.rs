@@ -15,6 +15,16 @@ use crate::ui::app::{
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::scrollbar::with_vertical_scrollbar;
 
+/// The tab a stored choice shows. Search was a tab of its own until the
+/// Files tab took over searching file contents; a config that still says
+/// `"search"` opens on Files.
+pub(crate) fn shown_tab(tab: RightPanelTab) -> RightPanelTab {
+    match tab {
+        RightPanelTab::Search => RightPanelTab::Files,
+        tab => tab,
+    }
+}
+
 /// Wide enough for the three word tabs, bare, beside the two chrome tiles at
 /// the default interface size — the Changes count is dropped before a label is
 /// ever cut. A larger UI font raises the floor past this; see
@@ -31,12 +41,10 @@ fn right_panel_tabs_floor(window: &Window, cx: &gpui::App) -> f32 {
     (TAB_ROW_LEAD + crate::ui::tab_strip::right_panel_tab_labels_w(window, cx) + chrome).ceil()
 }
 
-/// The tab row's leading inset: the first label lands 22px in, and each tab's
-/// click target already reaches `TAB_OUTER_PAD` past its label.
-///
-/// The tabs sit flush against each other — no row gap — so two labels are
-/// exactly `2 × TAB_OUTER_PAD` = 18px apart, which is the whole spacing rule.
-const TAB_ROW_LEAD: f32 = 22. - crate::ui::tab_strip::TAB_OUTER_PAD;
+/// The tab row's leading inset: the selected tab's pill starts on
+/// `CONTENT_INSET`, the edge every row fill below it starts on, and each tab's
+/// click target reaches `TAB_OUTER_PAD` past its pill.
+const TAB_ROW_LEAD: f32 = crate::ui::app::CONTENT_INSET - crate::ui::tab_strip::TAB_OUTER_PAD;
 
 /// The panel toggle and the app menu where they sit in this panel's own tab
 /// row (macOS): 26px tiles, 4px apart, the last one 12px from the panel's
@@ -516,6 +524,13 @@ impl Tty7App {
     }
 
     pub(crate) fn set_right_panel_tab(&mut self, tab: RightPanelTab, cx: &mut Context<Self>) {
+        // Every way to find in files ends here, and none of them has a
+        // `Window` to move focus with; the Files field takes it on its next
+        // frame.
+        if tab == RightPanelTab::Search {
+            self.panel_search.focus_pending = true;
+        }
+        let tab = shown_tab(tab);
         self.right_panel_tab = tab;
         self.right_panel_visible = true;
         self.update_config(cx, |cfg| {
@@ -546,7 +561,8 @@ impl Tty7App {
         let body = match tab {
             RightPanelTab::Info => self.render_panel_info(window, cx),
             RightPanelTab::Scm => self.render_panel_scm(window, cx),
-            RightPanelTab::Files => self.render_panel_files(window, cx),
+            RightPanelTab::Files | RightPanelTab::Search => self.render_panel_files(window, cx),
+            RightPanelTab::GitHub => self.render_panel_github(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(window, cx);
 
@@ -576,11 +592,7 @@ impl Tty7App {
                     .items_center()
                     .pl(px(TAB_ROW_LEAD))
                     .relative()
-                    .children(self.right_panel_tabs(
-                        width - TAB_ROW_LEAD - PANEL_CHROME_W,
-                        window,
-                        cx,
-                    ))
+                    .children(self.right_panel_tabs(cx))
                     .child(div().flex_1())
                     // Navigation controls stay visible on both sidebars —
                     // here at the panel row's smaller size.
@@ -591,15 +603,16 @@ impl Tty7App {
                         cx,
                     ))
                 }))
-                // Only the Files tab steps down 8px. Its first row is a filled
-                // search well whose top edge is the first thing you see, so it
-                // wants air under the tab row. Info and Source Control open on
+                // Only the Files and Search tabs step down 8px. Their first row
+                // is a filled search well whose top edge is the first thing you
+                // see, so it wants air under the tab row. Info and Source Control open on
                 // bare text centred in a 28px row, which already sits ~7px
                 // under the row's top; adding 8 more put their first line a
                 // visible step lower than the Files well beside them.
                 .children(
-                    (cfg!(target_os = "macos") && tab == RightPanelTab::Files)
-                        .then(|| div().flex_none().h(px(8.))),
+                    (cfg!(target_os = "macos")
+                        && matches!(tab, RightPanelTab::Files | RightPanelTab::Search))
+                    .then(|| div().flex_none().h(px(8.))),
                 )
                 .child(body)
                 .children(self.sftp_transfers_footer(cx))
@@ -721,15 +734,7 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let has_trailing = trailing.is_some();
-        let tabs = (!cfg!(target_os = "macos")).then(|| {
-            let width = self.right_panel_px(window, cx);
-            let trailing_w = match has_trailing {
-                true => 2. * TILE_SIZE_SM + 6.,
-                false => 0.,
-            };
-            let avail = width - TAB_ROW_LEAD - tile_trailing_inset() - trailing_w;
-            self.right_panel_tabs(avail, window, cx)
-        });
+        let tabs = (!cfg!(target_os = "macos")).then(|| self.right_panel_tabs(cx));
         if tabs.is_none() && !has_trailing {
             return div().flex_none().into_any_element();
         }
@@ -910,9 +915,7 @@ impl Tty7App {
         // its ports. Worked out once, by the same call the watch uses.
         let ctx = self.pane_forward_ctx(window, cx);
         let mut pane_id: Option<u64> = None;
-        // Where the `changes` row's counts lead. Same source as the sidebar's,
-        // and gated on the same setting, so turning the preview off turns it
-        // off in both places rather than in one of them.
+        // Where the `changes` row's counts lead. Same source as the sidebar's.
         let mut diff_target: Option<(crate::ui::host_ops::HostId, PathBuf)> = None;
         let mut git: Option<crate::terminal::git_status::GitStatus> = None;
 
@@ -920,11 +923,9 @@ impl Tty7App {
             if let Some(leaf) = tab.detail_pane(window, cx) {
                 let view = leaf.read(cx);
                 pane_id = Some(view.pane_id);
-                diff_target = crate::ui::tab_sidebar::diff_click_cwd(
-                    cx.global::<Config>(),
-                    view.git_status_cwd()
-                        .map(|cwd| (view.host_id(), cwd.to_path_buf())),
-                );
+                diff_target = view
+                    .git_status_cwd()
+                    .map(|cwd| (view.host_id(), cwd.to_path_buf()));
                 if let Some(cwd) = view.effective_cwd() {
                     let home = view.display_home(cx);
                     // Whether this pane's paths are this machine's decides
@@ -1644,9 +1645,12 @@ impl Tty7App {
                             }
                         }
                         Err(e) => window.push_notification(
-                            t_fmt(
-                                L10nKey::LoopbackForwardFailed,
-                                &[("port", &port.to_string()), ("error", &e.to_string())],
+                            crate::ui::host_ops::failure(
+                                t_fmt(
+                                    L10nKey::LoopbackForwardFailed,
+                                    &[("port", &port.to_string()), ("error", &e.to_string())],
+                                ),
+                                &e,
                             ),
                             cx,
                         ),
@@ -1960,8 +1964,15 @@ impl Tty7App {
             return self.render_panel_sftp(host.unwrap_or_default(), window, cx);
         }
 
+        if std::mem::take(&mut self.panel_search.focus_pending) {
+            self.file_search
+                .update(cx, |input, cx| input.focus(window, cx));
+        }
         let title = self.panel_title(t(L10nKey::PanelFilesTitle), None, None, window, cx);
-        let search = self.panel_search(&self.file_search.clone(), cx);
+        // One field for names and text alike. The switches only shape the
+        // text search; names are always matched loosely.
+        let toggles = self.panel_search_toggles(cx);
+        let search = self.panel_search_with(&self.file_search.clone(), Some(toggles), cx);
         let rows = self.render_file_tree_rows(window, cx);
         v_flex()
             .flex_1()

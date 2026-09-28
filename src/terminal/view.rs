@@ -1759,25 +1759,6 @@ impl TerminalView {
         stated_title(&self.title)
     }
 
-    /// The title this pane gives its tab: [`Self::stated_title`], unless this
-    /// is an SSH pane and Settings pins its tab to the host's name instead
-    /// (#726). The pane's own title is untouched either way — OSC 0/2 keep
-    /// landing in it, and it is back on the tab the moment the setting is.
-    ///
-    /// A pane that has ended still says so: the pinned name takes the same
-    /// suffix the pane's own title would have.
-    pub(crate) fn tab_title(&self, cx: &App) -> Option<String> {
-        let pinned = self.ssh_spec.as_deref().and_then(|spec| {
-            let cfg = cx.try_global::<Config>()?;
-            crate::ui::ssh_connect::pinned_ssh_title(cfg.ssh_tab_title, spec, &cfg.ssh_profiles)
-        });
-        match pinned {
-            Some(name) if self.terminal.exited => Some(self.ended_title(&name)),
-            Some(name) => Some(name),
-            None => self.stated_title().map(str::to_string),
-        }
-    }
-
     /// `name` with the suffix that says how this pane ended.
     fn ended_title(&self, name: &str) -> String {
         let key = if self.workspace().is_some() && !self.terminal.child_exited() {
@@ -3606,9 +3587,12 @@ impl TerminalView {
         let path = path.display().to_string();
         let reason = reason.to_string();
         window.push_notification(
-            crate::ui::i18n::t_fmt(
-                crate::ui::i18n::L10nKey::LinkFileOpenFailed,
-                &[("path", path.as_str()), ("error", reason.as_str())],
+            crate::ui::host_ops::failure(
+                crate::ui::i18n::t_fmt(
+                    crate::ui::i18n::L10nKey::LinkFileOpenFailed,
+                    &[("path", path.as_str()), ("error", reason.as_str())],
+                ),
+                &reason,
             ),
             cx,
         );
@@ -7391,10 +7375,9 @@ impl Render for TerminalView {
                     )
                     .separator()
                     .menu(t(L10nKey::AppMenuFind), Box::new(FindInTerminal))
-                    .menu(
-                        t(L10nKey::AppMenuClearScrollback),
-                        Box::new(ClearScrollback),
-                    );
+                    // Inside the terminal, what gets cleared goes without
+                    // saying; the menu bar keeps the full "Clear Scrollback".
+                    .menu(t(L10nKey::TerminalContextClear), Box::new(ClearScrollback));
 
                 // `fork_label` is tty7-core's capability probe, and core has no
                 // locale table — take the answer, not its English wording.

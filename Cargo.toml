@@ -31,7 +31,10 @@ required-features = ["updater"]
 # client used only to *download* a `tty7-server` onto a remote machine
 # (decision D5). The server binary is the thing being downloaded, so it can
 # never take that path; the GUI, which is the client that pushes it, can.
-tty7-core = { path = "crates/tty7-core", features = ["gssapi", "remote-install"] }
+#
+# `github` is the right panel's GitHub tab: the same HTTPS client, pointed at
+# api.github.com.
+tty7-core = { path = "crates/tty7-core", features = ["gssapi", "remote-install", "github"] }
 # The mobile gateway, run by the local daemon while mobile access is on
 # (`core::mobile`). Lives in the GUI binary only: tty7-server is the lean static
 # binary pushed to remote machines, and must not grow iroh.
@@ -79,6 +82,14 @@ tempfile = "3"
 # userinfo and man-page names back out.
 url = "2"
 percent-encoding = "2"
+
+# The code editor's file loading and saving (`ui::editor_text`). `encoding_rs`
+# decodes legacy-encoded text (GB18030, Windows-1252) and writes it back in the
+# same encoding, and `globset` matches `.editorconfig` section globs. Both are
+# already in the tree (via gpui's HTTP stack and its `ignore` walker), so they
+# pin no new code.
+encoding_rs = "0.8.35"
+globset = "0.4.20"
 
 # SSH profile ids in the connection manager UI (`ui::ssh_connect`,
 # `ui::settings`, the command palette). The profiles themselves — and the

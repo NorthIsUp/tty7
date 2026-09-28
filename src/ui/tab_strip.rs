@@ -1,7 +1,7 @@
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Axis, Bounds, Context, FontWeight, MouseButton,
     Pixels, SharedString, Window, canvas, deferred, div, ease_out_quint, linear_color_stop,
-    linear_gradient, prelude::*, px, relative,
+    linear_gradient, prelude::*, px,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::input::Input;
@@ -17,6 +17,7 @@ use crate::core::actions::{
     SelectWorkspace2, SelectWorkspace3, SelectWorkspace4, SelectWorkspace5, SelectWorkspace6,
     SelectWorkspace7, SelectWorkspace8, SelectWorkspace9, SplitDown, SplitRight,
 };
+use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, RightPanelTab};
 use crate::core::shells::DetectedShell;
 use crate::daemon::protocol::ShellSpec;
@@ -618,10 +619,16 @@ pub(crate) fn chrome_tile(button: Button, selected: bool, cx: &gpui::App) -> But
     chrome_tile_sized(button, TILE_SIZE, TILE_GLYPH, selected, cx)
 }
 
-const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey); 3] = [
+/// The right panel's tabs, left to right, by name. Info leads as the default
+/// and the pane's overview; then the project's files, and its version
+/// control, local to remote (Changes, GitHub). GitHub is last so that hiding
+/// it for a repository without a GitHub remote moves nothing. Search is not
+/// among them: the Files tab searches names and contents in one field.
+const RIGHT_PANEL_TABS: [(RightPanelTab, L10nKey); 4] = [
     (RightPanelTab::Info, L10nKey::PanelInfoTitle),
-    (RightPanelTab::Scm, L10nKey::PanelChangesTitle),
     (RightPanelTab::Files, L10nKey::PanelFilesTitle),
+    (RightPanelTab::Scm, L10nKey::PanelChangesTitle),
+    (RightPanelTab::GitHub, L10nKey::PanelGitHubTitle),
 ];
 
 fn right_panel_tab_size(window: &Window) -> f32 {
@@ -639,9 +646,8 @@ fn right_panel_tab_font(cx: &gpui::App) -> gpui::Font {
     }
 }
 
-/// What the three bare tab labels take, padding included, at the live
-/// interface size and language. The panel's floor is built on it, so a larger
-/// UI font widens the panel instead of pushing its chrome tiles off the edge.
+/// What the bare tab labels take, padding included. The panel's floor is
+/// built on it, so the chrome tiles beside them always fit.
 pub(crate) fn right_panel_tab_labels_w(window: &Window, cx: &gpui::App) -> f32 {
     let size = right_panel_tab_size(window);
     let font = right_panel_tab_font(cx);
@@ -654,12 +660,11 @@ pub(crate) fn right_panel_tab_labels_w(window: &Window, cx: &gpui::App) -> f32 {
         .sum()
 }
 
-/// Right panel tab geometry: each label's click target reaches half the 18px
-/// gap to its neighbour, there is no pill inside it, and the Changes count
-/// hangs 5px off its label.
-pub(crate) const TAB_OUTER_PAD: f32 = 9.;
-const TAB_INNER_PAD: f32 = 0.;
-const TAB_COUNT_GAP: f32 = 5.;
+/// Right panel tab geometry: each tab's click target reaches this far past
+/// its pill, so neighbouring pills sit twice this apart.
+pub(crate) const TAB_OUTER_PAD: f32 = 2.;
+/// A label's hover target reaches this far past its word.
+const TAB_INNER_PAD: f32 = 4.;
 
 /// How wide the two chrome tiles at the trailing end of the title bar are, with
 /// the padding around them.
@@ -714,6 +719,14 @@ const MENU_HOSTS: usize = 6;
 /// by frecency. Everything else is one row away, in the search.
 const MENU_SHELLS: usize = 3;
 
+/// How many agents the New Tab menu names.
+///
+/// The same cap as [`MENU_SHELLS`], and for the same reason: the agents
+/// someone actually runs are two or three, and a menu is not a search field.
+/// Only agents that have been run are named — there is no "default agent" to
+/// lead the way shells' default does. Everything else is one row away.
+const MENU_AGENTS: usize = 3;
+
 /// The Search Everywhere button in the middle of the title bar: the width of
 /// a field that reads as one, and the 28px of the rail's own search.
 const TITLEBAR_SEARCH_W: f32 = 360.;
@@ -724,14 +737,15 @@ const MENU_W: Pixels = px(360.);
 
 /// How tall, before it starts scrolling.
 ///
-/// Both lists are capped — [`MENU_SHELLS`] shells and [`MENU_HOSTS`] hosts —
-/// so the menu's full hand is a fixed number of rows: those, both headings, the
-/// row closing each section and the modifier hint, at the 26px a row occupies.
-/// This leaves room above that for a seam row or two more, so the full hand
-/// always arrives whole and never scrolls on its own. It is capped again
-/// against the window in [`NewTabMenu::build`], since a menu taller than what
-/// it hangs off is worse than one that scrolls.
-const MENU_H: Pixels = px(560.);
+/// The lists are capped — [`MENU_SHELLS`] shells, [`MENU_AGENTS`] agents and
+/// [`MENU_HOSTS`] hosts — so the menu's full hand is a fixed number of rows:
+/// those, the three headings, the row closing each section, the separators and
+/// the modifier hint, at the 26px a row occupies. The Agents section is absent
+/// when nothing is offered, and this still leaves room above the full hand for
+/// a seam row or two more, so it always arrives whole and never scrolls on its
+/// own. It is capped again against the window in [`NewTabMenu::build`], since
+/// a menu taller than what it hangs off is worse than one that scrolls.
+const MENU_H: Pixels = px(720.);
 
 /// What the row closing the Local section types into the search's Terminals
 /// tab for you.
@@ -751,6 +765,14 @@ const MENU_H: Pixels = px(560.);
 /// ([`L10nKey::AppCmdShellTitle`], the same word in every language we ship),
 /// so this lands on exactly the shells, default first and then by frecency.
 const SEARCH_SHELL_QUERY: &str = "shell";
+
+/// What the row closing the Agents section types into the search's Terminals
+/// tab.
+///
+/// The same seam as [`SEARCH_SHELL_QUERY`]. Every quick-launch row is titled
+/// `Agent: {name}` ([`L10nKey::AppCmdAgentLaunchTitle`], the same word in every
+/// language), so this lands on exactly the agents.
+const SEARCH_AGENT_QUERY: &str = "agent";
 
 /// How this platform spells the key that turns a New Tab row into a split.
 fn split_modifier() -> &'static str {
@@ -779,6 +801,13 @@ struct NewTabMenu {
     /// Saved host, its display name, and the `user@host:port` beside it —
     /// empty when the name already says it.
     hosts: Vec<(uuid::Uuid, SharedString, SharedString)>,
+    /// Agents the menu names — at most [`MENU_AGENTS`], and only ones that
+    /// have actually been run.
+    agents: Vec<CLIAgent>,
+    /// The window can offer agents the menu does not name, so the section
+    /// closes with a row into the palette. Also the reason the section exists
+    /// when nothing has been run yet: the installed agents are all in there.
+    more_agents: bool,
 }
 
 impl NewTabMenu {
@@ -902,6 +931,44 @@ impl NewTabMenu {
             }
         }));
 
+        // A peer of Local and SSH, and absent when this machine has no agent
+        // to offer — an empty heading would be a section about nothing. The
+        // rows are the ones actually run; the seam holds the rest, already
+        // filtered, the way Other Shells does.
+        if !self.agents.is_empty() || self.more_agents {
+            menu = menu
+                .item(PopupMenuItem::separator())
+                .item(PopupMenuItem::label(t(L10nKey::CmdGroupAgents)));
+            for agent in self.agents.iter().copied() {
+                let app = self.app.clone();
+                menu = menu.item(PopupMenuItem::new(agent.display_name()).on_click(
+                    move |_, window, cx| {
+                        let at = SpawnWhere::from_modifiers(window.modifiers());
+                        if let Some(app) = app.upgrade() {
+                            app.update(cx, |this, cx| this.launch_agent(agent, at, window, cx));
+                        }
+                    },
+                ));
+            }
+            if self.more_agents {
+                let app = self.app.clone();
+                menu = menu.item(PopupMenuItem::new(t(L10nKey::TabMenuOtherAgents)).on_click(
+                    move |_, window, cx| {
+                        if let Some(app) = app.upgrade() {
+                            app.update(cx, |this, cx| {
+                                this.open_search(
+                                    SearchTab::Terminals,
+                                    SEARCH_AGENT_QUERY,
+                                    window,
+                                    cx,
+                                )
+                            });
+                        }
+                    },
+                ));
+            }
+        }
+
         // The one place ⌥ is spelled out. Nothing else in the app teaches it,
         // and a modifier nobody is told about is a feature nobody has. No rule
         // above it: a separator divides two lists of things to pick, and this
@@ -962,6 +1029,27 @@ fn menu_shells<'a>(
         .collect()
 }
 
+/// The agents the menu names, off the front of the frecency-ordered list
+/// quick launch already built: only those that have actually been run, at
+/// most [`MENU_AGENTS`].
+///
+/// An agent nobody has run is not named just because it is installed and
+/// there is room. A zero count is not a use either — launching stamps
+/// recency before the pane reports the agent, and the count is what says it
+/// really ran. `offered` is already most-used-first; this does not reorder.
+fn menu_agents(
+    offered: &[CLIAgent],
+    usage: &std::collections::HashMap<String, crate::core::config::ProfileUsage>,
+    now: u64,
+) -> Vec<CLIAgent> {
+    offered
+        .iter()
+        .copied()
+        .filter(|agent| usage.get(agent.slug()).is_some_and(|u| u.score(now) > 0.0))
+        .take(MENU_AGENTS)
+        .collect()
+}
+
 /// The hosts the menu names, in the order they were handed over — frecency,
 /// so the ones that fit are the ones actually used.
 ///
@@ -997,10 +1085,19 @@ fn menu_hosts(
 /// Both halves are cut rather than allowed to push: the panel stops at
 /// [`MENU_W`], and a descriptive host name next to a long `user@host:port`
 /// asks for more than that. Which half gives way is the whole point — the name
-/// is what the reader is picking by, so the endpoint is capped at half the row
-/// and elides first, and the name takes everything left over. Sized the other
-/// way round (name growing from nothing, endpoint at its natural width) a long
-/// address squeezes the name down to `..` and the row names nothing at all.
+/// is what the reader is picking by, so it keeps its width up to
+/// [`MENU_NAME_W`], and the endpoint takes whatever is left and elides first.
+/// Sized the other way round (name growing from nothing, endpoint at its
+/// natural width) a long address squeezes the name down to `..` and the row
+/// names nothing at all.
+///
+/// Both caps are fixed lengths, never a share of the row. The panel is sized
+/// to fit its content, so while the text is laid out no row has a width yet:
+/// anything capped by `relative(..)` or by flex shrinking measures at full
+/// length, is squeezed afterwards, and is clipped mid-glyph at the panel edge
+/// (`git@ssh.github.con`) instead of ending in an ellipsis. A pixel cap is
+/// known up front, so the text elides against it. The two caps and the row's
+/// insets add up to [`MENU_W`].
 ///
 /// An empty note drops the right half entirely rather than leaving a zero-width
 /// child to hold the `gap_3` open — the name is then free to use the full row,
@@ -1012,18 +1109,42 @@ fn menu_row(label: SharedString, note: SharedString, cx: &gpui::App) -> impl Int
         .items_center()
         .justify_between()
         .gap_3()
-        .child(div().flex_1().min_w_0().truncate().child(label))
+        .child(
+            div()
+                .flex_shrink_0()
+                .max_w(match note.is_empty() {
+                    true => MENU_W - MENU_ROW_INSET,
+                    false => MENU_NAME_W,
+                })
+                .truncate()
+                .child(label),
+        )
         .when(!note.is_empty(), |this| {
+            // Pushed right by the cell, not by `text_right`: a line set
+            // with `truncate` ignores its alignment and hugs the name.
             this.child(
-                div()
-                    .flex_shrink_0()
-                    .max_w(relative(0.5))
-                    .truncate()
-                    .text_color(muted)
-                    .child(note),
+                h_flex().flex_1().justify_end().child(
+                    div()
+                        .max_w(MENU_NOTE_W)
+                        .truncate()
+                        .text_color(muted)
+                        .child(note),
+                ),
             )
         })
 }
+
+/// The most of a [`menu_row`] its name keeps before it elides — the larger
+/// share, since the name is what the row is picked by.
+const MENU_NAME_W: Pixels = px(172.);
+
+/// The most the endpoint beside a name gets: room for `user@host:port` on a
+/// typical host, and the gap and the insets take the rest of [`MENU_W`].
+const MENU_NOTE_W: Pixels = px(150.);
+
+/// What the panel spends on either side of a row's content: its own 5px
+/// inset and the row's 8px padding, twice.
+const MENU_ROW_INSET: Pixels = px(26.);
 
 /// The words behind the status dot's colour.
 pub(crate) fn agent_status_label(
@@ -1270,58 +1391,21 @@ impl Tty7App {
             )
     }
 
-    /// The right panel's word tabs, laid out in `avail` px.
-    ///
-    /// A label is never elided — "C…" is not a tab anyone can read — so when
-    /// the row runs short the Changes count is what gives way: it repeats what
-    /// the panel body says, the label does not. `right_panel::MIN_WIDTH` is
-    /// what guarantees the three bare labels always fit.
-    pub(crate) fn right_panel_tabs(
-        &self,
-        avail: f32,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
+    /// The right panel's tabs: words, the current one in body ink and medium
+    /// weight — v5's inspector row. Four names fit the panel's resting width
+    /// once Search folded into Files; this is secondary navigation, not an
+    /// action, so it gets neither a pill nor a bar.
+    pub(crate) fn right_panel_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let active_tab = self.right_panel_tab;
-        // The count the source control tile carries. It reads the same status
-        // the panel draws, so the badge and the group headers can never
-        // disagree — and it counts entries, not files, because a path that is
-        // both staged and modified is two things to do, which is what the
-        // groups show.
-        let changed = self
-            .scm
-            .active_repo()
-            .and_then(|repo| crate::terminal::git_data::status_of(cx, repo.host, &repo.root))
-            .map(|status| status.entries.len())
-            .filter(|n| *n > 0);
-        let size = right_panel_tab_size(window);
-        let font = right_panel_tab_font(cx);
-        let ts = window.text_system();
-        let labels_w = right_panel_tab_labels_w(window, cx);
-        let changed = changed.filter(|n| {
-            let regular = gpui::Font {
-                weight: FontWeight::NORMAL,
-                ..font.clone()
-            };
-            labels_w + TAB_COUNT_GAP + measure_text(ts, &regular, size, &n.to_string()) <= avail
-        });
         let body_ink = cx.theme().foreground;
+        let muted = cx.theme().muted_foreground;
         RIGHT_PANEL_TABS
             .into_iter()
             .map(|(tab, label_key)| {
                 let current = active_tab == tab;
-                // Words, not glyphs: three tabs is few enough to name, and a name
-                // is what a new user has to guess at when the tab is an icon. The
-                // current one is told apart by ink and weight alone — this is
-                // secondary navigation, not an action, so it gets neither a
-                // pill nor a bar.
                 let ink = match current {
                     true => body_ink,
-                    false => cx.theme().muted_foreground,
-                };
-                let count = match tab {
-                    RightPanelTab::Scm => changed,
-                    _ => None,
+                    false => muted,
                 };
                 div()
                     .id(("right-panel-tab", tab as usize))
@@ -1335,11 +1419,9 @@ impl Tty7App {
                     .px(px(TAB_OUTER_PAD))
                     .cursor_pointer()
                     .child(
-                        h_flex()
+                        div()
                             .flex_shrink_0()
                             .px(px(TAB_INNER_PAD))
-                            .gap(px(TAB_COUNT_GAP))
-                            .items_center()
                             .text_size(gpui::rems(crate::ui::right_panel::TAB_TEXT))
                             .font_weight(match current {
                                 true => FontWeight::MEDIUM,
@@ -1347,16 +1429,7 @@ impl Tty7App {
                             })
                             .text_color(ink)
                             .hover(move |s| s.text_color(body_ink))
-                            .child(div().flex_shrink_0().child(t(label_key)))
-                            .when_some(count, |row, n| {
-                                row.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .font_weight(FontWeight::NORMAL)
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(n.to_string()),
-                                )
-                            }),
+                            .child(t(label_key)),
                     )
                     // Another tab switches to it; the current one puts the panel
                     // away, the way an activity bar behaves everywhere else.
@@ -1742,6 +1815,8 @@ impl Tty7App {
         let now = crate::core::config::unix_now();
         let sorted = shells_by_frecency(&self.shells.shells, &default_shell, usage, now);
         let shells = menu_shells(&sorted, &default_shell, usage, now);
+        let offered = self.offered_agents(cx);
+        let agents = menu_agents(&offered, &cx.global::<Config>().agent_frecency, now);
         NewTabMenu {
             app,
             more_shells: shells.len() < sorted.len(),
@@ -1751,6 +1826,8 @@ impl Tty7App {
                 .collect(),
             default_shell: SharedString::from(default_shell),
             hosts: menu_hosts(crate::ui::ssh_connect::ssh_profiles_by_frecency(cx)),
+            more_agents: agents.len() < offered.len(),
+            agents,
         }
     }
 
@@ -2456,6 +2533,26 @@ impl Tty7App {
         // that opens the search where it stands. The rail beside it already
         // names every tab, so the bar has no title of its own to repeat. The
         // box alone takes the pointer; the rest of the bar still drags.
+        //
+        // Centred over the terminal column, not the bar. Off macOS the bar
+        // spans the workspace while a document or the detail panel is docked,
+        // and centred on all of it the box landed under the document's
+        // hoisted header, which has no fill to hide it. The strip already
+        // stops short of the window controls, so they come off the columns'
+        // share.
+        let search_right = match cfg!(target_os = "macos") {
+            true => 0.,
+            false => {
+                let panel = match self.right_panel_open(cx) {
+                    true => self.right_panel_px(window, cx),
+                    false => 0.,
+                };
+                match panel + document_w > 0. {
+                    true => (panel + document_w - controls_w).max(0.),
+                    false => 0.,
+                }
+            }
+        };
         let centre_search = (!show_chips).then(|| {
             // The chord as text, not caps: a cap's fill is this box's own
             // grey, so on it a cap is only a gap between two letters.
@@ -2463,7 +2560,10 @@ impl Tty7App {
                 .map(|spec| crate::ui::keymap::key_tokens(&spec).join(""));
             div()
                 .absolute()
-                .inset_0()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .right(px(search_right))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -2472,14 +2572,23 @@ impl Tty7App {
                         .id("titlebar-search")
                         .occlude()
                         .w(px(TITLEBAR_SEARCH_W))
-                        .max_w(gpui::relative(0.5))
+                        // Enough of the bar that the label and its chord still
+                        // fit with a document docked beside the terminal; at a
+                        // half it read `Search Everywhe…` in exactly the
+                        // layout people search from most.
+                        .max_w(gpui::relative(0.6))
                         .h(px(TITLEBAR_SEARCH_H))
                         .items_center()
                         .gap(px(7.))
                         .pl(px(10.))
                         .pr(px(10.))
                         .rounded(px(7.))
-                        .bg(cx.theme().muted)
+                        // The left rail's fill (`Surfaces::rail`, #f5f5f3 /
+                        // #1e1e20 on the default pair) — not `sidebar`, which
+                        // is the window's own fill and vanished into the bar.
+                        .bg(gpui::rgb(
+                            cx.global::<crate::ui::presets::Surfaces>().rail.base,
+                        ))
                         .cursor_pointer()
                         .text_size(window.rem_size() * 0.8125)
                         .text_color(cx.theme().muted_foreground)
@@ -2496,9 +2605,12 @@ impl Tty7App {
                             row.child(div().flex_shrink_0().child(chord))
                         })
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_search(SearchTab::All, "", window, cx)
-                        })),
+                        .on_click(
+                            cx.listener(|this, _, window, cx| match this.search.is_some() {
+                                true => this.close_search(window, cx),
+                                false => this.open_search(SearchTab::All, "", window, cx),
+                            }),
+                        ),
                 )
         });
 
@@ -2811,84 +2923,6 @@ mod ssh_host_row_tests {
             assert_eq!(spec.identity_files, vec!["/keys/id_ed25519".to_string()]);
             assert_eq!(spec.login_script, vec!["tmux attach".to_string()]);
             assert_eq!(spec.port, 2222, "a non-default port is part of the address");
-        });
-    }
-
-    /// #726 end to end: the setting reaches the name the strip draws, on the
-    /// title's rung — below a name the user gave the tab, above whatever the
-    /// remote shell titled itself — and only for an SSH pane.
-    #[gpui::test]
-    fn the_ssh_tab_title_setting_pins_only_ssh_tabs_and_only_their_label(cx: &mut TestAppContext) {
-        use crate::core::config::SshTabTitle;
-
-        set_locale("en");
-        let (app, mut vcx) = harness(cx);
-        let saved = uuid::Uuid::new_v4();
-        let set_mode = |cx: &mut gpui::App, mode: SshTabTitle| {
-            let mut cfg = cx.global::<Config>().clone();
-            cfg.ssh_tab_title = mode;
-            cx.set_global(cfg);
-        };
-
-        let (_ends, ssh) = app.update_in(&mut vcx, |app, window, cx| {
-            let mut cfg = cx.global::<Config>().clone();
-            let mut profile = SshProfile::new("prod-web");
-            profile.id = saved;
-            profile.user = "me".to_string();
-            profile.host = "build-box".to_string();
-            cfg.ssh_profiles = vec![profile];
-            cx.set_global(cfg);
-
-            let (local, a) = quiet_test_pane(1, window, cx);
-            let (ssh, b) = quiet_test_ssh_pane_of(2, Some(saved), window, cx);
-            // Both have titled themselves over OSC 0/2 the way a shell does.
-            local.update(cx, |v, _| v.title = "me@laptop:/work/here".into());
-            ssh.update(cx, |v, _| v.title = "me@build-box:/srv/app".into());
-            for view in [local, ssh.clone()] {
-                app.tabs.push(Tab::new(Pane::leaf(PaneSlot::Ready(view))));
-            }
-            app.active = 0;
-            ((a, b), ssh)
-        });
-        vcx.background_executor.run_until_parked();
-
-        app.update_in(&mut vcx, |app, window, cx| {
-            let label =
-                |app: &crate::ui::app::Tty7App, i: usize, window: &gpui::Window, cx: &gpui::App| {
-                    app.tab_label(&app.tabs[i], i, Some(window), cx)
-                };
-            let dynamic_local = label(app, 0, window, cx);
-            let dynamic_ssh = label(app, 1, window, cx);
-            assert_eq!(dynamic_ssh, "/srv/app", "Dynamic is what tty7 always did");
-
-            set_mode(cx, SshTabTitle::ProfileName);
-            assert_eq!(label(app, 1, window, cx), "prod-web");
-            assert_eq!(
-                label(app, 0, window, cx),
-                dynamic_local,
-                "a local tab is untouched"
-            );
-            assert_eq!(
-                ssh.read(cx).title,
-                "me@build-box:/srv/app",
-                "the remote title is still tracked underneath"
-            );
-
-            set_mode(cx, SshTabTitle::Hostname);
-            assert_eq!(label(app, 1, window, cx), "build-box");
-
-            // A name the user gave the tab outranks the setting.
-            app.tabs[1].name = Some("mine".into());
-            assert_eq!(label(app, 1, window, cx), "mine");
-            app.tabs[1].name = None;
-
-            // An ended session keeps saying so under the pinned name.
-            ssh.update(cx, |v, _| v.terminal.exited = true);
-            assert_eq!(label(app, 1, window, cx), "build-box — process exited");
-            ssh.update(cx, |v, _| v.terminal.exited = false);
-
-            set_mode(cx, SshTabTitle::Dynamic);
-            assert_eq!(label(app, 1, window, cx), dynamic_ssh);
         });
     }
 }
@@ -3872,5 +3906,51 @@ mod tests {
             !more(&[], &[]),
             "no inventory: the fallback row, nothing more"
         );
+    }
+
+    #[test]
+    fn the_new_tab_menu_names_agents_that_have_actually_been_run() {
+        use crate::core::cli_agent::CLIAgent;
+        let now = 100_000_000u64;
+        let day = 86_400u64;
+        // Already most-used-first, the way `offered_agents` hands them over,
+        // except Amp has never been run and sits between two that have — the
+        // filter has to skip it rather than stop.
+        let offered = [
+            CLIAgent::Claude,
+            CLIAgent::Amp,
+            CLIAgent::Codex,
+            CLIAgent::Gemini,
+            CLIAgent::Aider,
+        ];
+        let usage = used(&[
+            ("claude", 12, now - 2 * day),
+            ("codex", 3, now - day),
+            ("gemini", 1, now - 30 * day),
+            ("aider", 0, now),
+        ]);
+        let named = menu_agents(&offered, &usage, now);
+        assert_eq!(
+            named,
+            vec![CLIAgent::Claude, CLIAgent::Codex, CLIAgent::Gemini],
+            "three that have run fill the cap; a zero count is not a use, and a gap is skipped"
+        );
+        assert!(named.len() < offered.len(), "the rest are the seam row's");
+
+        let none = used(&[]);
+        let named = menu_agents(&offered, &none, now);
+        assert!(named.is_empty(), "installed but never run is not named");
+        assert!(
+            named.len() < offered.len(),
+            "so the section is only the seam"
+        );
+        assert!(menu_agents(&[], &usage, now).is_empty());
+
+        // Every offered agent has been run and they fit: no seam row.
+        let few = [CLIAgent::Claude, CLIAgent::Codex];
+        let two = used(&[("claude", 4, now), ("codex", 1, now)]);
+        let named = menu_agents(&few, &two, now);
+        assert_eq!(named, vec![CLIAgent::Claude, CLIAgent::Codex]);
+        assert_eq!(named.len(), few.len());
     }
 }

@@ -1936,13 +1936,10 @@ impl Tty7App {
                 t(L10nKey::SwitcherHintOpen).to_string(),
             ));
             hints.push(hint(
-                vec![keycap(
-                    match cfg!(target_os = "macos") {
-                        true => format!("{}↵", crate::ui::keymap::secondary_glyph()),
-                        false => format!("{} ↵", crate::ui::keymap::secondary_glyph()),
-                    },
-                    cx,
-                )],
+                vec![
+                    keycap(crate::ui::keymap::secondary_glyph(), cx),
+                    keycap("↵", cx),
+                ],
                 t(L10nKey::SwitcherHintNewWindow).to_string(),
             ));
         }
@@ -2567,9 +2564,10 @@ impl Tty7App {
                     .gap(px(2.))
                     .text_size(gpui::rems(11.5 / 16.))
                     .text_color(muted)
-                    .when(!row.tabs.is_empty(), |c| {
-                        c.child(row.tabs.len().to_string())
-                    })
+                    // In words, the way the tab column's header says it: a
+                    // bare `1` here sat a few pixels from the slot number after
+                    // the name, and the two read as the same thing twice.
+                    .when(!row.tabs.is_empty(), |c| c.child(tab_count(row.tabs.len())))
                     .children(badge.map(|(label, _here)| {
                         div()
                             .text_size(gpui::rems(11. / 16.))
@@ -2686,11 +2684,15 @@ impl Tty7App {
             )
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
                     .text_size(gpui::rems(13. / 16.))
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(fg)
                     .child(t(L10nKey::AppMenuNewWorkspace)),
-            );
+            )
+            .child(div().pr(px(6.)).child(keycap("esc", cx)));
 
         let label_col = |text: &'static str| {
             div()
@@ -2700,6 +2702,9 @@ impl Tty7App {
                 .text_color(muted)
                 .child(text)
         };
+        // The other cards' well — no outline, the faint fill is the shape —
+        // so this form and the worktree prompt draw a field the same way.
+        let well = crate::ui::dialog::well_fill(cx);
         let field = |inner: gpui::Div| {
             inner
                 .flex_1()
@@ -2707,10 +2712,9 @@ impl Tty7App {
                 .items_center()
                 .gap(px(6.))
                 .px(px(8.))
-                .h(px(30.))
+                .h(px(crate::ui::dialog::FIELD_H))
                 .rounded(crate::ui::rounding::ROW_RADIUS)
-                .border_1()
-                .border_color(border)
+                .bg(well)
         };
 
         let name_row = h_flex()
@@ -2745,7 +2749,7 @@ impl Tty7App {
             false => field(h_flex())
                 .id("switcher-form-host")
                 .cursor_pointer()
-                .hover(move |r| r.bg(hover))
+                .hover(move |r| r.bg(picked_bg))
                 .child(host_glyph(chosen_local, chosen_dot))
                 .child(
                     div()
@@ -2870,7 +2874,7 @@ impl Tty7App {
             .gap(px(8.))
             .child(
                 label_col(t(L10nKey::SwitcherFormHost))
-                    .h(px(30.))
+                    .h(px(crate::ui::dialog::FIELD_H))
                     .flex()
                     .items_center(),
             )
@@ -2878,8 +2882,8 @@ impl Tty7App {
 
         let footer = h_flex()
             .items_center()
-            .px(px(12.))
-            .py(px(8.))
+            .h(px(crate::ui::dialog::FOOTER_H))
+            .px(px(crate::ui::dialog::INSET))
             .border_t_1()
             .border_color(border)
             .text_size(gpui::rems(11. / 16.))
@@ -2892,11 +2896,14 @@ impl Tty7App {
         v_flex()
             .w(px(card_w))
             .map(|panel| crate::ui::theme::floating_surface(panel, cx))
+            .rounded(px(CARD_RADIUS))
             .overflow_hidden()
             .child(header)
             .child(
                 v_flex()
-                    .p(px(12.))
+                    .px(px(crate::ui::dialog::INSET))
+                    .pt(px(16.))
+                    .pb(px(18.))
                     .gap(px(10.))
                     .child(name_row)
                     .child(host_row),
@@ -2973,10 +2980,7 @@ impl Tty7App {
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .child(row.name.clone()),
                 )
-                .child(div().flex_shrink_0().child(match row.tabs.len() {
-                    1 => t(L10nKey::SwitcherTabCountOne).to_string(),
-                    n => t_fmt(L10nKey::SwitcherTabCount, &[("n", &n.to_string())]),
-                })),
+                .child(div().flex_shrink_0().child(tab_count(row.tabs.len()))),
         );
 
         for (nth, i) in hits.iter().enumerate() {
@@ -3428,25 +3432,15 @@ fn step(at: usize, n: usize, forward: bool) -> usize {
     }
 }
 
-/// A key named in a hint: a small faint cap, never a button outline.
-fn keycap(label: impl Into<gpui::SharedString>, cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    div()
-        .flex_shrink_0()
-        .min_w(px(18.))
-        .h(px(18.))
-        .px(px(4.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(4.))
-        .bg(theme.muted)
-        .text_size(gpui::rems(11. / 16.))
-        .text_color(theme.muted_foreground)
-        .child(label.into())
-        .into_any_element()
-}
+use crate::ui::dialog::keycap;
 
+/// "1 tab", "3 tabs" — how both columns count a workspace's tabs.
+fn tab_count(n: usize) -> String {
+    match n {
+        1 => t(L10nKey::SwitcherTabCountOne).to_string(),
+        n => t_fmt(L10nKey::SwitcherTabCount, &[("n", &n.to_string())]),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

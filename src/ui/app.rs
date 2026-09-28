@@ -670,10 +670,7 @@ impl Tab {
             // name tty7 chose for it deliberately, and `stated_title` hands
             // those up as the title the pane is showing.
             title: crate::terminal::view::DEFAULT_TITLE.to_string(),
-            // On the title's rung, not a new one above it: a name given to the
-            // tab still beats an SSH host pinned by Settings (#726), and the
-            // pinned host beats everything the pane could say about itself.
-            osc_title: leaf.tab_title(cx),
+            osc_title: leaf.stated_title().map(str::to_string),
             cwd: leaf.cwd().map(|p| p.display().to_string()),
             agent: leaf.agent(),
             status: leaf.agent_session().map(|s| s.status),
@@ -904,11 +901,13 @@ pub struct Tty7App {
     pub(crate) sftp_panel: crate::ui::sftp::SftpPanelState,
     pub(crate) right_panel: crate::ui::right_panel::RightPanelState,
     pub(crate) scm: crate::ui::scm::ScmPanelState,
+    pub(crate) github: crate::ui::github::GitHubPanelState,
     pub(crate) diff_probes_inflight:
         std::collections::HashSet<(crate::ui::host_ops::HostId, std::path::PathBuf)>,
     pub(crate) diff_probes_restale:
         std::collections::HashSet<(crate::ui::host_ops::HostId, std::path::PathBuf)>,
     pub(crate) file_tree: crate::ui::file_tree::FileTreeState,
+    pub(crate) panel_search: crate::ui::panel_search::PanelSearchState,
     pub(crate) editor: crate::ui::code_editor::EditorPanelState,
     pub(crate) sidebar_width: Rc<Cell<f32>>,
     pub(crate) sidebar_dragging: Rc<Cell<bool>>,
@@ -1383,7 +1382,8 @@ impl Tty7App {
         let right_panel_width = cx.global::<Config>().right_panel_width;
         let document_ratio = cx.global::<Config>().document_ratio;
         let right_panel_visible = cx.global::<Config>().right_panel_visible;
-        let right_panel_tab = cx.global::<Config>().right_panel_tab;
+        let right_panel_tab =
+            crate::ui::right_panel::shown_tab(cx.global::<Config>().right_panel_tab);
         let scm_graph_expanded = cx.global::<Config>().scm_graph_expanded;
         let sidebar_collapsed = cx.global::<Config>().sidebar_collapsed;
         let config_watch = cx.observe_global_in::<Config>(window, |this, window, cx| {
@@ -1486,6 +1486,10 @@ impl Tty7App {
                 cx.notify();
             }
         });
+        // The Files tab's one field drives both of its searches: names here,
+        // and what the files say through the content search.
+        let panel_search =
+            crate::ui::panel_search::PanelSearchState::new(file_search.clone(), window, cx);
         let mut app = Self {
             tabs,
             active,
@@ -1544,9 +1548,11 @@ impl Tty7App {
                 },
                 ..Default::default()
             },
+            github: Default::default(),
             diff_probes_inflight: Default::default(),
             diff_probes_restale: Default::default(),
             file_tree,
+            panel_search,
             editor,
             sidebar_width: Rc::new(Cell::new(sidebar_width)),
             sidebar_dragging: Rc::new(Cell::new(false)),
@@ -1646,10 +1652,25 @@ impl Tty7App {
         .detach();
 
         let weak_app = cx.weak_entity();
-        window.on_window_should_close(cx, move |_window, cx| {
-            if let Some(app) = weak_app.upgrade() {
-                app.update(cx, |app, cx| app.prepare_window_close(cx));
+        window.on_window_should_close(cx, move |window, cx| {
+            let Some(app) = weak_app.upgrade() else {
+                return true;
+            };
+            // Unsaved editor buffers hold the window open until the question
+            // about them is answered; the answer closes it.
+            let asked = app.update(cx, |app, cx| {
+                let unsaved = app.editor_unsaved();
+                app.editor_guard_unsaved(
+                    unsaved,
+                    crate::ui::code_editor::AfterUnsaved::CloseWindow,
+                    window,
+                    cx,
+                )
+            });
+            if asked {
+                return false;
             }
+            app.update(cx, |app, cx| app.prepare_window_close(cx));
             true
         });
 
@@ -1740,9 +1761,27 @@ impl Tty7App {
         }
     }
 
-    fn close_window(&self, window: &mut Window, cx: &mut App) {
+    fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let unsaved = self.editor_unsaved();
+        if self.editor_guard_unsaved(
+            unsaved,
+            crate::ui::code_editor::AfterUnsaved::CloseWindow,
+            window,
+            cx,
+        ) {
+            return;
+        }
         self.prepare_window_close(cx);
         window.remove_window();
+    }
+
+    /// The window close a question about unsaved files was holding up.
+    pub(crate) fn close_window_after_unsaved(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_window(window, cx);
     }
 
     pub(crate) fn teardown_workspace_forwards(&self, cx: &gpui::App) {
@@ -1886,7 +1925,14 @@ impl Tty7App {
             cx,
         );
         if dropped > 0 {
-            window.push_notification(t_plural(L10nKey::AppTabsNotRestored, dropped, &[]), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::warning(t_plural(
+                    L10nKey::AppTabsNotRestored,
+                    dropped,
+                    &[],
+                )),
+                cx,
+            );
         }
         self.tabs = tabs;
         self.active = active;
@@ -1913,7 +1959,10 @@ impl Tty7App {
             window,
             cx,
         ) else {
-            window.push_notification(t(L10nKey::AppReopenTabFailed), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::error(t(L10nKey::AppReopenTabFailed)),
+                cx,
+            );
             self.closed.push(st);
             return;
         };
@@ -2052,6 +2101,34 @@ impl Tty7App {
     fn quit_stop_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.activate(true);
         window.activate_window();
+        // Unsaved editor buffers are asked about first, in the window that
+        // holds them. Quitting ends every window, so another window's
+        // buffers count as much as this one's: hand the quit over to it, and
+        // it asks about its own before carrying the quit on.
+        let unsaved = self.editor_unsaved();
+        if self.editor_guard_unsaved(
+            unsaved,
+            crate::ui::code_editor::AfterUnsaved::Quit,
+            window,
+            cx,
+        ) {
+            return;
+        }
+        let me = cx.entity_id();
+        let elsewhere = crate::ui::windows::WindowRegistry::open_windows(cx)
+            .into_iter()
+            .filter_map(|(ws, app)| Some((ws, app.upgrade()?)))
+            .find(|(_, app)| app.entity_id() != me && !app.read(cx).editor_unsaved().is_empty());
+        if let Some((ws, app)) = elsewhere
+            && let Some(handle) = crate::ui::windows::WindowRegistry::window_for(cx, ws)
+        {
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    app.update(cx, |app, cx| app.quit_stop_sessions(window, cx));
+                });
+            });
+            return;
+        }
         let answer = window.prompt(
             PromptLevel::Warning,
             t(crate::ui::i18n::L10nKey::QuitStopServerTitle),
@@ -2071,6 +2148,11 @@ impl Tty7App {
             let _ = cx.update(|cx| cx.quit());
         })
         .detach();
+    }
+
+    /// The quit a question about unsaved files was holding up.
+    pub(crate) fn quit_after_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.quit_stop_sessions(window, cx);
     }
 
     pub(crate) fn restart_window_daemon(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -3240,7 +3322,10 @@ impl Tty7App {
             }
             Err(e) => {
                 window.push_notification(
-                    t_fmt(L10nKey::ForwardSwitchFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::ForwardSwitchFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 // The refusal changed nothing, but the panel may be behind
@@ -3491,18 +3576,6 @@ impl Tty7App {
 
     pub(crate) fn set_sidebar_auto_grouping(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.sidebar_auto_grouping = on);
-    }
-
-    pub(crate) fn set_sidebar_diff_preview(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.update_config(cx, |cfg| cfg.sidebar_diff_preview = on);
-    }
-
-    pub(crate) fn set_ssh_tab_title(
-        &mut self,
-        mode: crate::core::config::SshTabTitle,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_config(cx, |cfg| cfg.ssh_tab_title = mode);
     }
 
     pub(crate) fn toggle_tab_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -3967,7 +4040,7 @@ impl Tty7App {
                 // A retry from the home screen fails the same way; keep the
                 // reason on screen rather than only in a toast that leaves.
                 self.startup_error = Some(gpui::SharedString::from(text.clone()));
-                window.push_notification(text, cx);
+                window.push_notification(crate::ui::host_ops::failure(text, &e), cx);
                 cx.notify();
                 return None;
             }
@@ -4003,9 +4076,12 @@ impl Tty7App {
             Err(e) => {
                 log::error!("native SSH spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(
-                        L10nKey::AppSshConnectionFailed,
-                        &[("error", &e.to_string())],
+                    crate::ui::host_ops::failure(
+                        t_fmt(
+                            L10nKey::AppSshConnectionFailed,
+                            &[("error", &e.to_string())],
+                        ),
+                        &e,
                     ),
                     cx,
                 );
@@ -4036,7 +4112,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("native SSH respawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppSshReconnectFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppSshReconnectFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;
@@ -4107,9 +4186,12 @@ impl Tty7App {
                     Err(e) => {
                         log::error!("native SSH split spawn failed: {e}");
                         window.push_notification(
-                            t_fmt(
-                                L10nKey::AppSshConnectionFailed,
-                                &[("error", &e.to_string())],
+                            crate::ui::host_ops::failure(
+                                t_fmt(
+                                    L10nKey::AppSshConnectionFailed,
+                                    &[("error", &e.to_string())],
+                                ),
+                                &e,
                             ),
                             cx,
                         );
@@ -4132,7 +4214,10 @@ impl Tty7App {
                     Err(e) => {
                         log::error!("split spawn failed: {e}");
                         window.push_notification(
-                            t_fmt(L10nKey::AppSplitPaneFailed, &[("error", &e.to_string())]),
+                            crate::ui::host_ops::failure(
+                                t_fmt(L10nKey::AppSplitPaneFailed, &[("error", &e.to_string())]),
+                                &e,
+                            ),
                             cx,
                         );
                         return None;
@@ -4162,6 +4247,24 @@ impl Tty7App {
     /// so it travels with the close rather than being read back off shared
     /// state a second, unrelated close could have overwritten.
     fn close_pane_inner(&mut self, confirmed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        // Closing the last pane closes the tab, and with it the files only
+        // this tab's editor shows.
+        if !confirmed
+            && self
+                .tabs
+                .get(self.active)
+                .is_some_and(|tab| tab.pane.leaves().len() <= 1)
+        {
+            let unsaved = self.editor_unsaved_in_tab(self.active);
+            if self.editor_guard_unsaved(
+                unsaved,
+                crate::ui::code_editor::AfterUnsaved::ClosePane,
+                window,
+                cx,
+            ) {
+                return;
+            }
+        }
         if !confirmed && let Some(reason) = self.focused_pane_close_reason(window, cx) {
             self.ask_before_closing(CloseTarget::Pane, reason, window, cx);
             return;
@@ -4205,6 +4308,11 @@ impl Tty7App {
         }
     }
 
+    /// The pane close a question about unsaved files was holding up.
+    pub(crate) fn close_pane_after_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_pane_inner(false, window, cx);
+    }
+
     fn on_child_exited(
         &mut self,
         view: Entity<TerminalView>,
@@ -4224,7 +4332,11 @@ impl Tty7App {
             return;
         }
         match self.tabs[index].pane.close_leaf(view.entity_id()) {
-            CloseOutcome::RemoveSelf => self.close_tab(index, window, cx),
+            // Not the asking close: the pane is already gone, so there is no
+            // tab left to keep open if the answer were Cancel. Unsaved editor
+            // files it had are handed to the tab in front instead (see
+            // `editor_sync`).
+            CloseOutcome::RemoveSelf => self.close_tab_inner(index, true, window, cx),
             CloseOutcome::NotFound => {}
             CloseOutcome::Collapsed => {
                 kill_pane_off_thread(view.read(cx).pane_route(), view.read(cx).pane_id, cx);
@@ -4473,13 +4585,19 @@ impl Tty7App {
             }
             return;
         }
+        let merged_id = moved.tree_id.get();
         let host = &mut self.tabs[self.active];
-        if host.code.is_none() {
-            host.code = moved.code;
+        match (host.code.as_deref_mut(), moved.code) {
+            (None, code) => host.code = code,
+            // Both had an editor: the files come along into this tab's strip
+            // rather than being dropped with the tab that brought them.
+            (Some(code), Some(theirs)) => code.adopt(&theirs.files),
+            (Some(_), None) => {}
         }
         if host.diff_overlay.is_none() {
             host.diff_overlay = moved.diff_overlay;
         }
+        self.editor_forget_tab(merged_id, cx);
         if self
             .renaming
             .as_ref()
@@ -4941,7 +5059,10 @@ impl Tty7App {
         let tab = &mut self.tabs[index];
         let Some(pane) = pane else {
             tab.asleep = Some(asleep);
-            window.push_notification(t(L10nKey::TabWakeFailed), cx);
+            window.push_notification(
+                gpui_component::notification::Notification::error(t(L10nKey::TabWakeFailed)),
+                cx,
+            );
             return false;
         };
         tab.pane = pane;
@@ -5032,12 +5153,27 @@ impl Tty7App {
         if index >= self.tabs.len() {
             return;
         }
+        if !confirmed {
+            let id = self.tabs[index].tree_id.get();
+            let unsaved = self.editor_unsaved_in_tab(index);
+            if self.editor_guard_unsaved(
+                unsaved,
+                crate::ui::code_editor::AfterUnsaved::CloseTab(id),
+                window,
+                cx,
+            ) {
+                return;
+            }
+        }
         if !confirmed && let Some(reason) = self.tab_close_reason(index, cx) {
             let id = self.tabs[index].tree_id.get();
             self.ask_before_closing(CloseTarget::Tab(id), reason, window, cx);
             return;
         }
         self.maximized = None;
+        let closing = self.tabs[index].tree_id.get();
+        self.editor_close_tab_files(index, cx);
+        self.editor_forget_tab(closing, cx);
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);
         self.closed.push(snapshot);
@@ -5143,9 +5279,12 @@ impl Tty7App {
                                     cx,
                                 ),
                                 Err(e) => window.push_notification(
-                                    t_fmt(
-                                        L10nKey::AppWorktreeRemoveFailed,
-                                        &[("error", &e.to_string())],
+                                    crate::ui::host_ops::failure(
+                                        t_fmt(
+                                            L10nKey::AppWorktreeRemoveFailed,
+                                            &[("error", &e.to_string())],
+                                        ),
+                                        &e,
                                     ),
                                     cx,
                                 ),
@@ -5174,7 +5313,12 @@ impl Tty7App {
         // that is most of them, and a menu item that quietly closes nothing is
         // worse than one that closes what it says.
         for i in (0..self.tabs.len()).rev() {
-            if i == index || self.tab_has_warn_ssh(i, cx) {
+            // Unsaved editor files are skipped the same way: a bulk close
+            // cannot ask about them one tab at a time, and must not lose them.
+            if i == index
+                || self.tab_has_warn_ssh(i, cx)
+                || !self.editor_unsaved_in_tab(i).is_empty()
+            {
                 continue;
             }
             self.close_tab_inner(i, true, window, cx);
@@ -5189,7 +5333,7 @@ impl Tty7App {
     ) {
         // Same bargain as `close_other_tabs`.
         for i in ((index + 1)..self.tabs.len()).rev() {
-            if self.tab_has_warn_ssh(i, cx) {
+            if self.tab_has_warn_ssh(i, cx) || !self.editor_unsaved_in_tab(i).is_empty() {
                 continue;
             }
             self.close_tab_inner(i, true, window, cx);
@@ -5307,7 +5451,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("fork spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;
@@ -5467,7 +5614,10 @@ impl Tty7App {
             move |this, result, window, cx| match result {
                 Ok(defaults) => this.open_worktree_prompt(sheet_host, cwd, defaults, window, cx),
                 Err(e) => window.push_notification(
-                    t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppNewWorktreeFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 ),
             },
@@ -5494,7 +5644,10 @@ impl Tty7App {
             Err(e) => {
                 log::error!("worktree tab spawn failed: {e}");
                 window.push_notification(
-                    t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                    crate::ui::host_ops::failure(
+                        t_fmt(L10nKey::AppOpenTerminalFailed, &[("error", &e.to_string())]),
+                        &e,
+                    ),
                     cx,
                 );
                 return;
@@ -5638,10 +5791,11 @@ impl Tty7App {
             self.search_terminals(cx),
             crate::ui::search::host_items(cx),
         );
-        let (sessions, here) =
-            self.search_sessions(crate::core::agent_history::cached(), window, cx);
+        let last = last_sessions(self.spawn_host(cx));
+        let (sessions, here) = self.search_sessions(last, window, cx);
         catalog.sessions = sessions;
         catalog.sessions_here = here;
+        catalog.files = self.file_list_now(cx);
         catalog
     }
 
@@ -5649,27 +5803,25 @@ impl Tty7App {
     /// pane's directory first, under its name, then the rest by recency. The
     /// second value is how many lead.
     ///
-    /// Only this computer's sessions, and only in a window on this computer:
-    /// a remote window's new tab opens on the other machine, where the
-    /// directory a local session ran in means nothing.
+    /// `found` are the sessions of the machine this window's workspace is
+    /// on: a remote window's new tab opens there, and so resumes there.
     pub(crate) fn search_sessions(
         &self,
         found: Vec<crate::core::agent_history::PastSession>,
         window: &Window,
         cx: &App,
     ) -> (Vec<Item>, usize) {
-        if WorkspaceStore::remote_ref(cx, self.workspace).is_some() {
-            return (Vec::new(), 0);
-        }
         let here = self
             .tabs
             .get(self.active)
             .and_then(|t| t.pane.focused_or_first(window, cx))
             .and_then(|leaf| leaf.read(cx).spawnable_cwd());
-        let home = crate::core::agent_history::home();
+        let home = crate::ui::path_display::home_for_host(cx, self.spawn_host(cx));
         let now = crate::core::config::unix_now();
+        let hidden = &cx.global::<Config>().hidden_agent_sessions;
         let (mut mine, mut rest): (Vec<_>, Vec<_>) = found
             .into_iter()
+            .filter(|s| !hidden.contains(&crate::core::agent_history::session_key(s.agent, &s.id)))
             .partition(|s| here.is_some() && s.cwd == here);
         let here_section: Option<gpui::SharedString> = here.as_ref().map(|dir| {
             t_fmt(
@@ -5907,11 +6059,13 @@ impl Tty7App {
         self.search_sub = Some(cx.subscribe_in(&view, window, Self::on_search_event));
         self.search = Some(view.clone());
         self.refresh_search_sessions(view, window, cx);
+        self.refresh_file_index(window, cx);
         cx.notify();
     }
 
-    /// Reads the agents' history off the disk and hands what changed to the
-    /// open search. The search opened on the last scan's answer, so this is
+    /// Asks the machine this window's workspace is on — this one, or a
+    /// remote one's server — for its agents' history, and hands what changed
+    /// to the open search. The search opened on the last scan's answer, so this is
     /// only ever news: a session run since, or the first scan of the process.
     fn refresh_search_sessions(
         &mut self,
@@ -5919,29 +6073,47 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if WorkspaceStore::remote_ref(cx, self.workspace).is_some() {
-            return;
-        }
-        let Some(home) = crate::core::agent_history::home() else {
+        let host_id = self.spawn_host(cx);
+        let Some(host) = self.active_host(cx) else {
             return;
         };
-        let codex_home = crate::core::agent_history::codex_home();
-        let scan = cx.background_spawn(async move {
-            crate::core::agent_history::scan(&home, codex_home.as_deref())
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let found = scan.await;
-            this.update_in(cx, |this, window, cx| {
+        // Where this window's tabs are, on that machine: they place the
+        // chats Cursor files only under a hash of their directory.
+        let mut known_dirs: Vec<std::path::PathBuf> = self
+            .tabs
+            .iter()
+            .flat_map(|t| t.pane.terminals())
+            .filter_map(|leaf| leaf.read(cx).spawnable_cwd())
+            .collect();
+        known_dirs.sort();
+        known_dirs.dedup();
+        // Weak: a slow host must not keep a closed search alive.
+        let view = view.downgrade();
+        crate::ui::host_ops::HostOps::run_in(
+            host,
+            window,
+            cx,
+            move |h| h.agent_sessions(&known_dirs),
+            move |this, found, window, cx| {
+                let found = match found {
+                    Ok(found) => found,
+                    Err(e) => {
+                        log::warn!("listing agent sessions: {e}");
+                        return;
+                    }
+                };
+                remember_sessions(host_id, found.clone());
                 // Closed, or closed and opened again, since: nothing to update.
-                if this.search.as_ref() != Some(&view) {
+                let Some(view) = view
+                    .upgrade()
+                    .filter(|view| this.search.as_ref() == Some(view))
+                else {
                     return;
-                }
+                };
                 let (sessions, here) = this.search_sessions(found, window, cx);
                 view.update(cx, |view, cx| view.set_sessions(sessions, here, window, cx));
-            })
-            .ok();
-        })
-        .detach();
+            },
+        );
     }
 
     fn on_search_event(
@@ -5962,6 +6134,8 @@ impl Tty7App {
                 self.close_search(window, cx);
                 self.run_command(kind, window, cx);
             }
+            // Done inside the search, which stays open on the list it was.
+            SearchEvent::RunInPlace(kind) => self.run_command(kind.clone(), window, cx),
             SearchEvent::Dismiss => self.close_search(window, cx),
             SearchEvent::PreviewTheme(i) => {
                 if let Some(id) = crate::ui::presets::all(cx).get(*i).map(|t| t.id.clone()) {
@@ -6167,12 +6341,26 @@ impl Tty7App {
             // Both are the search's own, and handled inside it.
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
+            QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            OpenFile { path, line, column } => {
+                self.open_indexed_file(&path, line, column, window, cx)
+            }
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
             ResumeSession {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, window, cx),
+            } => self.resume_session(agent, &session_id, cwd, false, window, cx),
+            ForkSession {
+                agent,
+                session_id,
+                cwd,
+            } => self.resume_session(agent, &session_id, cwd, true, window, cx),
+            CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
+            HideSession { agent, session_id } => self.update_config(cx, |cfg| {
+                cfg.hidden_agent_sessions
+                    .insert(crate::core::agent_history::session_key(agent, &session_id));
+            }),
         }
     }
 
@@ -6293,10 +6481,6 @@ impl Tty7App {
             L10nKey::SettingsSidebarGrouping => {
                 self.set_sidebar_auto_grouping(defaults.sidebar_auto_grouping, cx)
             }
-            L10nKey::SettingsDiffPreviewFromCounts => {
-                self.set_sidebar_diff_preview(defaults.sidebar_diff_preview, cx)
-            }
-            L10nKey::SettingsSshTabTitle => self.set_ssh_tab_title(defaults.ssh_tab_title, cx),
             L10nKey::SettingsNotifyOnCommandFinish => {
                 self.set_notify_mode(defaults.notify_on_command_finish, cx)
             }
@@ -6583,7 +6767,10 @@ impl Tty7App {
         let http_proxy_input = self.build_http_proxy_input(&mut subs, window, cx);
         // One query box for whichever popover is open — a theme list or a
         // font list — since only one is ever open at a time.
-        let menu_query = cx.new(|cx| InputState::new(window, cx));
+        // Shared by every searchable dropdown on the page, so the hint is the
+        // generic one; without it the field was a bare caret under the list.
+        let menu_query =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t(L10nKey::SearchTheme)));
         subs.push(
             cx.subscribe_in(&menu_query, window, |this, input, ev, _w, cx| {
                 if matches!(ev, InputEvent::Change) {
@@ -8533,6 +8720,7 @@ impl Render for Tty7App {
         self.touch_active_tab();
         self.declare_displayed_panes(cx);
         self.scm_sync_watchers(window, cx);
+        self.editor_sync(window, cx);
         // Keeps looking for new listening ports on the pane in front, panel
         // open or not — a port that appears while the panel is shut is exactly
         // the one worth forwarding unasked.
@@ -9082,6 +9270,9 @@ impl Render for Tty7App {
                         this.toggle_search(window, cx)
                     }),
                 )
+                .on_action(cx.listener(|this, _: &QuickOpenFile, window, cx| {
+                    this.quick_open_file(window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
                     this.reopen_closed_tab(window, cx)
                 }))
@@ -9110,6 +9301,12 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ShowRightPanelFiles, _window, cx| {
                     this.set_right_panel_tab(crate::core::config::RightPanelTab::Files, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShowRightPanelSearch, _window, cx| {
+                    this.set_right_panel_tab(crate::core::config::RightPanelTab::Search, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShowRightPanelGitHub, _window, cx| {
+                    this.set_right_panel_tab(crate::core::config::RightPanelTab::GitHub, cx)
                 }))
                 .on_action(
                     cx.listener(|this, _: &ScmToggleGraph, _window, cx| this.scm_toggle_graph(cx)),
@@ -9189,11 +9386,31 @@ impl Render for Tty7App {
                     this.toggle_code_panel(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &EditorSave, window, cx| {
-                    if !this.editor_has_focus(window, cx) {
+                    if !this.editor_panel_has_focus(window, cx) {
                         cx.propagate();
                         return;
                     }
                     this.editor_save_active(window, cx)
+                }))
+                // Same shape as `EditorSave`: the chord belongs to the editor
+                // only while it has the focus, and reaches the terminal
+                // otherwise — Ctrl+G is BEL to a shell.
+                .on_action(cx.listener(|this, _: &EditorSaveAs, window, cx| {
+                    if !this.editor_panel_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.editor_save_as_active(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorGoToLine, window, cx| {
+                    if !this.editor_panel_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.editor_go_to_line(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorNewFile, window, cx| {
+                    this.editor_new_file(window, cx)
                 }))
                 .on_action(
                     cx.listener(|this, _: &Quit, window, cx| this.quit_stop_sessions(window, cx)),
@@ -13181,4 +13398,36 @@ mod hibernate_gpui_tests {
             assert!(!closed.hibernated, "reopening brings it back awake");
         });
     }
+}
+
+/// What each host's last session scan found: what the Sessions tab shows
+/// while the next scan runs, so it does not open empty.
+static LAST_SESSIONS: std::sync::LazyLock<
+    std::sync::Mutex<
+        std::collections::HashMap<
+            crate::ui::host_ops::HostId,
+            Vec<crate::core::agent_history::PastSession>,
+        >,
+    >,
+> = std::sync::LazyLock::new(Default::default);
+
+fn last_sessions(
+    host: crate::ui::host_ops::HostId,
+) -> Vec<crate::core::agent_history::PastSession> {
+    LAST_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&host)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn remember_sessions(
+    host: crate::ui::host_ops::HostId,
+    found: Vec<crate::core::agent_history::PastSession>,
+) {
+    LAST_SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(host, found);
 }
