@@ -1233,6 +1233,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorNoFileOpen => "開かれているファイルはありません",
         L10nKey::EditorBackToTerminal => "ターミナルに戻る (Esc)",
         L10nKey::EditorLnCol => "行 {line}, 列 {column}",
+        L10nKey::EditorSelections => "（{n} 個の選択範囲）",
         L10nKey::EditorEdit => "編集",
         L10nKey::EditorPreview => "プレビュー",
         L10nKey::EditorWrapOn => "折り返し: オン",

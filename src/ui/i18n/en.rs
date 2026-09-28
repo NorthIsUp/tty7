@@ -1185,6 +1185,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorNoFileOpen => "No file open",
         L10nKey::EditorBackToTerminal => "Back to Terminal (Esc)",
         L10nKey::EditorLnCol => "Ln {line}, Col {column}",
+        L10nKey::EditorSelections => "({n} selections)",
         L10nKey::EditorEdit => "Edit",
         L10nKey::EditorPreview => "Preview",
         L10nKey::EditorWrapOn => "Wrap: on",

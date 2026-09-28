@@ -1105,6 +1105,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorNoFileOpen => "没有打开的文件",
         L10nKey::EditorBackToTerminal => "返回终端 (Esc)",
         L10nKey::EditorLnCol => "行 {line}，列 {column}",
+        L10nKey::EditorSelections => "（{n} 个选区）",
         L10nKey::EditorEdit => "编辑",
         L10nKey::EditorPreview => "预览",
         L10nKey::EditorWrapOn => "自动换行：开",

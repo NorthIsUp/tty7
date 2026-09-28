@@ -921,6 +921,7 @@ l10n_keys! {
     EditorNoFileOpen,
     EditorBackToTerminal,
     EditorLnCol,
+    EditorSelections,
     EditorEdit,
     EditorPreview,
     EditorWrapOn,
