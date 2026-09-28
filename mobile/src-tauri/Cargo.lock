@@ -5469,6 +5469,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "iroh",
+ "objc2",
  "rustls",
  "serde",
  "serde_json",

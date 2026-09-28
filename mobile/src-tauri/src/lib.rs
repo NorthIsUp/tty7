@@ -405,6 +405,10 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            #[cfg(target_os = "ios")]
+            if let Some(window) = app.get_webview_window("main") {
+                edge_to_edge(&window);
+            }
             let dir = app.path().app_data_dir()?;
             app.manage(Arc::new(AppState {
                 dir,
@@ -422,4 +426,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tty7");
+}
+
+/// Lets the page run under the status bar and the home indicator, and leaves
+/// the safe areas to it (`viewport-fit=cover` and `env(safe-area-inset-*)` in
+/// the CSS). By default the WKWebView's scroll view insets its content by the
+/// safe areas as well, so each was counted twice: the page sat a status bar's
+/// height too low, with a blank band under it.
+#[cfg(target_os = "ios")]
+fn edge_to_edge(window: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    /// `UIScrollViewContentInsetAdjustmentBehavior.never`.
+    const NEVER: isize = 2;
+    let _ = window.with_webview(|webview| unsafe {
+        let Some(wk) = (webview.inner() as *const AnyObject).as_ref() else {
+            return;
+        };
+        let scroll: *const AnyObject = msg_send![wk, scrollView];
+        if let Some(scroll) = scroll.as_ref() {
+            let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: NEVER];
+        }
+    });
 }
