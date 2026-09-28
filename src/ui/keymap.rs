@@ -110,6 +110,32 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         bindings.push(KeyBinding::new("alt-f5", EditorNextChange, input));
         bindings.push(KeyBinding::new("shift-alt-f5", EditorPrevChange, input));
     }
+    // The code editor's line commands, for the same tie: ⌘/ is the shortcut
+    // sheet, ⌘↵ fullscreen, ⌘⇧↵ maximize and ⌥↑/⌥↓ pane focus off macOS, all
+    // context-free. Bound on `CodeEditor`, which only a multi-line code
+    // editor declares, so every other text field and the terminal keep the
+    // app's keys.
+    {
+        use gpui_component::input::{
+            CODE_EDITOR_CONTEXT, CopyLineDown, CopyLineUp, DeleteLine, InsertLineAbove,
+            InsertLineBelow, MoveLineDown, MoveLineUp, MoveToMatchingBracket, SelectLine,
+            ToggleBlockComment, ToggleLineComment,
+        };
+        let editor = Some(CODE_EDITOR_CONTEXT);
+        bindings.extend([
+            KeyBinding::new("secondary-/", ToggleLineComment, editor),
+            KeyBinding::new("alt-shift-a", ToggleBlockComment, editor),
+            KeyBinding::new("alt-up", MoveLineUp, editor),
+            KeyBinding::new("alt-down", MoveLineDown, editor),
+            KeyBinding::new("alt-shift-up", CopyLineUp, editor),
+            KeyBinding::new("alt-shift-down", CopyLineDown, editor),
+            KeyBinding::new("secondary-shift-k", DeleteLine, editor),
+            KeyBinding::new("secondary-enter", InsertLineBelow, editor),
+            KeyBinding::new("secondary-shift-enter", InsertLineAbove, editor),
+            KeyBinding::new("secondary-l", SelectLine, editor),
+            KeyBinding::new("secondary-shift-\\", MoveToMatchingBracket, editor),
+        ]);
+    }
     bindings
 }
 
@@ -2728,6 +2754,59 @@ mod gpui_tests {
             .iter()
             .map(|b| b.action().name())
             .collect()
+    }
+
+    /// The code editor's line commands sit on chords the app also spends —
+    /// ⌘/ is the shortcut sheet, ⌘↵ fullscreen, ⌘⇧↵ maximize, ⌥↑/⌥↓ pane
+    /// focus off macOS. `fixed_bindings` re-adds them on the `CodeEditor`
+    /// context the editor declares beside `Input`, after the app's table, so
+    /// inside the editor they win and everywhere else nothing changes.
+    #[gpui::test]
+    fn the_code_editor_chords_win_inside_the_editor(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            running_on_json(cx, "{}");
+            let first = |keys: &str, stack: &[&str]| {
+                let input: Vec<Keystroke> = keys
+                    .split(' ')
+                    .map(|k| Keystroke::parse(k).expect("the typed keystroke parses"))
+                    .collect();
+                let stack: Vec<gpui::KeyContext> = stack
+                    .iter()
+                    .map(|c| gpui::KeyContext::parse(c).expect("the context parses"))
+                    .collect();
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &stack)
+                    .0
+                    .first()
+                    .map(|b| b.action().name())
+            };
+            let editor = ["Workspace", "Input CodeEditor"];
+            for (keys, action) in [
+                ("secondary-/", "input::ToggleLineComment"),
+                ("alt-up", "input::MoveLineUp"),
+                ("alt-down", "input::MoveLineDown"),
+                ("alt-shift-up", "input::CopyLineUp"),
+                ("alt-shift-down", "input::CopyLineDown"),
+                ("secondary-shift-k", "input::DeleteLine"),
+                ("secondary-enter", "input::InsertLineBelow"),
+                ("secondary-shift-enter", "input::InsertLineAbove"),
+                ("secondary-l", "input::SelectLine"),
+                ("secondary-shift-\\", "input::MoveToMatchingBracket"),
+            ] {
+                assert_eq!(first(keys, &editor), Some(action), "{keys} in the editor");
+                assert_ne!(
+                    first(keys, &["Workspace", "Input"]),
+                    Some(action),
+                    "{keys} in a plain text field"
+                );
+                assert_ne!(
+                    first(keys, &["Workspace", "Terminal"]),
+                    Some(action),
+                    "{keys} in a terminal"
+                );
+            }
+        });
     }
 
     #[gpui::test]
