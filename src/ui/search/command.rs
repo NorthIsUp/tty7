@@ -125,7 +125,6 @@ pub enum CommandKind {
     },
     /// The code editor's navigation, from the palette.
     EditorGoToSymbol,
-    EditorWorkspaceSymbol,
     EditorNavigateBack,
     EditorNavigateForward,
     EditorSplitRight,
@@ -278,7 +277,6 @@ impl CommandKind {
             EditorJoinLines => "editor-join-lines",
             EditorRemoveSurroundingBrackets => "editor-remove-brackets",
             EditorGoToSymbol => "editor-go-to-symbol",
-            EditorWorkspaceSymbol => "editor-workspace-symbol",
             EditorNavigateBack => "editor-go-back",
             EditorNavigateForward => "editor-go-forward",
             EditorSplitRight => "editor-split-right",
@@ -421,7 +419,6 @@ impl CommandKind {
             EditorJoinLines => "EditorJoinLines",
             EditorRemoveSurroundingBrackets => "EditorRemoveSurroundingBrackets",
             EditorGoToSymbol => "EditorGoToSymbol",
-            EditorWorkspaceSymbol => "EditorWorkspaceSymbol",
             EditorNavigateBack => "EditorNavigateBack",
             EditorNavigateForward => "EditorNavigateForward",
             EditorSplitRight => "EditorSplitRight",

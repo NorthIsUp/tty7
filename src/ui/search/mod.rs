@@ -36,9 +36,6 @@ pub(crate) enum SearchTab {
     /// Places a language server found — the references to a symbol, or its
     /// several definitions (`ui::lsp`). Reached only by those commands.
     Locations,
-    /// Go to Symbol in Workspace: what the language server finds for the
-    /// query, asked afresh as it is typed (`ui::lsp`).
-    WorkspaceSymbols,
 }
 
 impl SearchTab {
@@ -60,14 +57,10 @@ impl SearchTab {
 
     /// The editor's row: finding your way around the code, as opposed to
     /// around the window. Go to File and Go to Symbol open on it, and Tab
-    /// walks it the way it walks the window's row. Only the tabs that can
-    /// answer are shown — Symbols needs a file in front, Workspace Symbols a
-    /// language server that searches the project.
-    pub(crate) const EDITOR_ORDER: [SearchTab; 3] = [
-        SearchTab::Files,
-        SearchTab::Symbols,
-        SearchTab::WorkspaceSymbols,
-    ];
+    /// walks it the way it walks the window's row. Symbols shows only with a
+    /// file in front; once something is typed it also lists what the file's
+    /// language server finds across the project.
+    pub(crate) const EDITOR_ORDER: [SearchTab; 2] = [SearchTab::Files, SearchTab::Symbols];
 
     pub(crate) fn in_editor_row(self) -> bool {
         Self::EDITOR_ORDER.contains(&self)
@@ -83,7 +76,6 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchTabHosts,
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
             SearchTab::Locations => L10nKey::SearchTabLocations,
-            SearchTab::WorkspaceSymbols => L10nKey::SearchTabWorkspaceSymbols,
         })
     }
 
@@ -105,7 +97,6 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchPlaceholderHosts,
             SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
-            SearchTab::WorkspaceSymbols => L10nKey::SearchPlaceholderWorkspaceSymbols,
         })
     }
 
@@ -141,12 +132,7 @@ mod tests {
         assert!(!SearchTab::ORDER.contains(&SearchTab::Symbols));
         // Reached by a chord, they stand alone rather than sit under a row
         // with nothing in it lit.
-        for tab in [
-            SearchTab::Files,
-            SearchTab::Symbols,
-            SearchTab::Locations,
-            SearchTab::WorkspaceSymbols,
-        ] {
+        for tab in [SearchTab::Files, SearchTab::Symbols, SearchTab::Locations] {
             assert!(tab.stands_alone());
         }
         assert!(SearchTab::ORDER.iter().all(|tab| !tab.stands_alone()));

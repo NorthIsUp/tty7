@@ -566,21 +566,23 @@ impl Tty7App {
             origin,
             scroll,
         });
+        let live = self.lsp_workspace_live_query(window, cx);
         if let Some(view) = self.search.clone() {
-            view.update(cx, |view, cx| view.set_symbols(rows, here, window, cx));
+            view.update(cx, |view, cx| {
+                view.set_symbols(rows, here, window, cx);
+                if let Some(live) = live {
+                    view.set_live_query(live, window, cx);
+                }
+            });
         }
     }
 
     /// The editor's search row as this window can fill it: Files always,
-    /// Symbols with a file in front, Workspace Symbols when that file's
-    /// language server searches the project.
-    pub(crate) fn editor_search_tabs(&self, cx: &mut App) -> Vec<SearchTab> {
+    /// Symbols with a file in front.
+    pub(crate) fn editor_search_tabs(&self) -> Vec<SearchTab> {
         let mut tabs = vec![SearchTab::Files];
         if self.active_buffer().is_some() {
             tabs.push(SearchTab::Symbols);
-        }
-        if self.lsp_can_search_workspace(cx) {
-            tabs.push(SearchTab::WorkspaceSymbols);
         }
         tabs
     }
@@ -674,10 +676,6 @@ impl Tty7App {
         }
         [
             (L10nKey::CmdEditorGoToSymbol, CommandKind::EditorGoToSymbol),
-            (
-                L10nKey::CmdEditorWorkspaceSymbol,
-                CommandKind::EditorWorkspaceSymbol,
-            ),
             (L10nKey::CmdEditorGoBack, CommandKind::EditorNavigateBack),
             (
                 L10nKey::CmdEditorGoForward,
@@ -1391,12 +1389,12 @@ pub(super) mod gpui_tests {
         crate::ui::i18n::set_locale("en");
         // No file in front: Files is all the row would hold.
         assert_eq!(
-            app.update(&mut vcx, |app, cx| app.editor_search_tabs(cx)),
+            app.read_with(&vcx, |app, _| app.editor_search_tabs()),
             vec![SearchTab::Files]
         );
         open_rs(&app, &mut vcx, "/nav-test/a.rs");
         assert_eq!(
-            app.update(&mut vcx, |app, cx| app.editor_search_tabs(cx)),
+            app.read_with(&vcx, |app, _| app.editor_search_tabs()),
             vec![SearchTab::Files, SearchTab::Symbols]
         );
         app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
@@ -1429,7 +1427,6 @@ pub(super) mod gpui_tests {
             kinds,
             [
                 CommandKind::EditorGoToSymbol,
-                CommandKind::EditorWorkspaceSymbol,
                 CommandKind::EditorNavigateBack,
                 CommandKind::EditorNavigateForward,
                 CommandKind::EditorSplitRight,

@@ -145,7 +145,6 @@ actions!(
         EditorJoinLines,
         EditorRemoveSurroundingBrackets,
         EditorFindReferences,
-        EditorWorkspaceSymbol,
         EditorNextChange,
         EditorPrevChange,
         EditorRevertChange,

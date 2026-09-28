@@ -222,7 +222,7 @@ impl ListDelegate for SearchDelegate {
         cx: &mut Context<ListState<Self>>,
     ) -> Task<()> {
         self.query = query.to_string();
-        if self.scope == Scope::Tab(SearchTab::WorkspaceSymbols)
+        if self.scope == Scope::Tab(SearchTab::Symbols)
             && let Some(live) = self.catalog.live_query.clone()
         {
             live(query, cx);
@@ -288,10 +288,6 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Locations) if self.catalog.locations.is_empty() => {
                 t(L10nKey::SearchLocationsNone)
             }
-            Scope::Tab(SearchTab::WorkspaceSymbols) if self.query.trim().is_empty() => {
-                t(L10nKey::SearchPlaceholderWorkspaceSymbols)
-            }
-            Scope::Tab(SearchTab::WorkspaceSymbols) => t(L10nKey::SearchLocationsNone),
             Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
@@ -651,7 +647,19 @@ impl SearchView {
         }
     }
 
-    /// Sets what Go to Symbol in Workspace asks as the query changes.
+    /// What the language server found across the project for the Symbols
+    /// tab's current query, listed after the file's own symbols.
+    pub(crate) fn set_workspace_symbols(
+        &mut self,
+        symbols: Vec<Item>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_catalog(|catalog| catalog.workspace_symbols = symbols, window, cx);
+    }
+
+    /// Sets what the Symbols tab asks the language server as the query
+    /// changes.
     pub(crate) fn set_live_query(
         &mut self,
         live: crate::ui::search::LiveQuery,
@@ -849,7 +857,7 @@ impl SearchView {
                     return;
                 }
                 if !self.in_sub_list()
-                    && matches!(self.tab, SearchTab::Locations | SearchTab::WorkspaceSymbols)
+                    && matches!(self.tab, SearchTab::Locations | SearchTab::Symbols)
                     && let Some(Row::Item(item)) = list.read(cx).delegate().row_at(*ix)
                     && let CommandKind::GoToLocation { path, line, column } = &item.kind
                 {
@@ -1392,12 +1400,7 @@ mod tests {
     fn a_standalone_tab_keeps_its_list_on_tab(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         crate::ui::i18n::set_locale("en");
-        for tab in [
-            SearchTab::Files,
-            SearchTab::Symbols,
-            SearchTab::Locations,
-            SearchTab::WorkspaceSymbols,
-        ] {
+        for tab in [SearchTab::Files, SearchTab::Symbols, SearchTab::Locations] {
             app.update_in(&mut vcx, |app, window, cx| {
                 app.open_search(tab, "", window, cx)
             });

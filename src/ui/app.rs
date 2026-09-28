@@ -6100,7 +6100,7 @@ impl Tty7App {
         let catalog = self.search_catalog(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
-            let tabs = self.editor_search_tabs(cx);
+            let tabs = self.editor_search_tabs();
             view.update(cx, |view, cx| view.set_editor_tabs(tabs, cx));
         }
         self.search_sub = Some(cx.subscribe_in(&view, window, Self::on_search_event));
@@ -6210,7 +6210,6 @@ impl Tty7App {
                 self.close_search(window, cx);
                 match tab {
                     SearchTab::Symbols => self.editor_go_to_symbol(window, cx),
-                    SearchTab::WorkspaceSymbols => self.lsp_workspace_symbols(window, cx),
                     _ => self.open_search(SearchTab::Files, "", window, cx),
                 }
             }
@@ -6400,7 +6399,6 @@ impl Tty7App {
                 );
             }
             EditorGoToSymbol => self.editor_go_to_symbol(window, cx),
-            EditorWorkspaceSymbol => self.lsp_workspace_symbols(window, cx),
             EditorNavigateBack => self.editor_navigate(false, window, cx),
             EditorNavigateForward => self.editor_navigate(true, window, cx),
             EditorSplitRight => {
@@ -9513,13 +9511,6 @@ impl Render for Tty7App {
                         return;
                     }
                     this.lsp_find_references(window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &EditorWorkspaceSymbol, window, cx| {
-                    if !this.editor_has_focus(window, cx) {
-                        cx.propagate();
-                        return;
-                    }
-                    this.lsp_workspace_symbols(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &EditorNewFile, window, cx| {
                     this.editor_new_file(window, cx)

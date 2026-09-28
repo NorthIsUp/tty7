@@ -722,7 +722,6 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorJoinLines", ""),
         ("EditorRemoveSurroundingBrackets", ""),
         ("EditorFindReferences", ""),
-        ("EditorWorkspaceSymbol", ""),
         // Alt+F5 / Shift+Alt+F5 (VS Code's) are fixed `Input`-context
         // bindings: a default on a function key would hide it from the shell.
         ("EditorNextChange", ""),
@@ -1059,10 +1058,6 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorFindReferences" => (
             CommandGroup::Terminal,
             t(L10nKey::LspFindReferences).to_string(),
-        ),
-        "EditorWorkspaceSymbol" => (
-            CommandGroup::Terminal,
-            t(L10nKey::LspWorkspaceSymbol).to_string(),
         ),
         "EditorGoToSymbol" => (
             CommandGroup::Terminal,
@@ -1858,7 +1853,6 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
             KeyBinding::new(keystroke, EditorRemoveSurroundingBrackets, None)
         }
         "EditorFindReferences" => KeyBinding::new(keystroke, EditorFindReferences, None),
-        "EditorWorkspaceSymbol" => KeyBinding::new(keystroke, EditorWorkspaceSymbol, None),
         "EditorNextChange" => KeyBinding::new(keystroke, EditorNextChange, None),
         "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
         "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),

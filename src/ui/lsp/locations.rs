@@ -212,50 +212,33 @@ impl Tty7App {
         .detach();
     }
 
-    /// Go to Symbol in Workspace: symbols anywhere in the project, asked of the front file's
-    /// server as the query is typed.
-    /// Whether the file in front has a language server that can search the
-    /// whole project, for the editor's search row. Asks nothing of it.
-    pub(crate) fn lsp_can_search_workspace(&self, cx: &mut App) -> bool {
-        self.editor_active_local_file().is_some_and(|f| {
-            LspStore::context(&f.path, f.input.entity_id(), Freshen::Skip, None, cx)
-                .is_some_and(|doc| doc.caps.workspace_symbol_provider.is_some())
-        })
-    }
-
-    pub(crate) fn lsp_workspace_symbols(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(f) = self.editor_active_local_file() else {
-            return;
-        };
-        let Some(doc) = LspStore::context(&f.path, f.input.entity_id(), Freshen::Skip, None, cx)
-        else {
-            return;
-        };
-        if doc.caps.workspace_symbol_provider.is_none() {
-            return;
-        }
+    /// What the Symbols tab asks as its query changes: the front file's
+    /// language server, for symbols anywhere in the project. `None` when
+    /// there is no such server, and the tab lists the file's own alone.
+    pub(crate) fn lsp_workspace_live_query(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<crate::ui::search::LiveQuery> {
+        let f = self.editor_active_local_file()?;
+        let doc = LspStore::context(&f.path, f.input.entity_id(), Freshen::Skip, None, cx)?;
+        doc.caps.workspace_symbol_provider.as_ref()?;
         let app = cx.entity().downgrade();
         let handle = window.window_handle();
         let path = f.path.clone();
         let requester = f.input.entity_id();
-        let live: crate::ui::search::LiveQuery =
-            std::rc::Rc::new(move |query: &str, cx: &mut App| {
-                let (app, path, query) = (app.clone(), path.clone(), query.to_owned());
-                // Deferred: the query arrives from inside the search's own
-                // update, and answering it updates the search.
-                cx.defer(move |cx| {
-                    let _ = handle.update(cx, |_, window, cx| {
-                        let _ = app.update(cx, |app, cx| {
-                            app.lsp_workspace_query(&path, requester, query, window, cx)
-                        });
+        Some(std::rc::Rc::new(move |query: &str, cx: &mut App| {
+            let (app, path, query) = (app.clone(), path.clone(), query.to_owned());
+            // Deferred: the query arrives from inside the search's own
+            // update, and answering it updates the search.
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    let _ = app.update(cx, |app, cx| {
+                        app.lsp_workspace_query(&path, requester, query, window, cx)
                     });
                 });
             });
-        self.open_search(SearchTab::WorkspaceSymbols, "", window, cx);
-        self.editor_begin_preview(cx);
-        if let Some(view) = self.search.clone() {
-            view.update(cx, |view, cx| view.set_live_query(live, window, cx));
-        }
+        }))
     }
 
     fn lsp_workspace_query(
@@ -273,7 +256,7 @@ impl Tty7App {
         if query.trim().is_empty() {
             if let Some(view) = self.search.clone() {
                 view.update(cx, |view, cx| {
-                    view.set_locations(None, Vec::new(), window, cx)
+                    view.set_workspace_symbols(Vec::new(), window, cx)
                 });
             }
             return;
@@ -284,6 +267,7 @@ impl Tty7App {
         let client = doc.client.clone();
         let (encoding, root) = (doc.encoding, doc.root.clone());
         let open = self.lsp_open_texts(cx);
+        let front = path.to_path_buf();
         cx.spawn_in(window, async move |app, cx| {
             // Typing fast asks once, for what was typed last.
             cx.background_executor()
@@ -301,8 +285,12 @@ impl Tty7App {
                     },
                 )
                 .await;
+            // The front file's own symbols are listed above these already.
             let symbols = match answer {
-                Ok(Some(symbols)) => workspace_symbols(symbols),
+                Ok(Some(symbols)) => workspace_symbols(symbols)
+                    .into_iter()
+                    .filter(|s| s.path != front)
+                    .collect::<Vec<_>>(),
                 Ok(None) => Vec::new(),
                 Err(e) => {
                     log::debug!("lsp: workspace/symbol: {e:#}");
@@ -327,9 +315,9 @@ impl Tty7App {
             }
             let _ = app.update_in(cx, |app, window, cx| {
                 if let Some(view) = app.search.clone()
-                    && view.read(cx).tab() == SearchTab::WorkspaceSymbols
+                    && view.read(cx).tab() == SearchTab::Symbols
                 {
-                    view.update(cx, |view, cx| view.set_locations(None, items, window, cx));
+                    view.update(cx, |view, cx| view.set_workspace_symbols(items, window, cx));
                 }
             });
         })
