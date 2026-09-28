@@ -183,6 +183,8 @@ angle brackets, and a tab:
 | `agent_frecency` | object | `{}` | Written by tty7: how often and how recently each agent ran, to order quick launch. |
 | `restore_agent_sessions` | bool | `true` | Relaunch an agent conversation when a lost pane is restored. |
 | `restore_asleep` | bool | `true` | Restore a tab whose panes all died (reboot, Quit and Stop) asleep; it starts, and resumes its agent, when first opened. |
+| `continue_prompt` | string | `"continue"` | What **Continue All Agents** tells each agent it resumes (Claude Code and Codex); empty resumes without a prompt. |
+| `continue_stagger_ms` | int | `3000` | Gap between one tab's resume and the next under **Continue All Agents**. |
 | `install_cli_on_path` | bool | `true` | Put the bundled `tty7` command on PATH at launch. |
 
 [Agent slugs →](/agents/overview#your-own-wrapper)

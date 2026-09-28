@@ -1789,6 +1789,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdForkSessionSubtitle => "branch this agent session into a new tab",
         L10nKey::CmdMarkTabAsUnread => "Mark Tab as Unread",
         L10nKey::CmdHibernateTab => "Hibernate Tab",
+        L10nKey::CmdContinueAllAgents => "Continue All Agents",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
+        }
         L10nKey::CmdHibernateTabSubtitle => {
             "stop its processes to free memory; selecting it wakes it"
         }
