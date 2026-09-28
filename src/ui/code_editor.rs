@@ -360,7 +360,7 @@ impl EditorPanelState {
             watched_dirs: HashSet::new(),
             watched_files: HashSet::new(),
             events_tx: tx,
-            nav: nav::EditorNav::default(),
+            nav: nav::EditorNav::new(cx),
         }
     }
 }
@@ -1342,6 +1342,7 @@ impl Tty7App {
         }
         self.lsp_buffer_edited(id, cx);
         self.editor_gutter_note_edit(id, cx);
+        self.editor_nav_note_edit(id, cx);
         cx.notify();
     }
 
