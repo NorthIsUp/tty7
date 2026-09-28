@@ -128,6 +128,12 @@ pub enum CommandKind {
         line: u32,
         column: u32,
     },
+    /// A place a language server found: 0-based, the column in chars.
+    GoToLocation {
+        path: std::path::PathBuf,
+        line: u32,
+        column: u32,
+    },
     /// Connect with a typed `ssh` command line (`-p`, `-J`, an alias…).
     OpenSshConnect(String),
     SetTheme(usize),
@@ -289,6 +295,7 @@ impl CommandKind {
             | GoToTab { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
+            | GoToLocation { .. }
             | ResumeSession { .. }
             | ForkSession { .. }
             | CopySessionId(_)
@@ -434,6 +441,7 @@ impl CommandKind {
             | GoToTab { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
+            | GoToLocation { .. }
             | ResumeSession { .. }
             | ForkSession { .. }
             | CopySessionId(_)

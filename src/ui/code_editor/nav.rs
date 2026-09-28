@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Window, div, px};
+use gpui::{AnyElement, App, Context, Window, div, px};
 use gpui_component::input::Position;
 use gpui_component::{ActiveTheme as _, h_flex};
 use tty7_core::core::machine::TabId;
@@ -360,7 +360,6 @@ impl Tty7App {
     /// language server's `textDocument/documentSymbol`, flattened with
     /// [`Outline::from_nodes`]. `None` goes back to the tree's. The caller
     /// keeps them current: they are shown as given until replaced.
-    #[allow(dead_code)]
     pub(crate) fn editor_set_document_symbols(
         &mut self,
         buffer: BufferId,
@@ -494,6 +493,29 @@ impl Tty7App {
         f.input.update(cx, |state, cx| {
             state.preview_cursor_position(Position::new(line, column), cx)
         });
+    }
+
+    /// Begins a preview in the file in front for a picker someone else
+    /// filled — Find References (`ui::lsp`) — so arrowing through it moves
+    /// the caret and closing it puts the caret back, as Go to Symbol does.
+    pub(crate) fn editor_begin_preview(&mut self, cx: &App) {
+        let Some(f) = self.active_buffer() else {
+            return;
+        };
+        let (origin, scroll) = {
+            let state = f.input.read(cx);
+            (state.cursor_position(), state.scroll_offset())
+        };
+        self.editor.nav.preview = Some(SymbolPreview {
+            buffer: f.id(),
+            origin,
+            scroll,
+        });
+    }
+
+    /// The buffer a preview is running in, if one is.
+    pub(crate) fn editor_preview_buffer(&self) -> Option<BufferId> {
+        self.editor.nav.preview.as_ref().map(|p| p.buffer)
     }
 
     /// The picker's choice is final: the caret stays where it took it.

@@ -141,6 +141,8 @@ actions!(
         EditorTrimTrailingWhitespace,
         EditorJoinLines,
         EditorRemoveSurroundingBrackets,
+        EditorFindReferences,
+        EditorWorkspaceSymbol,
         EditorNextChange,
         EditorPrevChange,
         EditorRevertChange,

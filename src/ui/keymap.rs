@@ -110,6 +110,10 @@ fn fixed_bindings() -> Vec<KeyBinding> {
     bindings.push(KeyBinding::new("f12", EditorGoToDefinition, input));
     bindings.push(KeyBinding::new("f2", EditorRenameSymbol, input));
     bindings.push(KeyBinding::new("shift-alt-f", EditorFormatDocument, input));
+    bindings.push(KeyBinding::new("shift-f12", EditorFindReferences, input));
+    // ⌘T / Ctrl+T is a new tab everywhere else in tty7; inside the editor it
+    // is VS Code's Go to Symbol in Workspace.
+    bindings.push(KeyBinding::new("secondary-t", EditorWorkspaceSymbol, input));
     // The gutter's change markers, on VS Code's chords. Only in an `Input`:
     // a function key bound for the whole window would never reach the shell,
     // and the handlers let the key through when the code editor is not the
@@ -705,6 +709,8 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorTrimTrailingWhitespace", ""),
         ("EditorJoinLines", ""),
         ("EditorRemoveSurroundingBrackets", ""),
+        ("EditorFindReferences", ""),
+        ("EditorWorkspaceSymbol", ""),
         // Alt+F5 / Shift+Alt+F5 (VS Code's) are fixed `Input`-context
         // bindings: a default on a function key would hide it from the shell.
         ("EditorNextChange", ""),
@@ -1037,6 +1043,14 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorRemoveSurroundingBrackets" => (
             CommandGroup::Terminal,
             t(L10nKey::CmdEditorRemoveSurroundingBrackets).to_string(),
+        ),
+        "EditorFindReferences" => (
+            CommandGroup::Terminal,
+            t(L10nKey::LspFindReferences).to_string(),
+        ),
+        "EditorWorkspaceSymbol" => (
+            CommandGroup::Terminal,
+            t(L10nKey::LspWorkspaceSymbol).to_string(),
         ),
         "EditorGoToSymbol" => (
             CommandGroup::Terminal,
@@ -1801,6 +1815,8 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorRemoveSurroundingBrackets" => {
             KeyBinding::new(keystroke, EditorRemoveSurroundingBrackets, None)
         }
+        "EditorFindReferences" => KeyBinding::new(keystroke, EditorFindReferences, None),
+        "EditorWorkspaceSymbol" => KeyBinding::new(keystroke, EditorWorkspaceSymbol, None),
         "EditorNextChange" => KeyBinding::new(keystroke, EditorNextChange, None),
         "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
         "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),

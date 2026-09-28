@@ -6163,7 +6163,10 @@ impl Tty7App {
                     self.theme_preview_restore = None;
                 }
                 // Likewise the symbol Go to Symbol has the caret on.
-                if matches!(kind, CommandKind::GoToSymbol { .. }) {
+                if matches!(
+                    kind,
+                    CommandKind::GoToSymbol { .. } | CommandKind::GoToLocation { .. }
+                ) {
                     self.editor_symbol_preview_commit();
                 }
                 self.close_search(window, cx);
@@ -6180,6 +6183,9 @@ impl Tty7App {
             SearchEvent::CancelThemePreview => self.cancel_preset_preview(window, cx),
             SearchEvent::PreviewSymbol { line, column } => {
                 self.editor_symbol_preview(*line, *column, cx)
+            }
+            SearchEvent::PreviewLocation { path, line, column } => {
+                self.lsp_preview_location(path, *line, *column, cx)
             }
         }
     }
@@ -6409,6 +6415,9 @@ impl Tty7App {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
             GoToSymbol { line, column } => self.editor_go_to_position(line, column, window, cx),
+            GoToLocation { path, line, column } => {
+                self.open_file_in_editor_at(&path, Some(line + 1), Some(column + 1), window, cx)
+            }
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
             ResumeSession {
                 agent,
@@ -9463,6 +9472,20 @@ impl Render for Tty7App {
                         return;
                     }
                     this.lsp_format_document(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorFindReferences, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_find_references(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorWorkspaceSymbol, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_workspace_symbols(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &EditorNewFile, window, cx| {
                     this.editor_new_file(window, cx)
