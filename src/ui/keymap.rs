@@ -3206,6 +3206,14 @@ mod gpui_tests {
                 (back, EditorNavigateBack::name_for_type()),
                 (forward, EditorNavigateForward::name_for_type()),
                 ("secondary-\\", EditorSplitRight::name_for_type()),
+                (
+                    per_platform("secondary-alt-left", "ctrl-alt-left"),
+                    EditorFocusLeftGroup::name_for_type(),
+                ),
+                (
+                    per_platform("secondary-alt-right", "ctrl-alt-right"),
+                    EditorFocusRightGroup::name_for_type(),
+                ),
             ] {
                 assert_eq!(
                     in_input(keys).first(),
