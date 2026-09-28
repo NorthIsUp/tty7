@@ -34,6 +34,7 @@ pub enum CommandKind {
     CopyWorkingDirectory,
     MarkTabUnread,
     HibernateTab,
+    ContinueAllAgents,
     ForkAgentSession,
     CopyAgentSessionId,
     NewAgentTab,
@@ -209,6 +210,7 @@ impl CommandKind {
             CopyWorkingDirectory => "copy-cwd",
             MarkTabUnread => "mark-tab-unread",
             HibernateTab => "hibernate-tab",
+            ContinueAllAgents => "continue-all-agents",
             ForkAgentSession => "fork-agent-session",
             CopyAgentSessionId => "copy-agent-session-id",
             NewAgentTab => "new-agent-tab",
@@ -355,6 +357,7 @@ impl CommandKind {
             CopyWorkingDirectory => "CopyWorkingDirectory",
             MarkTabUnread => "MarkTabUnread",
             HibernateTab => "HibernateTab",
+            ContinueAllAgents => "ContinueAllAgents",
             ForkAgentSession => "ForkAgentSession",
             CopyAgentSessionId => "CopyAgentSessionId",
             NewAgentTab => "NewAgentTab",
@@ -656,6 +659,8 @@ impl Item {
             Item::localized(L10nKey::CmdMarkTabAsUnread, MarkTabUnread),
             Item::localized(L10nKey::CmdHibernateTab, HibernateTab)
                 .with_subtitle(t(L10nKey::CmdHibernateTabSubtitle)),
+            Item::localized(L10nKey::CmdContinueAllAgents, ContinueAllAgents)
+                .with_subtitle(t(L10nKey::CmdContinueAllAgentsSubtitle)),
             Item::localized(L10nKey::CmdClosePaneTab, ClosePane),
             Item::localized(L10nKey::CmdCloseOtherTabs, CloseOtherTabs),
             Item::localized(L10nKey::CmdCloseTabsToTheRight, CloseTabsToTheRight),

@@ -24,6 +24,9 @@ pub struct PendingSpawn {
     /// opened to run something (a quick-launched agent). Typed only into this
     /// pane, and only when it is a fresh shell rather than a restored one.
     pub run_on_land: Option<String>,
+    /// A prompt for the agent this pane resumes, sent with the resume itself
+    /// (Continue All Agents).
+    pub agent_prompt: Option<String>,
     pub owner: Option<crate::core::session::WorkspaceId>,
     pub font_size: f32,
 }

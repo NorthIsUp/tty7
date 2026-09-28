@@ -448,6 +448,14 @@ pub struct Config {
     /// it starts — and resumes its agent — when first opened, not at launch.
     #[serde(default = "default_true")]
     pub restore_asleep: bool,
+    /// What Continue All Agents tells each agent it resumes. Empty resumes
+    /// them without a word.
+    #[serde(default = "default_continue_prompt")]
+    pub continue_prompt: String,
+    /// The gap Continue All Agents leaves between one tab's resume and the
+    /// next, so they do not all cold-start and hit the API at once.
+    #[serde(default = "default_continue_stagger_ms")]
+    pub continue_stagger_ms: u64,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -833,6 +841,8 @@ impl Default for Config {
             hidden_agent_sessions: BTreeSet::new(),
             restore_agent_sessions: true,
             restore_asleep: true,
+            continue_prompt: default_continue_prompt(),
+            continue_stagger_ms: default_continue_stagger_ms(),
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
@@ -1494,6 +1504,14 @@ pub fn detection_aliases(
 
 fn default_preset() -> String {
     "default".to_string()
+}
+
+fn default_continue_prompt() -> String {
+    "continue".into()
+}
+
+fn default_continue_stagger_ms() -> u64 {
+    3000
 }
 
 fn default_true() -> bool {
