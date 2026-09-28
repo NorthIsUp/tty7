@@ -35,7 +35,8 @@
     "iOS": {
       "frameworks": [
         "SystemConfiguration"
-      ]
+      ],
+      "developmentTeam": "78SZC3DQ7B"
     }
   }
 }
