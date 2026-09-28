@@ -397,7 +397,13 @@ pub fn run() {
     // already in the tree. An `Err` means one is installed, which is fine.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Scanning the pairing QR code. Phones only: the desktop dev build has no
+    // camera to point and pastes the code instead.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+
+    builder
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             app.manage(Arc::new(AppState {

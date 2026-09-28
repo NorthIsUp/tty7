@@ -760,6 +760,63 @@ code {
 /* ------------------------------------------------------------------------ */
 /* Pairing */
 
+.chips {
+  display: flex;
+  gap: 8px;
+}
+
+/* Scanning: the camera runs behind the WebView, so everything of ours goes
+   transparent except the viewfinder, its hint and Cancel. */
+html.scanning,
+html.scanning body {
+  background: transparent;
+}
+
+html.scanning #app {
+  visibility: hidden;
+}
+
+.scanner {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  justify-items: center;
+  align-items: center;
+  gap: 24px;
+  padding: env(safe-area-inset-top) 24px calc(28px + env(safe-area-inset-bottom));
+  color: #fff;
+}
+
+.scanner-frame {
+  width: min(68vw, 280px);
+  aspect-ratio: 1;
+  border-radius: 24px;
+  /* The dimmed surround is the frame's own shadow, so the square stays clear. */
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.9),
+    0 0 0 100vmax rgb(0 0 0 / 0.55);
+}
+
+.scanner-hint {
+  position: relative;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+.scanner-cancel {
+  position: relative;
+  min-width: 160px;
+  background: rgb(255 255 255 / 0.18);
+  color: #fff;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
 .steps {
   list-style: none;
   counter-reset: step;

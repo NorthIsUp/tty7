@@ -3,6 +3,7 @@ import "./style.css";
 
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
+import * as scanner from "@tauri-apps/plugin-barcode-scanner";
 
 import * as api from "./api";
 import type {
@@ -195,6 +196,39 @@ function hostsScreen(direction: "push" | "pop" = "pop") {
 // ---------------------------------------------------------------------------
 // Pairing
 
+/** Only a phone has a camera to point: the desktop dev build pastes. */
+const canScan = /iPhone|iPad|Android/.test(navigator.userAgent);
+
+class CameraDenied extends Error {}
+
+/** Reads a QR code with the camera. The camera runs behind the WebView, so
+ * the page goes transparent except for a viewfinder and a Cancel button (the
+ * plugin's own full-screen view has no way out). Null when cancelled. */
+async function scanCode(): Promise<string | null> {
+  let state = await scanner.checkPermissions();
+  if (state !== "granted" && state !== "denied") state = await scanner.requestPermissions();
+  if (state !== "granted") throw new CameraDenied();
+
+  const overlay = h(
+    "div",
+    { class: "scanner" },
+    h("div", { class: "scanner-frame" }),
+    h("p", { class: "scanner-hint" }, "Point at the QR code in tty7 on your computer"),
+    h("button", { class: "button scanner-cancel", onclick: () => void scanner.cancel() }, "Cancel"),
+  );
+  document.documentElement.classList.add("scanning");
+  document.body.append(overlay);
+  try {
+    return (await scanner.scan({ windowed: true, formats: [scanner.Format.QRCode] })).content;
+  } catch (e) {
+    if (/cancel/i.test(errorText(e))) return null;
+    throw e;
+  } finally {
+    overlay.remove();
+    document.documentElement.classList.remove("scanning");
+  }
+}
+
 function pairScreen() {
   go("push", () => {
     const code = h("textarea", {
@@ -232,6 +266,28 @@ function pairScreen() {
       }
     };
 
+    const scan = h("button", { class: "chip", hidden: !canScan }, ico("scan"), "Scan");
+    scan.onclick = async () => {
+      error.textContent = "";
+      try {
+        const got = (await scanCode())?.trim();
+        if (got == null) return;
+        if (!got.startsWith("tty7pair:")) {
+          error.textContent = "That QR code isn't a tty7 pairing code.";
+          return;
+        }
+        code.value = got;
+        sync();
+        // Scanning is the whole gesture: pair straight away.
+        submit.click();
+      } catch (e) {
+        error.textContent =
+          e instanceof CameraDenied
+            ? "tty7 can't use the camera. Allow it in Settings, or paste the code instead."
+            : sentence(errorText(e));
+      }
+    };
+
     code.oninput = sync;
     sync();
 
@@ -258,12 +314,21 @@ function pairScreen() {
           "ol",
           { class: "steps" },
           h("li", {}, h("span", {}, "On your computer, run ", h("code", {}, "tty7-gateway pair"), ".")),
-          h("li", {}, h("span", {}, "Copy the code it prints and paste it below.")),
+          h(
+            "li",
+            {},
+            h("span", {}, canScan ? "Scan the QR code it shows, or paste its code below." : "Copy the code it prints and paste it below."),
+          ),
         ),
         h(
           "section",
           { class: "group" },
-          h("div", { class: "group-head" }, h("h2", { class: "group-title" }, "Pairing code"), paste),
+          h(
+            "div",
+            { class: "group-head" },
+            h("h2", { class: "group-title" }, "Pairing code"),
+            h("div", { class: "chips" }, scan, paste),
+          ),
           h("div", { class: "card field" }, code),
           error,
         ),
@@ -804,6 +869,9 @@ type Key = {
 
 const KEYS: Key[] = [
   { label: "esc", seq: "\x1b" },
+  // Enter on its own, without opening the keyboard: confirming an agent's
+  // highlighted choice, or a prompt's default.
+  { label: "Enter", seq: "\r", icon: "enter" },
   { label: "tab", seq: "\t" },
   // Claude Code's mode switch, among others.
   { label: "Shift Tab", text: "⇧tab", seq: "\x1b[Z" },
@@ -813,6 +881,14 @@ const KEYS: Key[] = [
   { label: "Right", seq: "\x1b[C", icon: "right" },
   { label: "Up", seq: "\x1b[A", icon: "up" },
   { label: "Down", seq: "\x1b[B", icon: "down" },
+  // Quick answers: an agent's numbered choices (Claude Code takes the digit
+  // alone) and y/n prompts. Each is just the keystroke; ⏎ is there for the
+  // prompts that also want Enter.
+  { label: "1", seq: "1" },
+  { label: "2", seq: "2" },
+  { label: "3", seq: "3" },
+  { label: "y", seq: "y" },
+  { label: "n", seq: "n" },
   { label: "Paste", seq: "", icon: "paste", paste: true },
   { label: "|", seq: "|" },
   { label: "/", seq: "/" },

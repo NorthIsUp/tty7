@@ -11,5 +11,9 @@
 	<array>
 		<string>_tty7._udp</string>
 	</array>
+	<!-- Pairing by QR code: the camera reads the code tty7 shows in
+	     Settings → Mobile (tauri-plugin-barcode-scanner). -->
+	<key>NSCameraUsageDescription</key>
+	<string>tty7 uses the camera to scan the pairing code your computer shows.</string>
 </dict>
 </plist>
