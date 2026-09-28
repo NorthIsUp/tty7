@@ -201,7 +201,7 @@ impl Tty7App {
         .detach();
     }
 
-    /// ⌘T: symbols anywhere in the project, asked of the front file's
+    /// Go to Symbol in Workspace: symbols anywhere in the project, asked of the front file's
     /// server as the query is typed.
     pub(crate) fn lsp_workspace_symbols(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(f) = self.editor_active_local_file() else {

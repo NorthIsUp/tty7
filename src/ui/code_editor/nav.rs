@@ -660,6 +660,10 @@ impl Tty7App {
         }
         [
             (L10nKey::CmdEditorGoToSymbol, CommandKind::EditorGoToSymbol),
+            (
+                L10nKey::CmdEditorWorkspaceSymbol,
+                CommandKind::EditorWorkspaceSymbol,
+            ),
             (L10nKey::CmdEditorGoBack, CommandKind::EditorNavigateBack),
             (
                 L10nKey::CmdEditorGoForward,
@@ -1381,6 +1385,7 @@ pub(super) mod gpui_tests {
             kinds,
             [
                 CommandKind::EditorGoToSymbol,
+                CommandKind::EditorWorkspaceSymbol,
                 CommandKind::EditorNavigateBack,
                 CommandKind::EditorNavigateForward,
                 CommandKind::EditorSplitRight,

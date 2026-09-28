@@ -1178,6 +1178,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorFocusRightGroup => "聚焦右侧编辑器组",
         L10nKey::EditorSplitSameFile => "已在另一组中打开 — 点击在此编辑",
         L10nKey::CmdEditorGoToSymbol => "编辑器：跳转到符号…",
+        L10nKey::CmdEditorWorkspaceSymbol => "编辑器：跳转到工作区中的符号…",
         L10nKey::CmdEditorGoBack => "编辑器：后退",
         L10nKey::CmdEditorGoForward => "编辑器：前进",
         L10nKey::CmdEditorSplitRight => "编辑器：向右拆分",

@@ -1266,6 +1266,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorFocusRightGroup => "Focus Right Editor Group",
         L10nKey::EditorSplitSameFile => "Open in the other group — click to edit it here",
         L10nKey::CmdEditorGoToSymbol => "Editor: Go to Symbol…",
+        L10nKey::CmdEditorWorkspaceSymbol => "Editor: Go to Symbol in Workspace…",
         L10nKey::CmdEditorGoBack => "Editor: Go Back",
         L10nKey::CmdEditorGoForward => "Editor: Go Forward",
         L10nKey::CmdEditorSplitRight => "Editor: Split Right",

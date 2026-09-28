@@ -1312,6 +1312,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorFocusRightGroup => "右のエディタグループにフォーカス",
         L10nKey::EditorSplitSameFile => "もう一方のグループで開いています — クリックしてここで編集",
         L10nKey::CmdEditorGoToSymbol => "エディタ: シンボルへ移動…",
+        L10nKey::CmdEditorWorkspaceSymbol => "エディタ: ワークスペース内のシンボルへ移動…",
         L10nKey::CmdEditorGoBack => "エディタ: 戻る",
         L10nKey::CmdEditorGoForward => "エディタ: 進む",
         L10nKey::CmdEditorSplitRight => "エディタ: 右に分割",

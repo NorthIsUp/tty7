@@ -6385,6 +6385,7 @@ impl Tty7App {
                 );
             }
             EditorGoToSymbol => self.editor_go_to_symbol(window, cx),
+            EditorWorkspaceSymbol => self.lsp_workspace_symbols(window, cx),
             EditorNavigateBack => self.editor_navigate(false, window, cx),
             EditorNavigateForward => self.editor_navigate(true, window, cx),
             EditorSplitRight => {

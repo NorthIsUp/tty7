@@ -982,6 +982,7 @@ l10n_keys! {
     EditorFocusRightGroup,
     EditorSplitSameFile,
     CmdEditorGoToSymbol,
+    CmdEditorWorkspaceSymbol,
     CmdEditorGoBack,
     CmdEditorGoForward,
     CmdEditorSplitRight,
