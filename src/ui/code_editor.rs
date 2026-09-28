@@ -147,6 +147,25 @@ impl OpenFile {
         }
         language_for_path(&self.path)
     }
+
+    fn local(&self) -> Option<LocalFile> {
+        (self.untitled.is_none() && self.host.id().is_local()).then(|| LocalFile {
+            id: self.id(),
+            input: self.input.clone(),
+            path: self.path.clone(),
+            language: self.language(),
+            indent: self.indent,
+        })
+    }
+}
+
+/// A saved file on this machine, as the language servers see it.
+pub(crate) struct LocalFile {
+    pub(crate) id: BufferId,
+    pub(crate) input: Entity<InputState>,
+    pub(crate) path: PathBuf,
+    pub(crate) language: &'static str,
+    pub(crate) indent: Indent,
 }
 
 /// One tab's view of the editor: which buffers it shows, in the order its
@@ -245,7 +264,15 @@ struct SaveWaiter {
 
 enum BarKind {
     GoToLine,
-    SaveAs { id: BufferId, then_close: bool },
+    SaveAs {
+        id: BufferId,
+        then_close: bool,
+    },
+    /// A new name for the symbol at `offset` (`ui::lsp`).
+    Rename {
+        id: BufferId,
+        offset: usize,
+    },
 }
 
 /// The one-line prompt that sits above the text: go to line, or name a file
@@ -855,6 +882,9 @@ impl Tty7App {
             .filter_map(|p| p.parent().map(Path::to_path_buf))
             .collect();
         self.editor.watched_files = files;
+        // Every change to which files are open, or where they live, passes
+        // through here — which is exactly what the language servers follow.
+        self.lsp_sync_buffers(cx);
         if dirs == self.editor.watched_dirs {
             return;
         }
@@ -1297,7 +1327,39 @@ impl Tty7App {
         if let Some(f) = self.buffer_mut(id) {
             f.dirty = dirty;
         }
+        self.lsp_buffer_edited(id, cx);
         cx.notify();
+    }
+
+    /// Saved files on this machine — what a language server can read
+    /// (`ui::lsp`). Untitled buffers and files on other hosts are not.
+    pub(crate) fn editor_local_files(&self) -> Vec<LocalFile> {
+        self.editor
+            .buffers
+            .iter()
+            .filter_map(OpenFile::local)
+            .collect()
+    }
+
+    pub(crate) fn editor_local_file(&self, id: BufferId) -> Option<LocalFile> {
+        self.buffer(id).and_then(OpenFile::local)
+    }
+
+    pub(crate) fn editor_active_local_file(&self) -> Option<LocalFile> {
+        self.active_buffer().and_then(OpenFile::local)
+    }
+
+    /// Asks for a new name for the symbol at `offset`, in the bar above the
+    /// text; `ui::lsp` does the renaming once it is answered.
+    pub(crate) fn editor_open_rename_bar(
+        &mut self,
+        id: BufferId,
+        offset: usize,
+        current: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor_open_bar(BarKind::Rename { id, offset }, current, window, cx);
     }
 
     /// A new, empty, never-saved buffer, on the window's own machine.
@@ -1587,6 +1649,7 @@ impl Tty7App {
                         f.saved_format = format;
                         f.conflict = None;
                         app.editor_note_edit(id, cx);
+                        app.lsp_buffer_saved(id, cx);
                         // A save is a working-tree edit the `.git` watch cannot
                         // see, and the file tree only sees it while it happens
                         // to be showing that directory.
@@ -1816,6 +1879,7 @@ impl Tty7App {
                 )
             }
             BarKind::SaveAs { .. } => t(L10nKey::EditorSaveAsPlaceholder).to_string(),
+            BarKind::Rename { .. } => t_fmt(L10nKey::LspRenamePlaceholder, &[("name", &initial)]),
         };
         let input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -1833,7 +1897,7 @@ impl Tty7App {
                     InputEvent::Blur => {
                         if matches!(
                             this.editor.bar.as_ref().map(|b| &b.kind),
-                            Some(BarKind::GoToLine)
+                            Some(BarKind::GoToLine | BarKind::Rename { .. })
                         ) {
                             this.editor.bar = None;
                             cx.notify();
@@ -1896,6 +1960,14 @@ impl Tty7App {
                     character: column - 1,
                 };
                 place_cursor(input, position, CURSOR_SCROLL_ATTEMPTS, window, cx);
+            }
+            BarKind::Rename { id, offset } => {
+                let name = text.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                self.editor_close_bar(window, cx);
+                self.lsp_rename(id, offset, name, window, cx);
             }
             BarKind::SaveAs { id, then_close } => {
                 let path = PathBuf::from(text.trim());
@@ -2105,6 +2177,7 @@ impl Tty7App {
                 t(L10nKey::EditorGoToLineAction),
                 Box::new(crate::core::actions::EditorGoToLine),
             );
+        let menu = this.lsp_menu_items(menu, id, cx);
         this.editor_file_menu_items(menu, id, app, cx)
     }
 
@@ -3179,6 +3252,7 @@ impl Tty7App {
         let label = match bar.kind {
             BarKind::GoToLine => t(L10nKey::EditorGoToLine),
             BarKind::SaveAs { .. } => t(L10nKey::EditorSaveAs),
+            BarKind::Rename { .. } => t(L10nKey::LspRenameSymbol),
         };
         Some(
             h_flex()
@@ -3279,6 +3353,7 @@ impl Tty7App {
                 this.child(div().min_w_0().text_ellipsis().child(t))
             })
             .child(div().flex_1())
+            .children(self.render_lsp_status(cx))
             .when(is_markdown, |this| {
                 this.child(
                     Button::new("status-md-preview")

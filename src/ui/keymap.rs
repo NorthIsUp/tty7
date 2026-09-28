@@ -70,6 +70,15 @@ fn fixed_bindings() -> Vec<KeyBinding> {
     let search = Some(crate::ui::search::KEY_CONTEXT);
     bindings.push(KeyBinding::new("tab", SearchNextTab, search));
     bindings.push(KeyBinding::new("shift-tab", SearchPrevTab, search));
+    // The language-server commands, on the keys VS Code taught everyone, and
+    // only inside a text field: F2 and F12 in a terminal belong to the
+    // program running there. The handlers act only for the code editor and
+    // let the key go on anywhere else. ⌘. / Ctrl+. needs nothing here: the
+    // editor binds it to the same code-action menu itself.
+    let input = Some("Input");
+    bindings.push(KeyBinding::new("f12", EditorGoToDefinition, input));
+    bindings.push(KeyBinding::new("f2", EditorRenameSymbol, input));
+    bindings.push(KeyBinding::new("shift-alt-f", EditorFormatDocument, input));
     bindings
 }
 
@@ -592,6 +601,13 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorGoToLine", "ctrl-g"),
         // Unbound: ⌘N is New Window, and the editor's header has a + for it.
         ("EditorNewFile", ""),
+        // The language-server commands. Unbound here — a default on a bare
+        // function key would take it from the shell — and bound instead in
+        // the editor's own context by `fixed_bindings`.
+        ("EditorGoToDefinition", ""),
+        ("EditorQuickFix", ""),
+        ("EditorRenameSymbol", ""),
+        ("EditorFormatDocument", ""),
         ("OpenSshProfiles", ""),
         ("RestartSshSession", "secondary-shift-r"),
         ("Quit", per_platform("secondary-q", "secondary-shift-q")),
@@ -877,6 +893,19 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorGoToLine" => (
             CommandGroup::Terminal,
             t(L10nKey::EditorGoToLineAction).to_string(),
+        ),
+        "EditorGoToDefinition" => (
+            CommandGroup::Terminal,
+            t(L10nKey::LspGoToDefinition).to_string(),
+        ),
+        "EditorQuickFix" => (CommandGroup::Terminal, t(L10nKey::LspQuickFix).to_string()),
+        "EditorRenameSymbol" => (
+            CommandGroup::Terminal,
+            t(L10nKey::LspRenameSymbolAction).to_string(),
+        ),
+        "EditorFormatDocument" => (
+            CommandGroup::Terminal,
+            t(L10nKey::LspFormatDocument).to_string(),
         ),
         "EditorNewFile" => (
             CommandGroup::Terminal,
@@ -1573,6 +1602,10 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorSaveAs" => KeyBinding::new(keystroke, EditorSaveAs, None),
         "EditorGoToLine" => KeyBinding::new(keystroke, EditorGoToLine, None),
         "EditorNewFile" => KeyBinding::new(keystroke, EditorNewFile, None),
+        "EditorGoToDefinition" => KeyBinding::new(keystroke, EditorGoToDefinition, None),
+        "EditorQuickFix" => KeyBinding::new(keystroke, EditorQuickFix, None),
+        "EditorRenameSymbol" => KeyBinding::new(keystroke, EditorRenameSymbol, None),
+        "EditorFormatDocument" => KeyBinding::new(keystroke, EditorFormatDocument, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),
         "Quit" => KeyBinding::new(keystroke, Quit, None),
