@@ -4591,7 +4591,7 @@ impl Tty7App {
             (None, code) => host.code = code,
             // Both had an editor: the files come along into this tab's strip
             // rather than being dropped with the tab that brought them.
-            (Some(code), Some(theirs)) => code.adopt(&theirs.files),
+            (Some(code), Some(theirs)) => code.adopt(&theirs.all_files()),
             (Some(_), None) => {}
         }
         if host.diff_overlay.is_none() {
@@ -5888,6 +5888,9 @@ impl Tty7App {
             },
         );
 
+        // The editor's navigation, while there is a file in front of it.
+        actions.extend(self.editor_palette_items());
+
         // Groups are something the sidebar draws, so they are offered only
         // while the tabs are in it. Opening a folder as a group asks the
         // system picker, which browses this computer: a path picked there
@@ -6371,6 +6374,12 @@ impl Tty7App {
                     window,
                     cx,
                 );
+            }
+            EditorGoToSymbol => self.editor_go_to_symbol(window, cx),
+            EditorNavigateBack => self.editor_navigate(false, window, cx),
+            EditorNavigateForward => self.editor_navigate(true, window, cx),
+            EditorSplitRight => {
+                self.editor_split(window, cx);
             }
             RestartSshSession => self.restart_ssh_session(window, cx),
             SetTheme(i) => {

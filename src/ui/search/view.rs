@@ -1087,6 +1087,17 @@ impl Render for SearchView {
             .on_action(
                 cx.listener(|this, _: &SearchPrevTab, window, cx| this.step_tab(false, window, cx)),
             )
+            // Go to Symbol's chord puts Go to Symbol away, as Go to File's
+            // does; anywhere else in the search it is the switcher's.
+            .on_action(cx.listener(
+                |this, _: &crate::core::actions::EditorGoToSymbol, _window, cx| {
+                    if this.tab == SearchTab::Symbols && !this.in_sub_list() {
+                        cx.emit(SearchEvent::Dismiss);
+                    } else {
+                        cx.propagate();
+                    }
+                },
+            ))
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 if is_edit_gesture(&ev.keystroke) && this.on_edit_gesture(window, cx) {
                     cx.stop_propagation();

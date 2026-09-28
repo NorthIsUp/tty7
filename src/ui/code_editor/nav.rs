@@ -20,12 +20,12 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{AnyElement, App, Context, Window, div, px};
-use gpui_component::input::Position;
+use gpui_component::input::{LineEdit, Position};
 use gpui_component::{ActiveTheme as _, h_flex};
 use tty7_core::core::machine::TabId;
 
 use super::outline::{self, Outline, SymbolKind};
-use super::{BufferId, CURSOR_SCROLL_ATTEMPTS, place_cursor};
+use super::{BufferId, CURSOR_SCROLL_ATTEMPTS, TabCode, place_cursor};
 use crate::ui::app::Tty7App;
 use crate::ui::host_ops::HostId;
 use crate::ui::i18n::{L10nKey, t};
@@ -125,6 +125,16 @@ impl NavHistory {
         Some(target)
     }
 
+    /// Moves the places in one file along with edits made to it, so a place
+    /// keeps pointing at the same code after lines above it come and go.
+    pub(crate) fn shift(&mut self, file: &NavLocation, edits: &[LineEdit]) {
+        for loc in self.back.iter_mut().chain(self.forward.iter_mut()) {
+            if loc.same_file(file) {
+                loc.pos.line = shift_line(loc.pos.line, edits);
+            }
+        }
+    }
+
     /// Drops the places `keep` turns down, from both stacks.
     pub(crate) fn retain(&mut self, keep: impl Fn(&NavLocation) -> bool) {
         self.back.retain(&keep);
@@ -135,6 +145,13 @@ impl NavHistory {
     fn lens(&self) -> (usize, usize) {
         (self.back.len(), self.forward.len())
     }
+}
+
+fn shift_line(line: u32, edits: &[LineEdit]) -> u32 {
+    edits
+        .iter()
+        .fold(line as usize, |line, edit| edit.shift(line))
+        .min(u32::MAX as usize) as u32
 }
 
 fn pop_past(stack: &mut Vec<NavLocation>, current: Option<&NavLocation>) -> Option<NavLocation> {
@@ -166,7 +183,9 @@ pub(crate) struct TabNav {
 
 impl TabNav {
     /// Compares a fresh sample against the last one and records a jump.
-    pub(crate) fn observe(&mut self, now: Option<Sample>, at: Instant) {
+    /// `quiet` says the caret was moved by a key that pages or pastes, which
+    /// can go a long way without anyone having jumped anywhere.
+    pub(crate) fn observe(&mut self, now: Option<Sample>, at: Instant, quiet: bool) {
         if let Some((target, since)) = &self.pending {
             let arrived = now.as_ref().is_some_and(|s| s.at.same_file(target));
             if arrived || at.duration_since(*since) > PENDING_TIMEOUT {
@@ -186,13 +205,22 @@ impl TabNav {
         };
         if let Some(last) = &self.last {
             let jumped = !last.at.same_file(&now.at)
-                || (last.text_len == now.text_len
+                || (!quiet
+                    && last.text_len == now.text_len
                     && last.at.pos.line.abs_diff(now.at.pos.line) >= JUMP_LINES);
             if jumped {
                 self.history.push(last.at.clone());
             }
         }
         self.last = Some(now);
+    }
+
+    /// Moves the history, and the last sample, along with edits to a file.
+    fn shift(&mut self, file: &NavLocation, edits: &[LineEdit]) {
+        self.history.shift(file, edits);
+        if let Some(last) = self.last.as_mut().filter(|l| l.at.same_file(file)) {
+            last.at.pos.line = shift_line(last.at.pos.line, edits);
+        }
     }
 
     fn expect(&mut self, target: NavLocation, at: Instant) {
@@ -224,15 +252,48 @@ pub(crate) struct EditorNav {
     provided: HashMap<BufferId, Arc<Outline>>,
     preview: Option<SymbolPreview>,
     refresh_scheduled: bool,
+    /// How far into each buffer's edit log the history has been moved.
+    edits_seen: HashMap<BufferId, u64>,
+    /// A key that pages or pastes was just pressed in the editor: the caret
+    /// move it makes is not a jump.
+    quiet_move: bool,
+    _keystrokes: Option<gpui::Subscription>,
+}
+
+/// Whether an action moves the caret a long way without jumping anywhere:
+/// paging through the file, or pasting, undoing and redoing a large edit.
+fn is_quiet_move(action: &dyn gpui::Action) -> bool {
+    use gpui_component::input::{MovePageDown, MovePageUp, Paste, Redo, Undo};
+    let any = action.as_any();
+    any.is::<MovePageUp>()
+        || any.is::<MovePageDown>()
+        || any.is::<Paste>()
+        || any.is::<Undo>()
+        || any.is::<Redo>()
 }
 
 impl EditorNav {
+    pub(crate) fn new(cx: &mut Context<Tty7App>) -> Self {
+        let keystrokes = cx.observe_keystrokes(|this, event, window, cx| {
+            if event.action.as_deref().is_some_and(is_quiet_move)
+                && this.editor_panel_has_focus(window, cx)
+            {
+                this.editor.nav.quiet_move = true;
+            }
+        });
+        Self {
+            _keystrokes: Some(keystrokes),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn forget_tab(&mut self, tab: TabId) {
         self.tabs.remove(&tab);
     }
 
     pub(crate) fn forget_buffer(&mut self, id: BufferId) {
         self.outlines.remove(&id);
+        self.edits_seen.remove(&id);
         self.provided.remove(&id);
         for nav in self.tabs.values_mut() {
             nav.history.retain(|l| l.buffer != Some(id));
@@ -270,12 +331,38 @@ impl Tty7App {
         }
         let Some(tab) = self.nav_tab() else { return };
         let now = self.nav_here(cx);
+        let quiet = std::mem::take(&mut self.editor.nav.quiet_move);
         self.editor
             .nav
             .tabs
             .entry(tab)
             .or_default()
-            .observe(now, Instant::now());
+            .observe(now, Instant::now(), quiet);
+    }
+
+    /// A buffer's text changed: every tab's history of it moves with the
+    /// lines. A buffer edited so much the log has forgotten some of it keeps
+    /// its places where they were.
+    pub(crate) fn editor_nav_note_edit(&mut self, id: BufferId, cx: &mut Context<Self>) {
+        let Some(f) = self.buffer(id) else { return };
+        let file = NavLocation {
+            host: f.host.id(),
+            path: f.path.clone(),
+            buffer: f.untitled.map(|_| id),
+            pos: Position::default(),
+        };
+        let state = f.input.read(cx);
+        let version = state.edit_version();
+        let seen = self.editor.nav.edits_seen.insert(id, version).unwrap_or(0);
+        let Some(edits) = state.line_edits_since(seen) else {
+            return;
+        };
+        if edits.is_empty() {
+            return;
+        }
+        for nav in self.editor.nav.tabs.values_mut() {
+            nav.shift(&file, &edits);
+        }
     }
 
     /// Back (or, with `forward`, Forward) through the active tab's history.
@@ -565,14 +652,52 @@ impl Tty7App {
 
     // ---- Chrome ----
 
+    /// The palette's editor rows, offered while a file is in front of it.
+    pub(crate) fn editor_palette_items(&self) -> Vec<Item> {
+        use crate::ui::search::CommandGroup;
+        if !self.code_panel_visible() || self.active_buffer().is_none() {
+            return Vec::new();
+        }
+        [
+            (L10nKey::CmdEditorGoToSymbol, CommandKind::EditorGoToSymbol),
+            (L10nKey::CmdEditorGoBack, CommandKind::EditorNavigateBack),
+            (
+                L10nKey::CmdEditorGoForward,
+                CommandKind::EditorNavigateForward,
+            ),
+            (L10nKey::CmdEditorSplitRight, CommandKind::EditorSplitRight),
+        ]
+        .into_iter()
+        .map(|(key, kind)| Item::localized(key, kind).in_group(CommandGroup::View))
+        .collect()
+    }
+
     /// The editor's own chords, handled by the element that holds it.
     pub(crate) fn editor_nav_actions<E: InteractiveElement>(
         &self,
         element: E,
         cx: &mut Context<Self>,
     ) -> E {
-        use crate::core::actions::{EditorGoToSymbol, EditorNavigateBack, EditorNavigateForward};
+        use crate::core::actions::{
+            EditorFocusLeftGroup, EditorFocusRightGroup, EditorGoToSymbol, EditorNavigateBack,
+            EditorNavigateForward, EditorSplitRight,
+        };
         element
+            .on_action(cx.listener(|this, _: &EditorSplitRight, window, cx| {
+                if !this.editor_split(window, cx) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditorFocusLeftGroup, window, cx| {
+                if !this.editor_focus_group(true, window, cx) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditorFocusRightGroup, window, cx| {
+                if !this.editor_focus_group(false, window, cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &EditorGoToSymbol, window, cx| {
                 this.editor_go_to_symbol(window, cx)
             }))
@@ -591,11 +716,22 @@ impl Tty7App {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let f = self.active_buffer()?;
-        if f.preview {
-            return None;
-        }
-        let id = f.id();
+        let id = self.tab_code().and_then(TabCode::active_id)?;
+        let slot = self.tab_code().map_or(0, TabCode::focused_slot);
+        self.render_editor_breadcrumbs_for(id, slot, true, window, cx)
+    }
+
+    /// The breadcrumbs of one group's file. `focused` is whether that group
+    /// has the focus; the other group's symbols first bring the focus over.
+    pub(crate) fn render_editor_breadcrumbs_for(
+        &mut self,
+        id: BufferId,
+        slot: usize,
+        focused: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let f = self.buffer(id)?;
         let caret = f.input.read(cx).cursor_position();
         let segments: Vec<String> = if f.untitled.is_some() {
             vec![f.label().to_string()]
@@ -605,7 +741,8 @@ impl Tty7App {
             path_segments(&f.path, if local { roots } else { &[] })
         };
         let file = (f.untitled.is_none()).then(|| f.path.clone());
-        let supported = f.untitled.is_none() && outline::supports(f.language());
+        // A rendered Markdown file keeps the path; its symbols are the source's.
+        let supported = !f.preview && f.untitled.is_none() && outline::supports(f.language());
         let chain: Vec<(SymbolKind, String)> = match supported {
             true => self
                 .editor_outline(id, false, cx)
@@ -641,7 +778,7 @@ impl Tty7App {
             );
         }
         let path = div()
-            .id("editor-breadcrumb-path")
+            .id(("editor-breadcrumb-path", slot))
             .flex_shrink(1.)
             .min_w_0()
             .overflow_hidden()
@@ -672,7 +809,7 @@ impl Tty7App {
                 );
             }
             div()
-                .id("editor-breadcrumb-symbols")
+                .id(("editor-breadcrumb-symbols", slot))
                 .flex_shrink(1.)
                 .min_w_0()
                 .overflow_hidden()
@@ -684,12 +821,18 @@ impl Tty7App {
                     gpui_component::tooltip::Tooltip::new(t(L10nKey::EditorGoToSymbolAction))
                         .build(window, cx)
                 })
-                .on_click(cx.listener(|this, _, window, cx| this.editor_go_to_symbol(window, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if !focused {
+                        let left = slot == 0;
+                        this.editor_focus_group(left, window, cx);
+                    }
+                    this.editor_go_to_symbol(window, cx)
+                }))
         });
 
         Some(
             h_flex()
-                .id("editor-breadcrumbs")
+                .id(("editor-breadcrumbs", slot))
                 .flex_none()
                 .w_full()
                 .h(px(24.))
@@ -842,24 +985,24 @@ mod tests {
     fn the_tracker_records_jumps_but_not_walks_or_edits() {
         let t0 = Instant::now();
         let mut nav = TabNav::default();
-        nav.observe(sample("a.rs", 0, 100), t0);
+        nav.observe(sample("a.rs", 0, 100), t0, false);
         // Arrowing down a line at a time is not a jump.
         for line in 1..=30 {
-            nav.observe(sample("a.rs", line, 100), t0);
+            nav.observe(sample("a.rs", line, 100), t0, false);
         }
         assert_eq!(nav.history.lens(), (0, 0));
         // Pasting forty lines moves the caret forty lines, and is an edit.
-        nav.observe(sample("a.rs", 70, 900), t0);
+        nav.observe(sample("a.rs", 70, 900), t0, false);
         assert_eq!(nav.history.lens(), (0, 0));
         // A click far away is.
-        nav.observe(sample("a.rs", 300, 900), t0);
+        nav.observe(sample("a.rs", 300, 900), t0, false);
         assert_eq!(nav.history.back, [at("a.rs", 70)]);
         // So is another file coming forward.
-        nav.observe(sample("b.rs", 0, 10), t0);
+        nav.observe(sample("b.rs", 0, 10), t0, false);
         assert_eq!(nav.history.back, [at("a.rs", 70), at("a.rs", 300)]);
         // No buffer in front keeps the last place for the next one.
-        nav.observe(None, t0);
-        nav.observe(sample("c.rs", 0, 10), t0);
+        nav.observe(None, t0, false);
+        nav.observe(sample("c.rs", 0, 10), t0, false);
         assert_eq!(nav.history.back.last(), Some(&at("b.rs", 0)));
     }
 
@@ -867,25 +1010,78 @@ mod tests {
     fn a_pending_back_is_not_mistaken_for_a_jump() {
         let t0 = Instant::now();
         let mut nav = TabNav::default();
-        nav.observe(sample("a.rs", 0, 10), t0);
-        nav.observe(sample("b.rs", 50, 10), t0);
+        nav.observe(sample("a.rs", 0, 10), t0, false);
+        nav.observe(sample("b.rs", 50, 10), t0, false);
         let target = nav.history.go_back(Some(at("b.rs", 50))).unwrap();
         nav.expect(target, t0);
         // The file is still opening: b.rs is on screen, and that is fine.
-        nav.observe(sample("b.rs", 50, 10), t0);
-        nav.observe(sample("a.rs", 0, 10), t0);
+        nav.observe(sample("b.rs", 50, 10), t0, false);
+        nav.observe(sample("a.rs", 0, 10), t0, false);
         assert_eq!(nav.history.lens(), (0, 1));
         // A target that never arrives stops being waited on.
         nav.expect(at("gone.rs", 0), t0);
         nav.observe(
             sample("a.rs", 0, 10),
             t0 + PENDING_TIMEOUT + Duration::from_secs(1),
+            false,
         );
         nav.observe(
             sample("b.rs", 0, 10),
             t0 + PENDING_TIMEOUT + Duration::from_secs(1),
+            false,
         );
         assert_eq!(nav.history.back, [at("a.rs", 0)]);
+    }
+
+    #[test]
+    fn paging_pasting_and_undoing_are_the_quiet_moves() {
+        use gpui_component::input::{MoveDown, MovePageDown, MovePageUp, Paste, Redo, Undo};
+        assert!(is_quiet_move(&MovePageDown));
+        assert!(is_quiet_move(&MovePageUp));
+        assert!(is_quiet_move(&Paste));
+        assert!(is_quiet_move(&Undo));
+        assert!(is_quiet_move(&Redo));
+        assert!(!is_quiet_move(&MoveDown));
+    }
+
+    #[test]
+    fn a_page_down_or_a_paste_is_not_a_jump() {
+        let t0 = Instant::now();
+        let mut nav = TabNav::default();
+        nav.observe(sample("a.rs", 0, 100), t0, false);
+        nav.observe(sample("a.rs", 60, 100), t0, true);
+        nav.observe(sample("a.rs", 120, 100), t0, true);
+        assert_eq!(nav.history.lens(), (0, 0));
+        // Only the move the key made: the next one is judged on its own.
+        nav.observe(sample("a.rs", 400, 100), t0, false);
+        assert_eq!(nav.history.back, [at("a.rs", 120)]);
+    }
+
+    #[test]
+    fn places_move_with_lines_inserted_or_deleted_above_them() {
+        let mut nav = TabNav::default();
+        let t0 = Instant::now();
+        nav.observe(sample("a.rs", 40, 10), t0, false);
+        nav.observe(sample("b.rs", 0, 10), t0, false);
+        nav.history.push(at("a.rs", 90));
+        // Three lines pasted at line 10 of a.rs, then lines 20..=29 deleted.
+        let edits = [
+            LineEdit {
+                start_line: 10,
+                end_line: 10,
+                new_lines: 3,
+            },
+            LineEdit {
+                start_line: 20,
+                end_line: 30,
+                new_lines: 0,
+            },
+        ];
+        nav.shift(&at("a.rs", 0), &edits);
+        // b.rs is untouched; 40 → 43 → 33, 90 → 93 → 83.
+        assert_eq!(nav.history.back, [at("a.rs", 33), at("a.rs", 83)]);
+        nav.shift(&at("b.rs", 0), &edits[..1]);
+        assert_eq!(nav.last.as_ref().unwrap().at, at("b.rs", 0));
     }
 
     #[test]
@@ -944,14 +1140,14 @@ mod tests {
 }
 
 #[cfg(test)]
-mod gpui_tests {
+pub(super) mod gpui_tests {
     use super::*;
     use crate::ui::app::test_window::harness_with_tabs;
     use crate::ui::editor_text::{EditorConfig, TextFormat};
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     /// `alpha` on line 0, `beta` on 30, `gamma` on 50.
-    fn source() -> String {
+    pub(crate) fn source() -> String {
         let mut lines = vec!["fn alpha() {".to_string()];
         lines.extend((1..=20).map(|_| "    let x = 1;".to_string()));
         lines.push("}".into());
@@ -964,7 +1160,11 @@ mod gpui_tests {
         lines.join("\n") + "\n"
     }
 
-    fn open_rs(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, path: &str) -> BufferId {
+    pub(crate) fn open_rs(
+        app: &Entity<Tty7App>,
+        vcx: &mut VisualTestContext,
+        path: &str,
+    ) -> BufferId {
         let path = PathBuf::from(path);
         app.update_in(vcx, |app, window, cx| {
             let host = app.active_host(cx).expect("a host");
@@ -987,7 +1187,7 @@ mod gpui_tests {
         })
     }
 
-    fn caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) -> Position {
+    pub(crate) fn caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) -> Position {
         app.read_with(vcx, |app, cx| {
             app.active_buffer()
                 .unwrap()
@@ -998,11 +1198,11 @@ mod gpui_tests {
     }
 
     /// What drawing the editor does: sample the caret.
-    fn draw(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) {
+    pub(crate) fn draw(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) {
         app.update(vcx, |app, cx| app.editor_nav_tick(cx));
     }
 
-    fn put_caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, line: u32) {
+    pub(crate) fn put_caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, line: u32) {
         app.update_in(vcx, |app, window, cx| {
             let input = app.active_buffer().unwrap().input.clone();
             input.update(cx, |s, cx| {
@@ -1110,5 +1310,79 @@ mod gpui_tests {
             );
         });
         assert_eq!(caret(&app, &mut vcx), Position::new(50, 3));
+    }
+
+    #[gpui::test]
+    fn history_follows_edits_to_the_file(cx: &mut TestAppContext) {
+        use gpui::EntityInputHandler as _;
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        put_caret(&app, &mut vcx, 5);
+        put_caret(&app, &mut vcx, 50);
+        // Three lines typed at the top of the file.
+        app.update_in(&mut vcx, |app, window, cx| {
+            let input = app.active_buffer().unwrap().input.clone();
+            input.update(cx, |s, cx| {
+                s.replace_text_in_range(Some(0..0), "//\n//\n//\n", window, cx);
+                // Typing took the caret to the top; back to where it was
+                // reading, which has moved down with its line.
+                s.set_cursor_position(Position::new(53, 4), window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        draw(&app, &mut vcx);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.editor_navigate(false, window, cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            caret(&app, &mut vcx).line,
+            8,
+            "the place moved down with its code"
+        );
+    }
+
+    #[gpui::test]
+    fn the_symbol_chord_puts_go_to_symbol_away(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        put_caret(&app, &mut vcx, 5);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.editor_go_to_symbol(window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(app.read_with(&vcx, |app, _| app.search.is_some()));
+        vcx.simulate_keystrokes("secondary-shift-o");
+        vcx.run_until_parked();
+        assert!(
+            app.read_with(&vcx, |app, _| app.search.is_none()),
+            "the chord that opened it closes it"
+        );
+        assert_eq!(caret(&app, &mut vcx), Position::new(5, 4));
+    }
+
+    #[gpui::test]
+    fn the_palette_offers_the_editor_commands_only_with_a_file_open(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        assert!(app.read_with(&vcx, |app, _| app.editor_palette_items().is_empty()));
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        let kinds: Vec<CommandKind> = app.read_with(&vcx, |app, _| {
+            app.editor_palette_items()
+                .into_iter()
+                .map(|i| i.kind)
+                .collect()
+        });
+        assert_eq!(
+            kinds,
+            [
+                CommandKind::EditorGoToSymbol,
+                CommandKind::EditorNavigateBack,
+                CommandKind::EditorNavigateForward,
+                CommandKind::EditorSplitRight,
+            ]
+        );
     }
 }
