@@ -444,6 +444,10 @@ pub struct Config {
     pub hidden_agent_sessions: BTreeSet<String>,
     #[serde(default = "default_true")]
     pub restore_agent_sessions: bool,
+    /// Restore a tab whose panes all died (reboot, Quit and Stop) asleep, so
+    /// it starts — and resumes its agent — when first opened, not at launch.
+    #[serde(default = "default_true")]
+    pub restore_asleep: bool,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -828,6 +832,7 @@ impl Default for Config {
             worktree_setup_trust: HashMap::new(),
             hidden_agent_sessions: BTreeSet::new(),
             restore_agent_sessions: true,
+            restore_asleep: true,
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
