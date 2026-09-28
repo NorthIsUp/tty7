@@ -1070,11 +1070,13 @@ mod tests {
                 start_line: 10,
                 end_line: 10,
                 new_lines: 3,
+                at_line_start: false,
             },
             LineEdit {
                 start_line: 20,
                 end_line: 30,
                 new_lines: 0,
+                at_line_start: false,
             },
         ];
         nav.shift(&at("a.rs", 0), &edits);
