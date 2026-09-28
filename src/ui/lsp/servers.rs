@@ -23,6 +23,12 @@ pub(crate) struct ServerSpec {
     /// Markers that, when found further up, win over a nearer one — a Cargo
     /// or Go workspace above the crate or module the file is in.
     pub(crate) outer_markers: &'static [&'static str],
+    /// The settings tty7 gives the server, as JSON keyed by configuration
+    /// section — what `workspace/configuration` answers from.
+    pub(crate) settings: &'static str,
+    /// The section, if any, that also goes as `initializationOptions`: some
+    /// servers read their settings only from there.
+    pub(crate) init_section: Option<&'static str>,
 }
 
 pub(crate) const SERVERS: &[ServerSpec] = &[
@@ -32,6 +38,11 @@ pub(crate) const SERVERS: &[ServerSpec] = &[
         commands: &[("rust-analyzer", &[])],
         root_markers: &["Cargo.toml"],
         outer_markers: &["Cargo.toml#workspace"],
+        // `cargo check` on save is where rust-analyzer's type errors and
+        // lints come from; without it only its own syntax-level
+        // diagnostics arrive.
+        settings: r#"{ "rust-analyzer": { "checkOnSave": true, "check": { "command": "check" } } }"#,
+        init_section: Some("rust-analyzer"),
     },
     ServerSpec {
         name: "typescript-language-server",
@@ -39,6 +50,8 @@ pub(crate) const SERVERS: &[ServerSpec] = &[
         commands: &[("typescript-language-server", &["--stdio"])],
         root_markers: &["tsconfig.json", "jsconfig.json", "package.json"],
         outer_markers: &[],
+        settings: "{}",
+        init_section: None,
     },
     ServerSpec {
         name: "pyright",
@@ -56,6 +69,8 @@ pub(crate) const SERVERS: &[ServerSpec] = &[
             "requirements.txt",
         ],
         outer_markers: &[],
+        settings: r#"{ "python": { "analysis": { "autoSearchPaths": true, "useLibraryCodeForTypes": true } } }"#,
+        init_section: None,
     },
     ServerSpec {
         name: "gopls",
@@ -63,6 +78,8 @@ pub(crate) const SERVERS: &[ServerSpec] = &[
         commands: &[("gopls", &[])],
         root_markers: &["go.mod"],
         outer_markers: &["go.work"],
+        settings: r#"{ "gopls": {} }"#,
+        init_section: Some("gopls"),
     },
     ServerSpec {
         name: "clangd",
@@ -70,8 +87,41 @@ pub(crate) const SERVERS: &[ServerSpec] = &[
         commands: &[("clangd", &[])],
         root_markers: &["compile_commands.json", "compile_flags.txt", ".clangd"],
         outer_markers: &[],
+        settings: "{}",
+        init_section: None,
     },
 ];
+
+impl ServerSpec {
+    pub(crate) fn settings(&self) -> serde_json::Value {
+        serde_json::from_str(self.settings).unwrap_or_else(|_| serde_json::json!({}))
+    }
+
+    pub(crate) fn initialization_options(&self) -> serde_json::Value {
+        match self.init_section {
+            Some(section) => configuration_item(&self.settings(), Some(section)),
+            None => serde_json::Value::Null,
+        }
+    }
+}
+
+/// One item of a `workspace/configuration` answer: the part of `settings`
+/// under the dotted `section`, or all of it when none is named. A section
+/// tty7 sets nothing for gets an empty object rather than `null` — several
+/// servers read fields off the answer and fail on a null.
+pub(crate) fn configuration_item(
+    settings: &serde_json::Value,
+    section: Option<&str>,
+) -> serde_json::Value {
+    let Some(section) = section.filter(|s| !s.is_empty()) else {
+        return settings.clone();
+    };
+    section
+        .split('.')
+        .try_fold(settings, |value, key| value.get(key))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}))
+}
 
 /// Markers every server falls back on when its own are nowhere to be found.
 const FALLBACK_MARKERS: &[&str] = &[".git", ".hg", ".jj"];
@@ -291,6 +341,31 @@ mod tests {
         assert_eq!(language_id(Path::new("a.js"), "javascript"), "javascript");
         assert_eq!(language_id(Path::new("a.tsx"), "tsx"), "typescriptreact");
         assert_eq!(language_id(Path::new("a.rs"), "rust"), "rust");
+    }
+
+    #[test]
+    fn configuration_answers_by_section_and_never_with_null() {
+        let ra = rust().settings();
+        assert_eq!(
+            configuration_item(&ra, Some("rust-analyzer"))["checkOnSave"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            configuration_item(&ra, Some("rust-analyzer.check.command")),
+            serde_json::json!("check")
+        );
+        assert_eq!(
+            configuration_item(&ra, Some("editor")),
+            serde_json::json!({})
+        );
+        assert_eq!(configuration_item(&ra, None), ra);
+        assert_eq!(
+            rust().initialization_options()["checkOnSave"],
+            serde_json::json!(true)
+        );
+        for spec in SERVERS {
+            assert!(spec.settings().is_object(), "{} settings parse", spec.name);
+        }
     }
 
     #[test]

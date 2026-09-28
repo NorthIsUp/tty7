@@ -213,6 +213,11 @@ impl ListDelegate for SearchDelegate {
         cx: &mut Context<ListState<Self>>,
     ) -> Task<()> {
         self.query = query.to_string();
+        if self.scope == Scope::Tab(SearchTab::WorkspaceSymbols)
+            && let Some(live) = self.catalog.live_query.clone()
+        {
+            live(query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -271,6 +276,13 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Sessions) if self.query.trim().is_empty() => {
                 t(L10nKey::SearchSessionsEmptyHint)
             }
+            Scope::Tab(SearchTab::Locations) if self.catalog.locations.is_empty() => {
+                t(L10nKey::SearchLocationsNone)
+            }
+            Scope::Tab(SearchTab::WorkspaceSymbols) if self.query.trim().is_empty() => {
+                t(L10nKey::SearchPlaceholderWorkspaceSymbols)
+            }
+            Scope::Tab(SearchTab::WorkspaceSymbols) => t(L10nKey::SearchLocationsNone),
             Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
@@ -381,6 +393,13 @@ pub enum SearchEvent {
     /// the keyboard in the search. Closing the search without a choice puts
     /// the caret back (`Tty7App::close_search`).
     PreviewSymbol {
+        line: u32,
+        column: u32,
+    },
+    /// The same for a place a language server found (`ui::lsp`), which may
+    /// be in another file.
+    PreviewLocation {
+        path: std::path::PathBuf,
         line: u32,
         column: u32,
     },
@@ -566,6 +585,30 @@ impl SearchView {
         }
     }
 
+    /// Find References' rows (`ui::lsp`). The first is highlighted and not
+    /// previewed — opening the list must not move the caret — until the
+    /// highlight moves.
+    pub(crate) fn set_locations(
+        &mut self,
+        locations: Vec<Item>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.symbol_moved = false;
+        self.symbol_initial = locations.first().map(|item| item.kind.clone());
+        self.update_catalog(|catalog| catalog.locations = locations, window, cx);
+    }
+
+    /// Sets what Go to Symbol in Workspace asks as the query changes.
+    pub(crate) fn set_live_query(
+        &mut self,
+        live: crate::ui::search::LiveQuery,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_catalog(|catalog| catalog.live_query = Some(live), window, cx);
+    }
+
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
@@ -742,6 +785,21 @@ impl SearchView {
                     if self.symbol_moved || self.symbol_initial.as_ref() != Some(&item.kind) {
                         self.symbol_moved = true;
                         cx.emit(SearchEvent::PreviewSymbol { line, column });
+                    }
+                    return;
+                }
+                if !self.in_sub_list()
+                    && matches!(self.tab, SearchTab::Locations | SearchTab::WorkspaceSymbols)
+                    && let Some(Row::Item(item)) = list.read(cx).delegate().row_at(*ix)
+                    && let CommandKind::GoToLocation { path, line, column } = &item.kind
+                {
+                    if self.symbol_moved || self.symbol_initial.as_ref() != Some(&item.kind) {
+                        self.symbol_moved = true;
+                        cx.emit(SearchEvent::PreviewLocation {
+                            path: path.clone(),
+                            line: *line,
+                            column: *column,
+                        });
                     }
                     return;
                 }

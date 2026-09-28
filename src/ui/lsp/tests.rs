@@ -126,7 +126,7 @@ fn lsp_smoke_a_real_server_publishes_diagnostics_and_shuts_down() {
             }))
         };
 
-    let init = client.initialize(initialize_params(&root));
+    let init = client.initialize(initialize_params(&root, spec));
     let result = within(30, Box::pin(async move { init.await.ok() })).expect("initialize answered");
     let init: lsp_types::InitializeResult = serde_json::from_value(result).unwrap();
     assert!(init.capabilities.hover_provider.is_some());
@@ -183,6 +183,67 @@ fn lsp_smoke_a_real_server_publishes_diagnostics_and_shuts_down() {
     assert!(
         hovered.is_some_and(|h| !h.is_null()),
         "hover over `x` says something"
+    );
+
+    // The outline, the references to `x`, and signature help inside a call
+    // all come back in shapes the editor reads.
+    let doc_id = || lsp_types::TextDocumentIdentifier::new(path_to_uri(&file).unwrap());
+    let symbols = client.request::<lsp_types::request::DocumentSymbolRequest>(
+        lsp_types::DocumentSymbolParams {
+            text_document: doc_id(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        },
+    );
+    let outline = within(
+        30,
+        Box::pin(async move {
+            symbols
+                .await
+                .ok()
+                .flatten()
+                .map(|s| serde_json::to_value(s).unwrap())
+        }),
+    )
+    .map(|v| {
+        symbols::outline(
+            serde_json::from_value(v).unwrap(),
+            &gpui_component::Rope::from(text),
+            Encoding::Utf16,
+        )
+    })
+    .expect("an outline");
+    assert!(
+        outline.symbols.iter().any(|s| s.name == "main"),
+        "{outline:?}"
+    );
+
+    let references = client.request::<lsp_types::request::References>(lsp_types::ReferenceParams {
+        text_document_position: lsp_types::TextDocumentPositionParams::new(
+            doc_id(),
+            Position::new(2, 11),
+        ),
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: lsp_types::ReferenceContext {
+            include_declaration: true,
+        },
+    });
+    let found = within(
+        30,
+        Box::pin(async move {
+            references
+                .await
+                .ok()
+                .flatten()
+                .map(|r| serde_json::to_value(r).unwrap())
+        }),
+    )
+    .expect("references");
+    let found: Vec<lsp_types::Location> = serde_json::from_value(found).unwrap();
+    assert!(
+        found.len() >= 2,
+        "the declaration and the use of x: {found:?}"
     );
 
     let shutdown = client.request_raw("shutdown", Value::Null);

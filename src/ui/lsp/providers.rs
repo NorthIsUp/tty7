@@ -135,6 +135,41 @@ impl CompletionProvider for LspProvider {
         })
     }
 
+    fn resolve_completion(
+        &self,
+        item: lsp_types::CompletionItem,
+        text: &Rope,
+        cx: &mut App,
+    ) -> Task<Result<lsp_types::CompletionItem>> {
+        // Resolving asks nothing of the text, which the caller may be in the
+        // middle of changing: nothing is sent first.
+        let Some(doc) = LspStore::context(&self.path, Freshen::Skip, None, cx) else {
+            return Task::ready(Ok(item));
+        };
+        let resolvable = doc
+            .caps
+            .completion_provider
+            .as_ref()
+            .is_some_and(|c| c.resolve_provider == Some(true));
+        if !resolvable {
+            return Task::ready(Ok(item));
+        }
+        let request = doc
+            .client
+            .request::<lsp_types::request::ResolveCompletionItem>(item.clone());
+        let text = text.clone();
+        let encoding = doc.encoding;
+        cx.background_spawn(async move {
+            Ok(match request.await {
+                Ok(resolved) => merge_resolved(item, resolved, &text, encoding),
+                Err(e) => {
+                    log::debug!("lsp: completionItem/resolve: {e:#}");
+                    item
+                }
+            })
+        })
+    }
+
     fn is_completion_trigger(
         &self,
         _offset: usize,
@@ -182,6 +217,48 @@ pub(crate) fn completion_to_editor(
             },
         }),
     });
+    item.additional_text_edits = item
+        .additional_text_edits
+        .map(|edits| additional_edits_to_editor(edits, text, encoding));
+    item
+}
+
+fn additional_edits_to_editor(
+    edits: Vec<lsp_types::TextEdit>,
+    text: &Rope,
+    encoding: Encoding,
+) -> Vec<lsp_types::TextEdit> {
+    edits
+        .into_iter()
+        .map(|e| lsp_types::TextEdit {
+            range: convert::range_to_editor(text, e.range, encoding),
+            new_text: e.new_text,
+        })
+        .collect()
+}
+
+/// What `completionItem/resolve` adds to an item the menu already holds.
+///
+/// Only the fields resolving is for are taken: the item the server echoes
+/// back carries the editor-column ranges it was sent, which converting again
+/// would shift. An item resolved without imports says so with an empty list,
+/// so accepting it does not ask again.
+pub(crate) fn merge_resolved(
+    mut item: lsp_types::CompletionItem,
+    resolved: lsp_types::CompletionItem,
+    text: &Rope,
+    encoding: Encoding,
+) -> lsp_types::CompletionItem {
+    item.documentation = resolved.documentation.or(item.documentation);
+    item.detail = resolved.detail.or(item.detail);
+    item.command = resolved.command.or(item.command);
+    item.additional_text_edits = Some(
+        resolved
+            .additional_text_edits
+            .map(|edits| additional_edits_to_editor(edits, text, encoding))
+            .or(item.additional_text_edits)
+            .unwrap_or_default(),
+    );
     item
 }
 
@@ -483,6 +560,44 @@ mod tests {
             LspRange::new(Position::new(0, 8), Position::new(0, 10))
         );
         assert_eq!(item.insert_text_format, Some(InsertTextFormat::PLAIN_TEXT));
+    }
+
+    #[test]
+    fn resolving_adds_imports_in_editor_columns_and_keeps_the_edit() {
+        let text = Rope::from("use é;\nfoo\n");
+        let item = CompletionItem {
+            label: "foo".into(),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: LspRange::new(Position::new(1, 0), Position::new(1, 3)),
+                new_text: "foo".into(),
+            })),
+            ..Default::default()
+        };
+        let resolved = CompletionItem {
+            label: "foo".into(),
+            documentation: Some(lsp_types::Documentation::String("Does foo.".into())),
+            // Echoed back as sent; must not be converted a second time.
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: LspRange::new(Position::new(9, 9), Position::new(9, 9)),
+                new_text: "wrong".into(),
+            })),
+            additional_text_edits: Some(vec![TextEdit {
+                // After `use é;` — UTF-16 column 6 is char column 6 here.
+                range: LspRange::new(Position::new(0, 6), Position::new(0, 6)),
+                new_text: "\nuse bar::foo;".into(),
+            }]),
+            ..Default::default()
+        };
+        let merged = merge_resolved(item.clone(), resolved, &text, Encoding::Utf16);
+        assert_eq!(merged.text_edit, item.text_edit);
+        assert!(merged.documentation.is_some());
+        assert_eq!(
+            merged.additional_text_edits.unwrap()[0].new_text,
+            "\nuse bar::foo;"
+        );
+        // Nothing to add: said so, so accepting does not ask again.
+        let bare = merge_resolved(item.clone(), item, &text, Encoding::Utf16);
+        assert_eq!(bare.additional_text_edits, Some(vec![]));
     }
 
     #[test]

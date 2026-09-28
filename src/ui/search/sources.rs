@@ -94,7 +94,16 @@ pub(crate) struct Catalog {
     /// each with how deep it sits — filled only for Go to Symbol
     /// (`Tty7App::editor_go_to_symbol`).
     pub symbols: Vec<(usize, Item)>,
+    /// What a language server found for Find References or a definition
+    /// with more than one answer (`ui::lsp`), in the order to list them.
+    pub locations: Vec<Item>,
+    /// Asked with every query the Go to Symbol in Workspace tab is given;
+    /// its answer comes back through `SearchView::set_locations`.
+    pub live_query: Option<LiveQuery>,
 }
+
+/// Something that answers a query later — a language server.
+pub(crate) type LiveQuery = std::rc::Rc<dyn Fn(&str, &mut App)>;
 
 impl Catalog {
     pub(crate) fn new(mut actions: Vec<Item>, terminals: Vec<Item>, hosts: Vec<Item>) -> Self {
@@ -114,6 +123,8 @@ impl Catalog {
             sessions_here: 0,
             files: FileList::default(),
             symbols: Vec::new(),
+            locations: Vec::new(),
+            live_query: None,
         }
     }
 
@@ -129,6 +140,9 @@ impl Catalog {
             SearchTab::Hosts => Some(Box::new(Hosts(&self.hosts))),
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
+            SearchTab::Locations | SearchTab::WorkspaceSymbols => {
+                Some(Box::new(Locations(&self.locations)))
+            }
         }
     }
 
@@ -470,6 +484,37 @@ impl Source for Symbols<'_> {
     fn search(&self, query: &str, _cx: &App) -> Vec<(i32, Item)> {
         let items: Vec<Item> = self.0.iter().map(|(_, item)| item.clone()).collect();
         rank(&items, query, |_| 0)
+    }
+}
+
+/// Find References' rows: listed as found, filtered by path and line text.
+struct Locations<'a>(&'a [Item]);
+
+impl Source for Locations<'_> {
+    fn tab(&self) -> SearchTab {
+        SearchTab::Locations
+    }
+
+    fn browse(&self, _cx: &App) -> Vec<Section> {
+        if self.0.is_empty() {
+            return Vec::new();
+        }
+        vec![Section {
+            title: None,
+            rows: self.0.iter().cloned().map(Row::Item).collect(),
+        }]
+    }
+
+    fn highlights(&self, _cx: &App) -> Vec<Item> {
+        Vec::new()
+    }
+
+    fn on_the_empty_all_tab(&self) -> bool {
+        false
+    }
+
+    fn search(&self, query: &str, _cx: &App) -> Vec<(i32, Item)> {
+        rank(self.0, query, |_| 0)
     }
 }
 

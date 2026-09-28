@@ -56,6 +56,7 @@ impl Tty7App {
     pub(crate) fn lsp_buffer_edited(&self, id: BufferId, cx: &mut Context<Self>) {
         if let Some(f) = self.editor_local_file(id) {
             LspStore::edited(f.input.entity_id(), &f.path, cx);
+            self.lsp_signature_help_after_edit(&f, cx);
         }
     }
 
@@ -143,7 +144,7 @@ impl Tty7App {
         };
         let state = f.input.read(cx);
         let request = super::providers::definition_request(&doc, state.text(), state.cursor());
-        let encoding = doc.encoding;
+        let (encoding, root) = (doc.encoding, doc.root.clone());
         cx.spawn_in(window, async move |app, cx| {
             let links = match request.await {
                 Ok(links) => links,
@@ -152,20 +153,23 @@ impl Tty7App {
                     return;
                 }
             };
-            let Some(link) = links.into_iter().next() else {
-                return;
-            };
-            let Some(path) = super::uri_to_path(&link.target_uri) else {
-                return;
-            };
-            let _ = app.update_in(cx, |app, window, cx| {
-                app.lsp_open_location(
-                    path,
-                    link.target_selection_range.start,
-                    encoding,
-                    window,
-                    cx,
-                )
+            let places: Vec<_> = links
+                .into_iter()
+                .filter_map(|l| {
+                    Some((
+                        super::uri_to_path(&l.target_uri)?,
+                        l.target_selection_range.start,
+                    ))
+                })
+                .collect();
+            let _ = app.update_in(cx, |app, window, cx| match places.as_slice() {
+                [] => {}
+                // One answer is followed straight away, through the same path
+                // a secondary-click takes.
+                [(path, position)] => {
+                    app.lsp_open_location(path.clone(), *position, encoding, window, cx)
+                }
+                _ => app.lsp_show_places(places, encoding, root, window, cx),
             });
         })
         .detach();
@@ -314,7 +318,8 @@ impl Tty7App {
         cx: &gpui::App,
     ) -> PopupMenu {
         use crate::core::actions::{
-            EditorFormatDocument, EditorGoToDefinition, EditorQuickFix, EditorRenameSymbol,
+            EditorFindReferences, EditorFormatDocument, EditorGoToDefinition, EditorQuickFix,
+            EditorRenameSymbol,
         };
         let Some(f) = self.editor_local_file(id) else {
             return menu;
@@ -329,6 +334,10 @@ impl Tty7App {
             .menu(
                 t(L10nKey::LspGoToDefinition),
                 Box::new(EditorGoToDefinition),
+            )
+            .menu(
+                t(L10nKey::LspFindReferences),
+                Box::new(EditorFindReferences),
             )
             .menu(t(L10nKey::LspQuickFix), Box::new(EditorQuickFix))
             .menu(

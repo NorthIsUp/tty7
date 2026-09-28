@@ -17,7 +17,7 @@ mod view;
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};
 pub(crate) use score::fuzzy_score;
-pub(crate) use sources::{Catalog, host_items};
+pub(crate) use sources::{Catalog, LiveQuery, host_items};
 pub(crate) use view::{KEY_CONTEXT, SearchEvent, SearchView};
 
 use crate::ui::i18n::{L10nKey, t};
@@ -33,6 +33,12 @@ pub(crate) enum SearchTab {
     /// Go to Symbol: the symbols of the file in front of the editor. Like
     /// Files, reached by its chord (or the breadcrumbs), never by the row.
     Symbols,
+    /// Places a language server found — the references to a symbol, or its
+    /// several definitions (`ui::lsp`). Reached only by those commands.
+    Locations,
+    /// Go to Symbol in Workspace: what the language server finds for the
+    /// query, asked afresh as it is typed (`ui::lsp`).
+    WorkspaceSymbols,
 }
 
 impl SearchTab {
@@ -61,6 +67,8 @@ impl SearchTab {
             SearchTab::Sessions => L10nKey::SearchTabSessions,
             SearchTab::Hosts => L10nKey::SearchTabHosts,
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
+            SearchTab::Locations => L10nKey::SearchTabLocations,
+            SearchTab::WorkspaceSymbols => L10nKey::SearchTabSymbols,
         })
     }
 
@@ -73,6 +81,8 @@ impl SearchTab {
             SearchTab::Sessions => L10nKey::SearchPlaceholderSessions,
             SearchTab::Hosts => L10nKey::SearchPlaceholderHosts,
             SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
+            SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
+            SearchTab::WorkspaceSymbols => L10nKey::SearchPlaceholderWorkspaceSymbols,
         })
     }
 

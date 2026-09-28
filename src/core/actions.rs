@@ -135,6 +135,8 @@ actions!(
         EditorQuickFix,
         EditorRenameSymbol,
         EditorFormatDocument,
+        EditorFindReferences,
+        EditorWorkspaceSymbol,
         EditorNextChange,
         EditorPrevChange,
         EditorRevertChange,

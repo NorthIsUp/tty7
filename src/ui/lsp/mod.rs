@@ -23,9 +23,12 @@
 pub(crate) mod client;
 pub(crate) mod convert;
 mod editor;
+mod locations;
 mod providers;
 pub(crate) mod rpc;
 pub(crate) mod servers;
+mod signature;
+mod symbols;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -53,6 +56,10 @@ pub(crate) use self::editor::LspBuffer;
 /// (completion, hover…) send any change still waiting first, so this only
 /// decides how soon diagnostics catch up after a pause.
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(150);
+
+/// How long typing must pause before the outline is asked for again. Longer
+/// than [`CHANGE_DEBOUNCE`]: nobody reads the breadcrumbs mid-word.
+const SYMBOLS_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// How long a server outlives its last open file. Closing a file and opening
 /// its neighbour is common; restarting rust-analyzer for it is not cheap.
@@ -105,6 +112,7 @@ struct Doc {
     owner_id: EntityId,
     /// The window-level editor (`Tty7App`) that holds the owning buffer.
     app_id: EntityId,
+    app: WeakEntity<crate::ui::app::Tty7App>,
     /// Where the owning buffer is drawn, once known — edits the server asks
     /// for are applied through it.
     window: Option<AnyWindowHandle>,
@@ -113,6 +121,7 @@ struct Doc {
     /// An edit the server has not heard about yet.
     dirty: bool,
     change_seq: u64,
+    symbols_seq: u64,
     diagnostics: Vec<lsp_types::Diagnostic>,
     problems: (usize, usize),
 }
@@ -151,6 +160,8 @@ pub(crate) struct DocContext {
     pub(crate) caps: Rc<ServerCapabilities>,
     /// The server's raw diagnostics for this document, in its own columns.
     pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
+    /// The project the server was started on.
+    pub(crate) root: PathBuf,
 }
 
 #[derive(Default)]
@@ -253,15 +264,23 @@ impl LspStore {
         doc.change_seq += 1;
         let seq = doc.change_seq;
         let path = path.to_path_buf();
+        let current = move |cx: &App, path: &Path| {
+            cx.try_global::<LspStore>()
+                .and_then(|s| s.docs.get(path))
+                .is_some_and(|d| d.change_seq == seq)
+        };
         cx.spawn(async move |cx| {
             cx.background_executor().timer(CHANGE_DEBOUNCE).await;
+            if !cx.update(|cx| current(cx, &path)) {
+                return;
+            }
+            cx.update(|cx| Self::update(cx, |store, cx| store.flush_from_owner(&path, cx)));
+            cx.background_executor()
+                .timer(SYMBOLS_DEBOUNCE.saturating_sub(CHANGE_DEBOUNCE))
+                .await;
             cx.update(|cx| {
-                let current = cx
-                    .try_global::<LspStore>()
-                    .and_then(|s| s.docs.get(&path))
-                    .is_some_and(|d| d.change_seq == seq && d.dirty);
-                if current {
-                    Self::update(cx, |store, cx| store.flush_from_owner(&path, cx));
+                if current(cx, &path) {
+                    Self::update(cx, |store, cx| store.refresh_symbols(&path, cx));
                 }
             });
         })
@@ -356,6 +375,7 @@ impl LspStore {
                 encoding: server.encoding,
                 caps: server.caps.clone(),
                 diagnostics: doc.diagnostics.clone(),
+                root: doc.server.root.clone(),
             })
         })
     }
@@ -405,10 +425,12 @@ impl LspStore {
             owner: buffer.input.downgrade(),
             owner_id: buffer.input.entity_id(),
             app_id,
+            app: buffer.app.clone(),
             window: None,
             sent: Some(text.clone()),
             dirty: false,
             change_seq: 0,
+            symbols_seq: 0,
             diagnostics: Vec::new(),
             problems: (0, 0),
         };
@@ -421,6 +443,7 @@ impl LspStore {
         }
         self.docs.insert(buffer.path.clone(), doc);
         providers::install(&buffer.input, &buffer.path, buffer.app.clone(), cx);
+        self.refresh_symbols(&buffer.path, cx);
     }
 
     fn close_doc(&mut self, path: &Path, cx: &mut App) {
@@ -431,6 +454,14 @@ impl LspStore {
             providers::uninstall(&input, cx);
             clear_diagnostics(&input, cx);
         }
+        // Deferred: this runs while the editor that holds the buffer is
+        // itself being updated (it is what asked for the close).
+        let (app, buffer) = (doc.app.clone(), doc.owner_id);
+        cx.defer(move |cx| {
+            let _ = app.update(cx, |app, cx| {
+                app.editor_set_document_symbols(buffer, None, cx)
+            });
+        });
         let key = doc.server.clone();
         let Some(server) = self.servers.get_mut(&key) else {
             return;
@@ -530,6 +561,67 @@ impl LspStore {
         );
     }
 
+    /// Asks the server for the document's outline, and hands it to the
+    /// editor if the text has not moved on by the time it answers.
+    fn refresh_symbols(&mut self, path: &Path, cx: &mut App) {
+        let Some(doc) = self.docs.get_mut(path) else {
+            return;
+        };
+        let Some(server) = self.servers.get(&doc.server) else {
+            return;
+        };
+        let supported = matches!(
+            &server.caps.document_symbol_provider,
+            Some(lsp_types::OneOf::Left(true) | lsp_types::OneOf::Right(_))
+        );
+        let (Phase::Running, true, Some(client), Some(text)) = (
+            server.phase,
+            supported,
+            server.client.clone(),
+            doc.sent.clone(),
+        ) else {
+            return;
+        };
+        doc.symbols_seq += 1;
+        let (seq, version) = (doc.symbols_seq, doc.version);
+        let (app, buffer) = (doc.app.clone(), doc.owner_id);
+        let encoding = server.encoding;
+        let request = client.request::<lsp_types::request::DocumentSymbolRequest>(
+            lsp_types::DocumentSymbolParams {
+                text_document: lsp_types::TextDocumentIdentifier::new(doc.uri.clone()),
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+        let path = path.to_path_buf();
+        cx.spawn(async move |cx| {
+            let response = match request.await {
+                Ok(Some(response)) => response,
+                Ok(None) => return,
+                Err(e) => {
+                    log::debug!("lsp: documentSymbol: {e:#}");
+                    return;
+                }
+            };
+            let outline = symbols::outline(response, &text, encoding);
+            cx.update(|cx| {
+                let current = cx
+                    .try_global::<LspStore>()
+                    .and_then(|s| s.docs.get(&path))
+                    .is_some_and(|d| d.symbols_seq == seq && d.version == version && !d.dirty);
+                if current {
+                    // Nothing yet — a server still indexing answers with an
+                    // empty list — leaves the tree's outline in place.
+                    let outline = (!outline.is_empty()).then_some(outline);
+                    let _ = app.update(cx, |app, cx| {
+                        app.editor_set_document_symbols(buffer, outline, cx)
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
     // ---- Servers ----
 
     fn start_server(&mut self, key: ServerKey, spec: &'static ServerSpec, cx: &mut App) -> bool {
@@ -567,7 +659,7 @@ impl LspStore {
             .map(|s| s.crashes.clone())
             .unwrap_or_default();
 
-        let init = client.initialize(initialize_params(&key.root));
+        let init = client.initialize(initialize_params(&key.root, spec));
         let init_task = {
             let key = key.clone();
             cx.spawn(async move |cx| {
@@ -641,8 +733,23 @@ impl LspStore {
                 server.caps = Rc::new(init.capabilities);
                 server.phase = Phase::Running;
                 client.notify_raw("initialized", json!({}));
+                // Servers that pull their settings (pyright) wait for this
+                // before asking; the rest take them as sent.
+                client.notify_raw(
+                    "workspace/didChangeConfiguration",
+                    json!({ "settings": server.spec.settings() }),
+                );
                 client.open_gate();
                 log::info!("lsp: {} is ready", server.label);
+                let paths: Vec<PathBuf> = self
+                    .docs
+                    .iter()
+                    .filter(|(_, d)| &d.server == key)
+                    .map(|(p, _)| p.clone())
+                    .collect();
+                for path in paths {
+                    self.refresh_symbols(&path, cx);
+                }
             }
             Err(e) => {
                 log::warn!("lsp: {} failed to initialize: {e:#}", server.label);
@@ -685,11 +792,21 @@ impl LspStore {
             ServerEvent::Request { id, method, params } => {
                 let reply = match method.as_str() {
                     "workspace/configuration" => {
-                        let n = params
+                        let settings = server.spec.settings();
+                        let items = params
                             .get("items")
                             .and_then(Value::as_array)
-                            .map_or(0, Vec::len);
-                        Ok(Value::Array(vec![Value::Null; n]))
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .map(|item| {
+                                        let section = item.get("section").and_then(Value::as_str);
+                                        servers::configuration_item(&settings, section)
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Ok(Value::Array(items))
                     }
                     "client/registerCapability"
                     | "client/unregisterCapability"
@@ -743,7 +860,8 @@ impl LspStore {
         doc.diagnostics = params.diagnostics;
         // Positions for a text the buffer no longer holds would underline the
         // wrong characters. The server publishes again once it has caught
-        // up, so these are counted and kept for code actions, not drawn.
+        // up, so these are counted and kept for code actions, not drawn; the
+        // underlines already shown have been moving with the edits.
         let stale = doc.dirty || params.version.is_some_and(|v| v != doc.version);
         let Some(input) = doc.owner.upgrade() else {
             return;
@@ -755,8 +873,7 @@ impl LspStore {
             if !stale && sent.as_ref() == Some(&text) {
                 let mapped = convert::diagnostics_to_editor(&text, &diagnostics, encoding);
                 if let Some(set) = state.diagnostics_mut() {
-                    set.reset(&text);
-                    set.extend(mapped);
+                    set.replace_all(&text, mapped);
                 }
             }
             cx.notify();
@@ -982,7 +1099,7 @@ fn folder_name(root: &Path) -> String {
 /// has no snippet engine — so servers send plain insert text where they can;
 /// the few that send snippets anyway are flattened by
 /// [`convert::snippet_to_plain`].
-fn initialize_params(root: &Path) -> Value {
+fn initialize_params(root: &Path, spec: &ServerSpec) -> Value {
     let uri = path_to_uri(root).map(|u| u.as_str().to_owned());
     json!({
         "processId": std::process::id(),
@@ -990,7 +1107,7 @@ fn initialize_params(root: &Path) -> Value {
         "rootUri": uri,
         "rootPath": root.display().to_string(),
         "workspaceFolders": [{ "uri": uri, "name": folder_name(root) }],
-        "initializationOptions": null,
+        "initializationOptions": spec.initialization_options(),
         "capabilities": {
             "general": { "positionEncodings": ["utf-16"] },
             "workspace": {
@@ -1006,10 +1123,21 @@ fn initialize_params(root: &Path) -> Value {
                         "snippetSupport": false,
                         "documentationFormat": ["markdown", "plaintext"],
                         "insertReplaceSupport": false,
+                        "resolveSupport": {
+                            "properties": ["documentation", "detail", "additionalTextEdits"],
+                        },
                     },
                     "contextSupport": true,
                 },
                 "hover": { "contentFormat": ["markdown", "plaintext"] },
+                "signatureHelp": {
+                    "signatureInformation": {
+                        "documentationFormat": ["markdown", "plaintext"],
+                        "parameterInformation": { "labelOffsetSupport": true },
+                        "activeParameterSupport": true,
+                    },
+                },
+                "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
                 "definition": { "linkSupport": true },
                 "codeAction": {
                     "codeActionLiteralSupport": {
