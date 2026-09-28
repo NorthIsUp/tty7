@@ -186,7 +186,14 @@ impl Tty7App {
                 [(path, position)] => {
                     app.lsp_open_location(path.clone(), *position, encoding, window, cx)
                 }
-                _ => app.lsp_show_places(places, encoding, root, window, cx),
+                _ => app.lsp_show_places(
+                    L10nKey::SearchHeadingDefinitions,
+                    places,
+                    encoding,
+                    root,
+                    window,
+                    cx,
+                ),
             });
         })
         .detach();

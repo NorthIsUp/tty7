@@ -13,6 +13,7 @@ use lsp_types::Position;
 use super::convert::{self, Encoding};
 use super::{Freshen, LspStore};
 use crate::ui::app::Tty7App;
+use crate::ui::i18n::{L10nKey, t};
 use crate::ui::search::{CommandKind, Item, SearchTab};
 
 /// One place, in the editor's terms: 0-based, the column counted in chars,
@@ -111,6 +112,7 @@ impl Tty7App {
     /// are listed to pick from.
     pub(crate) fn lsp_show_places(
         &mut self,
+        heading: L10nKey,
         places: Vec<(PathBuf, Position)>,
         encoding: Encoding,
         root: PathBuf,
@@ -139,7 +141,9 @@ impl Tty7App {
                     app.open_search(SearchTab::Locations, "", window, cx);
                     app.editor_begin_preview(cx);
                     if let Some(view) = app.search.clone() {
-                        view.update(cx, |view, cx| view.set_locations(items, window, cx));
+                        view.update(cx, |view, cx| {
+                            view.set_locations(Some(t(heading)), items, window, cx)
+                        });
                     }
                 }
             });
@@ -195,7 +199,14 @@ impl Tty7App {
                 .filter_map(|l| Some((super::uri_to_path(&l.uri)?, l.range.start)))
                 .collect();
             let _ = app.update_in(cx, |app, window, cx| {
-                app.lsp_show_places(places, encoding, root, window, cx)
+                app.lsp_show_places(
+                    L10nKey::SearchHeadingReferences,
+                    places,
+                    encoding,
+                    root,
+                    window,
+                    cx,
+                )
             });
         })
         .detach();
@@ -252,7 +263,9 @@ impl Tty7App {
         let seq = LATEST.fetch_add(1, Ordering::Relaxed) + 1;
         if query.trim().is_empty() {
             if let Some(view) = self.search.clone() {
-                view.update(cx, |view, cx| view.set_locations(Vec::new(), window, cx));
+                view.update(cx, |view, cx| {
+                    view.set_locations(None, Vec::new(), window, cx)
+                });
             }
             return;
         }
@@ -307,7 +320,7 @@ impl Tty7App {
                 if let Some(view) = app.search.clone()
                     && view.read(cx).tab() == SearchTab::WorkspaceSymbols
                 {
-                    view.update(cx, |view, cx| view.set_locations(items, window, cx));
+                    view.update(cx, |view, cx| view.set_locations(None, items, window, cx));
                 }
             });
         })

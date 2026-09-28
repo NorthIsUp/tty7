@@ -68,8 +68,19 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchTabHosts,
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
             SearchTab::Locations => L10nKey::SearchTabLocations,
-            SearchTab::WorkspaceSymbols => L10nKey::SearchTabSymbols,
+            SearchTab::WorkspaceSymbols => L10nKey::SearchTabWorkspaceSymbols,
         })
+    }
+
+    /// The editor's own pickers — Go to Symbol, a language server's places,
+    /// Go to Symbol in Workspace. Each answers one question about the code in
+    /// front, so it stands alone: no scope row to wander off along, and Tab
+    /// does not trade the list for the terminals.
+    pub(crate) fn is_editor_picker(self) -> bool {
+        matches!(
+            self,
+            SearchTab::Symbols | SearchTab::Locations | SearchTab::WorkspaceSymbols
+        )
     }
 
     pub(crate) fn placeholder(self) -> &'static str {

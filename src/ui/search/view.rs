@@ -80,6 +80,15 @@ impl SearchDelegate {
         })
     }
 
+    /// How many rows the filter left, for an editor picker's heading.
+    fn row_count(&self) -> usize {
+        self.sections
+            .iter()
+            .flat_map(|s| s.rows.iter())
+            .filter(|r| r.item().is_some())
+            .count()
+    }
+
     fn first_row(&self) -> Option<IndexPath> {
         let section = self.sections.iter().position(|s| !s.rows.is_empty())?;
         Some(IndexPath::new(0).section(section))
@@ -424,6 +433,9 @@ pub struct SearchView {
     /// must not move the caret.
     symbol_initial: Option<CommandKind>,
     symbol_moved: bool,
+    /// What a language server's list is of — References, Definitions — shown
+    /// where the scope row would be. The other pickers are named by their tab.
+    heading: Option<&'static str>,
     _sub: Subscription,
 }
 
@@ -457,6 +469,7 @@ impl SearchView {
             sessions_landed: 0,
             symbol_initial: None,
             symbol_moved: false,
+            heading: None,
             _sub,
         }
     }
@@ -590,10 +603,12 @@ impl SearchView {
     /// highlight moves.
     pub(crate) fn set_locations(
         &mut self,
+        heading: Option<&'static str>,
         locations: Vec<Item>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.heading = heading;
         self.symbol_moved = false;
         self.symbol_initial = locations.first().map(|item| item.kind.clone());
         self.update_catalog(|catalog| catalog.locations = locations, window, cx);
@@ -648,6 +663,9 @@ impl SearchView {
     }
 
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tab.is_editor_picker() {
+            return;
+        }
         self.set_tab(self.tab.step(forward), None, window, cx);
     }
 
@@ -832,32 +850,59 @@ impl SearchView {
             .bg(theme.popover)
             .border_b_1()
             .border_color(theme.border)
-            .children(SearchTab::ORDER.into_iter().enumerate().map(|(i, tab)| {
-                let active = tab == self.tab;
-                div()
-                    .id(("search-tab", i))
-                    .h(px(24.))
-                    .px(px(9.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(6.))
-                    .text_size(rems(SCOPE_TEXT))
-                    .cursor_pointer()
-                    .map(|d| match active {
-                        true => d
-                            .bg(active_bg)
-                            .text_color(fg)
-                            .font_weight(FontWeight::MEDIUM),
-                        false => d
+            .when(self.tab.is_editor_picker(), |row| {
+                let count = self.list.read(cx).delegate().row_count();
+                row.child(
+                    div()
+                        .h(px(24.))
+                        .px(px(9.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(6.))
+                        .bg(active_bg)
+                        .text_size(rems(SCOPE_TEXT))
+                        .text_color(fg)
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(self.heading.unwrap_or_else(|| self.tab.title())),
+                )
+                .when(count > 0, |row| {
+                    row.child(
+                        div()
+                            .px(px(6.))
+                            .text_size(rems(SCOPE_TEXT))
                             .text_color(muted)
-                            .hover(move |d| d.bg(hover_bg).text_color(fg)),
-                    })
-                    .child(tab.title())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.set_tab(tab, None, window, cx);
-                        this.list.update(cx, |state, cx| state.focus(window, cx));
-                    }))
-            }))
+                            .child(count.to_string()),
+                    )
+                })
+            })
+            .when(!self.tab.is_editor_picker(), |row| {
+                row.children(SearchTab::ORDER.into_iter().enumerate().map(|(i, tab)| {
+                    let active = tab == self.tab;
+                    div()
+                        .id(("search-tab", i))
+                        .h(px(24.))
+                        .px(px(9.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(6.))
+                        .text_size(rems(SCOPE_TEXT))
+                        .cursor_pointer()
+                        .map(|d| match active {
+                            true => d
+                                .bg(active_bg)
+                                .text_color(fg)
+                                .font_weight(FontWeight::MEDIUM),
+                            false => d
+                                .text_color(muted)
+                                .hover(move |d| d.bg(hover_bg).text_color(fg)),
+                        })
+                        .child(tab.title())
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.set_tab(tab, None, window, cx);
+                            this.list.update(cx, |state, cx| state.focus(window, cx));
+                        }))
+                }))
+            })
     }
 
     /// The switcher's footer, minus its New workspace button: the keys that
@@ -871,7 +916,7 @@ impl SearchView {
                 .children(keys)
                 .child(label)
         };
-        let tabs = !self.in_sub_list();
+        let tabs = !self.in_sub_list() && !self.tab.is_editor_picker();
         h_flex()
             .flex_none()
             .items_center()
@@ -1288,6 +1333,33 @@ mod tests {
         app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
         vcx.run_until_parked();
         assert!(app.read_with(&vcx, |app, _| app.search.is_none()));
+    }
+
+    /// An editor picker stands alone: Tab does not swap the places a
+    /// language server found for the terminals, and the footer does not
+    /// offer it.
+    #[gpui::test]
+    fn an_editor_picker_keeps_its_list_on_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        for tab in [
+            SearchTab::Symbols,
+            SearchTab::Locations,
+            SearchTab::WorkspaceSymbols,
+        ] {
+            app.update_in(&mut vcx, |app, window, cx| {
+                app.open_search(tab, "", window, cx)
+            });
+            vcx.run_until_parked();
+            let view = open(&app, &mut vcx);
+            view.update_in(&mut vcx, |view, window, cx| {
+                view.step_tab(true, window, cx);
+                view.step_tab(false, window, cx);
+            });
+            view.read_with(&vcx, |view, _| assert_eq!(view.tab, tab));
+            app.update_in(&mut vcx, |app, window, cx| app.close_search(window, cx));
+            vcx.run_until_parked();
+        }
     }
 
     /// The Actions tab's "Go to File…" row moves the search to its Files tab
