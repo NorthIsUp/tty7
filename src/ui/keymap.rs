@@ -118,6 +118,7 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         let input = Some("Input");
         bindings.push(KeyBinding::new("alt-f5", EditorNextChange, input));
         bindings.push(KeyBinding::new("shift-alt-f5", EditorPrevChange, input));
+        bindings.push(KeyBinding::new("alt-f3", EditorPeekChange, input));
     }
     // The code editor's line commands, for the same tie: ⌘/ is the shortcut
     // sheet, ⌘↵ fullscreen, ⌘⇧↵ maximize and ⌥↑/⌥↓ pane focus off macOS, all
@@ -695,6 +696,10 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorPrevChange", ""),
         ("EditorRevertChange", ""),
         ("ToggleEditorGitGutter", ""),
+        // Alt+F3 is a fixed `Input`-context binding, like Alt+F5.
+        ("EditorPeekChange", ""),
+        // VS Code's chord for its Problems panel.
+        ("ToggleEditorProblems", "secondary-shift-m"),
         ("OpenSshProfiles", ""),
         ("RestartSshSession", "secondary-shift-r"),
         ("Quit", per_platform("secondary-q", "secondary-shift-q")),
@@ -1025,6 +1030,14 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "ToggleEditorGitGutter" => (
             CommandGroup::Terminal,
             t(L10nKey::EditorGitToggleGutter).to_string(),
+        ),
+        "EditorPeekChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitPeekChange).to_string(),
+        ),
+        "ToggleEditorProblems" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorProblemsToggle).to_string(),
         ),
         "OpenSshProfiles" => (
             CommandGroup::Ssh,
@@ -1743,6 +1756,8 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
         "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),
         "ToggleEditorGitGutter" => KeyBinding::new(keystroke, ToggleEditorGitGutter, None),
+        "EditorPeekChange" => KeyBinding::new(keystroke, EditorPeekChange, None),
+        "ToggleEditorProblems" => KeyBinding::new(keystroke, ToggleEditorProblems, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),
         "Quit" => KeyBinding::new(keystroke, Quit, None),
@@ -3085,6 +3100,10 @@ mod gpui_tests {
             assert_eq!(
                 hits("shift-alt-f5", &["Workspace", "Input"]).first(),
                 Some(&EditorPrevChange::name_for_type())
+            );
+            assert_eq!(
+                hits("alt-f3", &["Workspace", "Input"]).first(),
+                Some(&EditorPeekChange::name_for_type())
             );
             assert!(hits("alt-f5", &["Workspace"]).is_empty());
         });

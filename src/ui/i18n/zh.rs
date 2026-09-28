@@ -1142,6 +1142,33 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorGitPeekRevert => "还原",
         L10nKey::EditorGitPeekSummary => "与暂存版本相比 −{removed} +{added} 行",
         L10nKey::EditorGitPeekAddedOnly => "这些是新增的行：暂存版本中此处没有内容。",
+        L10nKey::EditorGitPeekChange => "查看更改",
+        L10nKey::EditorGitPeekKeys => "回车还原 · Esc 关闭",
+        L10nKey::EditorProblemsTitle => "问题",
+        L10nKey::EditorProblemsToggle => "切换问题列表",
+        L10nKey::EditorProblemsNone => "打开的文件中没有问题。",
+        L10nKey::EditorProblemsMore => "……另有 {n} 项",
+        L10nKey::SettingsEditor => "编辑器",
+        L10nKey::SettingsEditorGitGutter => "Git 更改标记",
+        L10nKey::SettingsEditorGitGutterDesc => "在行号旁和滚动条上标出与暂存版本不同的行。",
+        L10nKey::SettingsEditorLsp => "语言服务器",
+        L10nKey::SettingsEditorLspDesc => {
+            "为支持的文件启动语言服务器，提供错误提示、补全和跳转到定义。仅限本机文件。"
+        }
+        L10nKey::SettingsEditorSoftWrap => "自动换行",
+        L10nKey::SettingsEditorSoftWrapDesc => {
+            "打开文件时启用自动换行。状态栏的换行按钮可单独切换某个文件。"
+        }
+        L10nKey::SettingsEditorMarkdownPreview => "以渲染形式打开 Markdown",
+        L10nKey::SettingsEditorMarkdownPreviewDesc => {
+            "打开 Markdown 文件时显示渲染后的预览而不是源码。"
+        }
+        L10nKey::SettingsSearchEditorGitGutterKeywords => {
+            "git 更改 标记 差异 暂存 修改 新增 删除 gutter diff"
+        }
+        L10nKey::SettingsSearchEditorLspKeywords => "lsp 语言服务器 诊断 错误 警告 补全 定义",
+        L10nKey::SettingsSearchEditorSoftWrapKeywords => "换行 自动换行 长行 wrap",
+        L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => "markdown 预览 渲染 md",
         L10nKey::EditorGoToLinePlaceholder => "行号，或 行:列（1–{total}）",
         L10nKey::EditorGoToSymbolAction => "跳转到编辑器中的符号…",
         L10nKey::EditorNavigateBack => "后退",

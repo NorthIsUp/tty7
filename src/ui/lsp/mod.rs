@@ -328,6 +328,30 @@ impl LspStore {
             .then_some(LspStatus::Missing(spec.name))
     }
 
+    /// Every open document's diagnostics, for the editor's Problems list: in
+    /// editor columns where the text the server saw is known, its own
+    /// otherwise.
+    pub(crate) fn diagnostics_snapshot(cx: &App) -> Vec<(PathBuf, Vec<lsp_types::Diagnostic>)> {
+        let Some(store) = cx.try_global::<LspStore>() else {
+            return Vec::new();
+        };
+        store
+            .docs
+            .iter()
+            .filter(|(_, doc)| !doc.diagnostics.is_empty())
+            .map(|(path, doc)| {
+                let encoding = store.servers.get(&doc.server).map(|s| s.encoding);
+                let diagnostics = match (doc.sent.as_ref(), encoding) {
+                    (Some(text), Some(enc)) => {
+                        convert::diagnostics_to_editor(text, &doc.diagnostics, enc)
+                    }
+                    _ => doc.diagnostics.clone(),
+                };
+                (path.clone(), diagnostics)
+            })
+            .collect()
+    }
+
     /// The server behind `path`, with any edit still waiting sent first (see
     /// [`Freshen`]) so the request that follows sees the text the caller sees.
     pub(crate) fn context(

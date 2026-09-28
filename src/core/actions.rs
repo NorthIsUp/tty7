@@ -139,6 +139,8 @@ actions!(
         EditorPrevChange,
         EditorRevertChange,
         ToggleEditorGitGutter,
+        EditorPeekChange,
+        ToggleEditorProblems,
         OpenSshProfiles,
         RestartSshSession,
         SendTab,

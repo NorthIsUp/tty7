@@ -25,6 +25,7 @@ use crate::ui::i18n::{L10nKey, t, t_fmt};
 mod gutter;
 mod nav;
 pub(crate) mod outline;
+mod problems;
 
 pub(crate) use nav::KEY_CONTEXT as NAV_KEY_CONTEXT;
 
@@ -318,6 +319,8 @@ pub(crate) struct EditorPanelState {
     events_tx: smol::channel::Sender<Vec<PathBuf>>,
     /// Back/forward history, outlines and Go to Symbol's preview.
     nav: nav::EditorNav,
+    /// The Problems list at the foot of the panel — see `problems`.
+    problems: problems::ProblemsPane,
 }
 
 impl EditorPanelState {
@@ -361,6 +364,7 @@ impl EditorPanelState {
             watched_files: HashSet::new(),
             events_tx: tx,
             nav: nav::EditorNav::default(),
+            problems: Default::default(),
         }
     }
 }
@@ -3011,7 +3015,8 @@ impl Tty7App {
             .children(breadcrumbs)
             .when_some(conflict_banner, |this, b| this.child(b))
             .children(bar)
-            .child(div().flex_1().min_h_0().child(body));
+            .child(div().flex_1().min_h_0().child(body))
+            .children(self.render_editor_problems(window, cx));
 
         // The panel's own paint is the same either way; only the box is not.
         // Filling the workspace means stopping the window's translucency and
@@ -3418,7 +3423,15 @@ impl Tty7App {
                 this.child(div().min_w_0().text_ellipsis().child(t))
             })
             .child(div().flex_1())
-            .children(self.render_lsp_status(cx))
+            // The counts open the Problems list.
+            .children(self.render_lsp_status(cx).map(|status| {
+                div()
+                    .id("status-problems")
+                    .flex_none()
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_editor_problems(cx)))
+                    .child(status)
+            }))
             .when(is_markdown, |this| {
                 this.child(
                     Button::new("status-md-preview")
