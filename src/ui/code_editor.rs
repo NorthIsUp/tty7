@@ -3757,16 +3757,14 @@ impl Tty7App {
 mod tests {
     use super::*;
 
-    /// A temp dir as the editor will see paths under it: resolved through
-    /// symlinks where the OS puts one in the way (`/var` is `/private/var` on
-    /// macOS). Not on Windows, where `canonicalize` answers in the `\\?\` form
-    /// no path the editor holds is ever in.
+    /// A temp dir as the editor will see paths under it: through the local
+    /// host's `canonicalize`, the call `load_file` makes. That resolves
+    /// macOS's `/var` → `/private/var` and Windows' 8.3 short names
+    /// (`RUNNER~1`), and never answers in Windows' `\\?\` form.
     pub(crate) fn test_real_dir(dir: &Path) -> PathBuf {
-        if cfg!(windows) {
-            dir.to_path_buf()
-        } else {
-            dir.canonicalize().unwrap()
-        }
+        tty7_core::host::local::LocalHost::new()
+            .canonicalize(dir)
+            .unwrap()
     }
 
     /// Handing a file the editor cannot read to the desktop is how a click
