@@ -92,6 +92,15 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         bindings.push(KeyBinding::new("secondary-alt-up", AddCursorAbove, input));
         bindings.push(KeyBinding::new("secondary-alt-down", AddCursorBelow, input));
     }
+    // The gutter's change markers, on VS Code's chords. Only in an `Input`:
+    // a function key bound for the whole window would never reach the shell,
+    // and the handlers let the key through when the code editor is not the
+    // field that has it.
+    {
+        let input = Some("Input");
+        bindings.push(KeyBinding::new("alt-f5", EditorNextChange, input));
+        bindings.push(KeyBinding::new("shift-alt-f5", EditorPrevChange, input));
+    }
     bindings
 }
 
@@ -2879,6 +2888,39 @@ mod gpui_tests {
             assert_eq!(backspace(cx), inherited, "init must not drop them");
             rebind(cx);
             assert_eq!(backspace(cx), inherited, "nor may a rebind");
+        });
+    }
+
+    /// The gutter's next / previous change chords live only in an `Input`:
+    /// the editor gets them, a terminal never loses a function key to them.
+    #[gpui::test]
+    fn editor_change_chords_are_bound_only_in_an_input(cx: &mut TestAppContext) {
+        use gpui::Action as _;
+        cx.update(|cx| {
+            running_on_json(cx, "{}");
+            let hits = |keys: &str, contexts: &[&str]| -> Vec<&'static str> {
+                let input = [Keystroke::parse(keys).expect("the keystroke parses")];
+                let context: Vec<_> = contexts
+                    .iter()
+                    .map(|c| gpui::KeyContext::parse(c).expect("the context parses"))
+                    .collect();
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &context)
+                    .0
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect()
+            };
+            assert_eq!(
+                hits("alt-f5", &["Workspace", "Input"]).first(),
+                Some(&EditorNextChange::name_for_type())
+            );
+            assert_eq!(
+                hits("shift-alt-f5", &["Workspace", "Input"]).first(),
+                Some(&EditorPrevChange::name_for_type())
+            );
+            assert!(hits("alt-f5", &["Workspace"]).is_empty());
         });
     }
 

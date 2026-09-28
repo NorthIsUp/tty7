@@ -636,6 +636,9 @@ impl Tty7App {
         });
         if let Some(f) = self.buffer_mut(id) {
             f.gutter.peek = None;
+            // The input's Change event lands after this returns; until then
+            // the hunks must not look current.
+            f.gutter.edits += 1;
         }
         cx.notify();
         true
@@ -1010,5 +1013,76 @@ mod tests {
         let hunks = vec![h(1..2, 1..2)];
         assert_eq!(step_hunk(&hunks, 1, true), Some(0));
         assert_eq!(step_hunk(&hunks, 9, true), Some(0));
+    }
+
+    /// The whole loop in a real window: a base, an edited buffer, markers on
+    /// the input, stepping between changes, and a revert that is one undo.
+    #[gpui::test]
+    fn markers_steps_and_revert_in_an_open_buffer(cx: &mut gpui::TestAppContext) {
+        use crate::ui::app::test_window;
+        use gpui_component::input::GutterMarkerKind;
+
+        let (app, mut vcx, _pane) = test_window::harness_with_tabs(cx, 1);
+        let base = "one\ntwo\nthree\nfour\n";
+        let (id, input) = app.update_in(&mut vcx, |app, window, cx| {
+            app.editor_new_file(window, cx);
+            let id = app
+                .tab_code()
+                .and_then(TabCode::active_id)
+                .expect("a buffer");
+            let input = app.buffer(id).expect("the buffer").input.clone();
+            input.update(cx, |state, cx| {
+                state.set_value("one\nTWO\nthree\nfour\nfive\n", window, cx);
+                state.focus(window, cx);
+            });
+            app.buffer_mut(id).unwrap().gutter.set_base_for_test(base);
+            (id, input)
+        });
+        vcx.run_until_parked();
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            let hunks = app.editor_gutter_hunks_now(id, cx);
+            assert_eq!(*hunks, vec![h(1..2, 1..2), h(4..4, 4..5)]);
+            let kinds: Vec<_> = input
+                .read(cx)
+                .gutter_markers()
+                .iter()
+                .map(|m| (m.lines.clone(), m.kind))
+                .collect();
+            assert_eq!(
+                kinds,
+                vec![
+                    (1..2, GutterMarkerKind::Modified),
+                    (4..5, GutterMarkerKind::Added)
+                ]
+            );
+
+            assert!(app.editor_gutter_step(true, window, cx));
+            assert_eq!(input.read(cx).cursor_position().line, 1);
+            assert!(app.editor_gutter_step(true, window, cx));
+            assert_eq!(input.read(cx).cursor_position().line, 4);
+            assert!(app.editor_gutter_step(true, window, cx), "wraps");
+            assert_eq!(input.read(cx).cursor_position().line, 1);
+
+            assert!(app.editor_gutter_can_revert(id, cx));
+            assert!(app.editor_gutter_revert_at_cursor(window, cx));
+            assert_eq!(
+                input.read(cx).text().to_string(),
+                "one\ntwo\nthree\nfour\nfive\n"
+            );
+            assert_eq!(*app.editor_gutter_hunks_now(id, cx), vec![h(4..4, 4..5)]);
+        });
+
+        // One undo takes the whole revert back.
+        vcx.update(|window, cx| {
+            window.dispatch_action(Box::new(gpui_component::input::Undo), cx);
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            assert_eq!(
+                input.read(cx).text().to_string(),
+                "one\nTWO\nthree\nfour\nfive\n"
+            );
+        });
     }
 }
