@@ -24,7 +24,7 @@ use gpui::{
     div, px,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::{GutterMarker, GutterMarkerClick, InputState, Position, RopeExt as _};
+use gpui_component::input::{GutterMarker, InputState, Position, RopeExt as _};
 use gpui_component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
 
 use super::{BufferId, TabCode};
@@ -310,12 +310,22 @@ fn fetch_base(h: &dyn tty7_core::host::Host, path: &Path) -> Fetched {
     }
 }
 
-/// The inline peek a click on a marker opens.
+/// The inline peek a click on a marker, or the peek command, opens.
 struct Peek {
     hunk: Hunk,
     /// The base lines the hunk replaced.
     original: String,
-    position: Point<Pixels>,
+    anchor: PeekAnchor,
+    /// Held while the peek is open, so Enter and Escape reach it.
+    focus: gpui::FocusHandle,
+}
+
+/// Where the peek hangs.
+enum PeekAnchor {
+    /// Where the marker was clicked, in window coordinates.
+    Point(Point<Pixels>),
+    /// Under the caret, wherever the last paint put it.
+    Caret,
 }
 
 /// Which read of the base a buffer holds, or wants.
@@ -353,8 +363,16 @@ impl BufferGutter {
     ) -> Self {
         let app = cx.entity().downgrade();
         input.update(cx, |state, _| {
-            state.on_gutter_marker_click(move |click, _window, cx| {
-                let _ = app.update(cx, |app, cx| app.editor_gutter_open_peek(id, click, cx));
+            state.on_gutter_marker_click(move |click, window, cx| {
+                let _ = app.update(cx, |app, cx| {
+                    app.editor_gutter_open_peek(
+                        id,
+                        click.marker.lines.start,
+                        PeekAnchor::Point(click.position),
+                        window,
+                        cx,
+                    )
+                });
             });
         });
         Self::default()
@@ -644,10 +662,14 @@ impl Tty7App {
         let start16 = text[..range.start].encode_utf16().count();
         let end16 = start16 + text[range.clone()].encode_utf16().count();
         let line = hunk.new.start;
+        let from_peek = f.gutter.peek.is_some();
         input.update(cx, |state, cx| {
             state.replace_text_in_range(Some(start16..end16), &replacement, window, cx);
             let last = state.text().lines_len().saturating_sub(1);
             state.set_cursor_position(Position::new(line.min(last) as u32, 0), window, cx);
+            if from_peek {
+                state.focus(window, cx);
+            }
         });
         if let Some(f) = self.buffer_mut(id) {
             f.gutter.peek = None;
@@ -659,9 +681,16 @@ impl Tty7App {
         true
     }
 
-    /// The setting was flipped: drop or bring back every buffer's markers.
+    /// The command: flip the setting.
     pub(crate) fn toggle_editor_git_gutter(&mut self, cx: &mut Context<Self>) {
-        let on = !enabled(cx);
+        self.set_editor_git_gutter(!enabled(cx), cx);
+    }
+
+    /// Turn the markers on or off, dropping or bringing back every buffer's.
+    pub(crate) fn set_editor_git_gutter(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on == enabled(cx) {
+            return;
+        }
         self.update_config(cx, |cfg| cfg.editor_git_gutter = on);
         let ids: Vec<BufferId> = self.editor.buffers.iter().map(|f| f.id()).collect();
         for id in ids {
@@ -681,19 +710,21 @@ impl Tty7App {
         cx.notify();
     }
 
+    /// Open the peek on the hunk starting at buffer line `start`.
     fn editor_gutter_open_peek(
         &mut self,
         id: BufferId,
-        click: &GutterMarkerClick,
+        start: usize,
+        anchor: PeekAnchor,
+        window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let Some(f) = self.buffer(id) else {
-            return;
+            return false;
         };
         let Some(base) = f.gutter.base.clone() else {
-            return;
+            return false;
         };
-        let start = click.marker.lines.start;
         let Some(hunk) = f
             .gutter
             .hunks
@@ -701,21 +732,75 @@ impl Tty7App {
             .find(|h| h.new.start == start)
             .cloned()
         else {
-            return;
+            return false;
         };
         let original = base
             .split_inclusive('\n')
             .skip(hunk.old.start)
             .take(hunk.old.len())
             .collect();
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         if let Some(f) = self.buffer_mut(id) {
             f.gutter.peek = Some(Peek {
                 hunk,
                 original,
-                position: click.position,
+                anchor,
+                focus,
             });
         }
         cx.notify();
+        true
+    }
+
+    /// The peek command: show the change under the caret — or, with the
+    /// caret on an unchanged line, go to the next change and show that.
+    pub(crate) fn editor_gutter_peek_at_cursor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(id) = self.editor_gutter_active(window, cx) else {
+            return false;
+        };
+        let hunks = self.editor_gutter_hunks_now(id, cx);
+        let Some(f) = self.buffer(id) else {
+            return false;
+        };
+        let input = f.input.clone();
+        let line = input.read(cx).cursor_position().line as usize;
+        let ix = match hunk_at_line(&hunks, line) {
+            Some(ix) => ix,
+            None => {
+                let Some(ix) = step_hunk(&hunks, line, true) else {
+                    return false;
+                };
+                let last = input.read(cx).text().lines_len().saturating_sub(1);
+                let target = hunks[ix].new.start.min(last);
+                input.update(cx, |state, cx| {
+                    state.set_cursor_position(Position::new(target as u32, 0), window, cx);
+                });
+                ix
+            }
+        };
+        self.editor_gutter_open_peek(id, hunks[ix].new.start, PeekAnchor::Caret, window, cx)
+    }
+
+    /// Close the peek from inside it, handing the keyboard back to the text.
+    fn editor_gutter_dismiss_peek(
+        &mut self,
+        id: BufferId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(f) = self.buffer_mut(id) else {
+            return;
+        };
+        if f.gutter.peek.take().is_some() {
+            let input = f.input.clone();
+            input.update(cx, |state, cx| state.focus(window, cx));
+            cx.notify();
+        }
     }
 
     /// Escape closes the peek before it closes anything else.
@@ -740,7 +825,17 @@ impl Tty7App {
         id: BufferId,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let peek = self.buffer(id)?.gutter.peek.as_ref()?;
+        let f = self.buffer(id)?;
+        let peek = f.gutter.peek.as_ref()?;
+        let position = match peek.anchor {
+            PeekAnchor::Point(p) => p + gpui::point(px(8.), px(4.)),
+            PeekAnchor::Caret => {
+                let input = f.input.read(cx);
+                let caret = input.cursor();
+                let bounds = input.range_to_bounds(&(caret..caret))?;
+                bounds.bottom_left() + gpui::point(px(0.), px(2.))
+            }
+        };
         let theme = cx.theme();
         let removed = peek.hunk.old.len();
         let added = peek.hunk.new.len();
@@ -792,6 +887,12 @@ impl Tty7App {
                     .child(summary),
             )
             .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(t(L10nKey::EditorGitPeekKeys)),
+            )
+            .child(
                 Button::new("editor-gutter-peek-revert")
                     .small()
                     .label(t(L10nKey::EditorGitPeekRevert))
@@ -811,13 +912,40 @@ impl Tty7App {
                     .icon(IconName::Close)
                     .on_click({
                         let app = app.clone();
-                        move |_, _, cx| {
-                            let _ = app.update(cx, |app, cx| app.editor_gutter_close_peek(cx));
+                        move |_, window, cx| {
+                            let _ = app.update(cx, |app, cx| {
+                                app.editor_gutter_dismiss_peek(id, window, cx)
+                            });
                         }
                     }),
             );
+        let keys_hunk = peek.hunk.clone();
         let card = v_flex()
             .id("editor-gutter-peek")
+            .track_focus(&peek.focus)
+            .on_key_down({
+                let app = app.clone();
+                move |ev: &gpui::KeyDownEvent, window, cx| {
+                    let ks = &ev.keystroke;
+                    if ks.modifiers.modified() {
+                        return;
+                    }
+                    match ks.key.as_str() {
+                        "escape" => {
+                            let _ = app.update(cx, |app, cx| {
+                                app.editor_gutter_dismiss_peek(id, window, cx)
+                            });
+                        }
+                        "enter" => {
+                            let _ = app.update(cx, |app, cx| {
+                                app.editor_gutter_revert(id, &keys_hunk, window, cx)
+                            });
+                        }
+                        _ => return,
+                    }
+                    cx.stop_propagation();
+                }
+            })
             .occlude()
             .min_w(px(280.))
             .max_w(px(640.))
@@ -836,7 +964,7 @@ impl Tty7App {
         Some(
             deferred(
                 anchored()
-                    .position(peek.position + gpui::point(px(8.), px(4.)))
+                    .position(position)
                     .snap_to_window_with_margin(px(8.))
                     .child(card),
             )
@@ -1097,6 +1225,46 @@ mod tests {
             assert_eq!(
                 input.read(cx).text().to_string(),
                 "one\nTWO\nthree\nfour\nfive\n"
+            );
+        });
+
+        // The peek from the keyboard: from an unchanged line it goes to the
+        // next change and takes the keys; Escape hands them back.
+        let peek_open = |app: &gpui::Entity<Tty7App>, vcx: &mut gpui::VisualTestContext| {
+            app.update_in(vcx, |app, _, _| {
+                app.buffer(id).unwrap().gutter.peek.is_some()
+            })
+        };
+        app.update_in(&mut vcx, |app, window, cx| {
+            input.update(cx, |state, cx| {
+                state.set_cursor_position(Position::new(0, 0), window, cx);
+                state.focus(window, cx);
+            });
+            assert!(app.editor_gutter_peek_at_cursor(window, cx));
+            assert_eq!(input.read(cx).cursor_position().line, 1);
+        });
+        vcx.run_until_parked();
+        assert!(peek_open(&app, &mut vcx));
+        vcx.simulate_keystrokes("escape");
+        vcx.run_until_parked();
+        assert!(!peek_open(&app, &mut vcx));
+        vcx.update(|window, cx| {
+            use gpui::Focusable as _;
+            assert!(input.read(cx).focus_handle(cx).is_focused(window));
+        });
+
+        // Enter in the peek reverts the change it shows.
+        app.update_in(&mut vcx, |app, window, cx| {
+            assert!(app.editor_gutter_peek_at_cursor(window, cx));
+        });
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert!(!peek_open(&app, &mut vcx));
+        vcx.update(|_, cx| {
+            assert_eq!(
+                input.read(cx).text().to_string(),
+                "one\ntwo\nthree\nfour\nfive\n"
             );
         });
     }

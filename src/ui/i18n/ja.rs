@@ -1272,6 +1272,37 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorGitPeekAddedOnly => {
             "新しく追加された行です。ステージ済みの版にはここに何もありません。"
         }
+        L10nKey::EditorGitPeekChange => "変更をプレビュー",
+        L10nKey::EditorGitPeekKeys => "Enter で元に戻す · Esc で閉じる",
+        L10nKey::EditorProblemsTitle => "問題",
+        L10nKey::EditorProblemsToggle => "問題の表示切り替え",
+        L10nKey::EditorProblemsNone => "開いているファイルに問題はありません。",
+        L10nKey::EditorProblemsMore => "…ほか {n} 件",
+        L10nKey::SettingsEditor => "エディタ",
+        L10nKey::SettingsEditorGitGutter => "Git 変更マーカー",
+        L10nKey::SettingsEditorGitGutterDesc => {
+            "ステージ済みの版と異なる行を、行番号の横とスクロールバーに示します。"
+        }
+        L10nKey::SettingsEditorLsp => "言語サーバー",
+        L10nKey::SettingsEditorLspDesc => {
+            "対応するファイルで言語サーバーを起動し、エラー表示・補完・定義へ移動を使えるようにします。このマシン上のファイルのみ。"
+        }
+        L10nKey::SettingsEditorSoftWrap => "長い行を折り返す",
+        L10nKey::SettingsEditorSoftWrapDesc => {
+            "ファイルを折り返し表示で開きます。ステータスバーの折り返しボタンでファイルごとに切り替えられます。"
+        }
+        L10nKey::SettingsEditorMarkdownPreview => "Markdown をレンダリングして開く",
+        L10nKey::SettingsEditorMarkdownPreviewDesc => {
+            "Markdown ファイルを開いたとき、ソースではなくレンダリングしたプレビューを表示します。"
+        }
+        L10nKey::SettingsSearchEditorGitGutterKeywords => {
+            "git 変更 マーカー 差分 ステージ 変更 追加 削除 gutter diff"
+        }
+        L10nKey::SettingsSearchEditorLspKeywords => "lsp 言語サーバー 診断 エラー 警告 補完 定義",
+        L10nKey::SettingsSearchEditorSoftWrapKeywords => "折り返し 長い行 wrap",
+        L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
+            "markdown プレビュー レンダリング md"
+        }
         L10nKey::EditorGoToLinePlaceholder => "行番号、または 行:列（1–{total}）",
         L10nKey::EditorGoToSymbolAction => "エディタ内のシンボルへ移動…",
         L10nKey::EditorNavigateBack => "戻る",

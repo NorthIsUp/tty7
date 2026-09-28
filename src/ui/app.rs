@@ -6492,6 +6492,16 @@ impl Tty7App {
             L10nKey::SettingsSidebarGrouping => {
                 self.set_sidebar_auto_grouping(defaults.sidebar_auto_grouping, cx)
             }
+            L10nKey::SettingsEditorGitGutter => {
+                self.set_editor_git_gutter(defaults.editor_git_gutter, cx)
+            }
+            L10nKey::SettingsEditorLsp => self.set_editor_lsp(defaults.editor_lsp, cx),
+            L10nKey::SettingsEditorSoftWrap => {
+                self.set_editor_soft_wrap(defaults.editor_soft_wrap, cx)
+            }
+            L10nKey::SettingsEditorMarkdownPreview => {
+                self.set_editor_markdown_preview(defaults.editor_markdown_preview, cx)
+            }
             L10nKey::SettingsNotifyOnCommandFinish => {
                 self.set_notify_mode(defaults.notify_on_command_finish, cx)
             }
@@ -9423,6 +9433,18 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ToggleEditorGitGutter, _, cx| {
                     this.toggle_editor_git_gutter(cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorPeekChange, window, cx| {
+                    if !this.editor_gutter_peek_at_cursor(window, cx) {
+                        cx.propagate();
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &ToggleEditorProblems, _, cx| {
+                    if !this.code_panel_visible() {
+                        cx.propagate();
+                        return;
+                    }
+                    this.toggle_editor_problems(cx)
                 }))
                 .on_action(
                     cx.listener(|this, _: &Quit, window, cx| this.quit_stop_sessions(window, cx)),

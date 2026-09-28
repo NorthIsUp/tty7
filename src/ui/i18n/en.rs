@@ -1224,6 +1224,39 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorGitPeekAddedOnly => {
             "These lines are new: the staged version has nothing here."
         }
+        L10nKey::EditorGitPeekChange => "Peek Change",
+        L10nKey::EditorGitPeekKeys => "Enter reverts · Esc closes",
+        L10nKey::EditorProblemsTitle => "Problems",
+        L10nKey::EditorProblemsToggle => "Toggle Problems",
+        L10nKey::EditorProblemsNone => "No problems in the open files.",
+        L10nKey::EditorProblemsMore => "…and {n} more",
+        L10nKey::SettingsEditor => "Editor",
+        L10nKey::SettingsEditorGitGutter => "Git change markers",
+        L10nKey::SettingsEditorGitGutterDesc => {
+            "Mark lines that differ from the staged version beside the line numbers and on the scrollbar."
+        }
+        L10nKey::SettingsEditorLsp => "Language servers",
+        L10nKey::SettingsEditorLspDesc => {
+            "Start a language server for files it knows, for errors, completion and go to definition. Only files on this machine."
+        }
+        L10nKey::SettingsEditorSoftWrap => "Wrap long lines",
+        L10nKey::SettingsEditorSoftWrapDesc => {
+            "Open files with soft wrap on. The status bar's Wrap button changes it for one file."
+        }
+        L10nKey::SettingsEditorMarkdownPreview => "Open Markdown rendered",
+        L10nKey::SettingsEditorMarkdownPreviewDesc => {
+            "Show Markdown files as a rendered preview rather than as source when they open."
+        }
+        L10nKey::SettingsSearchEditorGitGutterKeywords => {
+            "git gutter diff changes markers staged index scm vcs modified added deleted"
+        }
+        L10nKey::SettingsSearchEditorLspKeywords => {
+            "lsp language server diagnostics errors warnings completion rust-analyzer definition"
+        }
+        L10nKey::SettingsSearchEditorSoftWrapKeywords => "wrap soft wrap long lines editor",
+        L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
+            "markdown preview rendered md readme"
+        }
         L10nKey::EditorGoToLinePlaceholder => "Line, or line:column (1–{total})",
         L10nKey::EditorGoToSymbolAction => "Go to Symbol in Editor…",
         L10nKey::EditorNavigateBack => "Go Back",
