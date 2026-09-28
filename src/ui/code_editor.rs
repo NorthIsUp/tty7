@@ -2884,6 +2884,7 @@ impl Tty7App {
         for (id, dirty) in orphans {
             if !dirty {
                 self.editor.buffers.retain(|b| b.id() != id);
+                self.editor.nav.forget_buffer(id);
                 changed = true;
                 continue;
             }
