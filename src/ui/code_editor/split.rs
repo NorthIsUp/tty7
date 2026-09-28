@@ -172,6 +172,70 @@ impl TabCode {
         }
     }
 
+    /// Lays a tab's recorded groups back out once their files have loaded.
+    ///
+    /// `restored` are the buffers the restore opened, already listed in the
+    /// focused group (they arrive in the background). Anything else the tab
+    /// shows was opened while they loaded, and is kept:
+    ///
+    /// - A tab split in the meantime keeps its layout; the restored files
+    ///   stay where they arrived, behind the file in front.
+    /// - Otherwise the recorded layout is put back, the files opened in the
+    ///   meantime join the focused group, and the last of them stays in front.
+    ///
+    /// `true` when nothing had been opened in the meantime.
+    pub(crate) fn restore_groups(
+        &mut self,
+        restored: &[BufferId],
+        left: (Vec<BufferId>, usize),
+        right: Option<(Vec<BufferId>, usize, bool)>,
+    ) -> bool {
+        if self.is_split() {
+            return false;
+        }
+        let extras: Vec<BufferId> = self
+            .files
+            .iter()
+            .copied()
+            .filter(|id| !restored.contains(id))
+            .collect();
+        let front = self.active_id().filter(|id| extras.contains(id));
+        let (left, left_active) = left;
+        let right = right.filter(|(files, ..)| !files.is_empty());
+        match (left.is_empty(), right) {
+            (false, Some((right, right_active, focused))) => {
+                self.files = left;
+                self.active = left_active;
+                self.split = Some(OtherGroup {
+                    files: right,
+                    active: right_active,
+                    focus_left: true,
+                });
+                if focused {
+                    self.swap_focus();
+                }
+            }
+            (false, None) => {
+                self.files = left;
+                self.active = left_active;
+            }
+            (true, Some((right, right_active, _))) => {
+                self.files = right;
+                self.active = right_active;
+            }
+            (true, None) => {}
+        }
+        for id in &extras {
+            if !self.files.contains(id) {
+                self.files.push(*id);
+            }
+        }
+        if let Some(front) = front {
+            self.show(front);
+        }
+        extras.is_empty()
+    }
+
     /// The two sides, left first. One when the editor is not split.
     pub(crate) fn sides(&self) -> Vec<Side> {
         let focused = Side {
@@ -236,7 +300,10 @@ impl Tty7App {
 
     /// Keeps the focused group the one whose text has the keyboard: a click,
     /// or anything else that focuses the other group's editor, moves the
-    /// group focus there too.
+    /// group focus there too. Run on every draw, and before every editor
+    /// command ([`Self::editor_split_command_sync`]): focus moves between
+    /// frames, and F12 or F2 in the first frame after one must act on the
+    /// group the caret is now in.
     pub(crate) fn editor_split_follow_focus(&mut self, window: &Window, cx: &mut Context<Self>) {
         let Some(other) = self.tab_code().and_then(TabCode::other_active_id) else {
             return;
@@ -254,6 +321,57 @@ impl Tty7App {
             code.swap_focus();
             cx.notify();
         }
+    }
+
+    /// Settles the group focus before any editor command runs, on the element
+    /// that holds the editor.
+    ///
+    /// gpui draws a window whose focus moved before it dispatches the next
+    /// key, which settles the group on its own; a command from the menu bar
+    /// or a context menu is dispatched without that draw. A capture-phase
+    /// listener runs before the command's own handler wherever that handler
+    /// sits — here, in `app.rs` or in `ui::lsp` — and lets the command carry
+    /// on.
+    pub(crate) fn editor_split_command_sync<E: InteractiveElement>(
+        &self,
+        element: E,
+        cx: &mut Context<Self>,
+    ) -> E {
+        use crate::core::actions::*;
+        macro_rules! before {
+            ($el:expr, $($action:ty),+ $(,)?) => {
+                $el$(.capture_action(cx.listener(|this, _: &$action, window, cx| {
+                    this.editor_split_follow_focus(window, cx);
+                })))+
+            };
+        }
+        before!(
+            element,
+            EditorSave,
+            EditorSaveAs,
+            EditorGoToLine,
+            EditorGoToSymbol,
+            EditorNavigateBack,
+            EditorNavigateForward,
+            EditorSplitRight,
+            EditorGoToDefinition,
+            EditorQuickFix,
+            EditorRenameSymbol,
+            EditorFormatDocument,
+            EditorTransformUppercase,
+            EditorTransformLowercase,
+            EditorTransformTitleCase,
+            EditorTrimTrailingWhitespace,
+            EditorJoinLines,
+            EditorRemoveSurroundingBrackets,
+            EditorFindReferences,
+            EditorNextChange,
+            EditorPrevChange,
+            EditorRevertChange,
+            EditorPeekChange,
+            ToggleDocumentPreview,
+            ToggleDocumentWrap,
+        )
     }
 
     /// The editor's text area: one group, or two side by side.
@@ -425,6 +543,61 @@ mod tests {
         assert!(!code.is_split());
         assert_eq!(code.files, [ids[1]]);
         assert!(!code.shows(ids[0]));
+    }
+
+    #[test]
+    fn a_restore_lays_out_the_recorded_groups() {
+        let ids = ids(3);
+        // As the restore finds it: every file arrived at the end of the strip.
+        let mut code = code(&ids, 0);
+        let untouched = code.restore_groups(
+            &ids,
+            (vec![ids[0], ids[1]], 1),
+            Some((vec![ids[2]], 0, true)),
+        );
+        assert!(untouched);
+        assert!(!code.focus_is_left());
+        assert_eq!(code.active_id(), Some(ids[2]));
+        assert_eq!(code.other_active_id(), Some(ids[1]));
+    }
+
+    #[test]
+    fn a_file_opened_while_the_restore_loaded_stays_in_front() {
+        let ids = ids(4);
+        // ids[3] was opened by hand; the restore's three arrived behind it.
+        let mut code = code(&[ids[3], ids[0], ids[1], ids[2]], 0);
+        let untouched = code.restore_groups(
+            &ids[..3],
+            (vec![ids[0], ids[1]], 0),
+            Some((vec![ids[2]], 0, false)),
+        );
+        assert!(!untouched);
+        assert!(code.is_split(), "the recorded split is still put back");
+        assert!(code.focus_is_left());
+        assert_eq!(code.files, [ids[0], ids[1], ids[3]]);
+        assert_eq!(
+            code.active_id(),
+            Some(ids[3]),
+            "what was opened stays in front"
+        );
+        assert_eq!(code.other_active_id(), Some(ids[2]));
+    }
+
+    #[test]
+    fn a_split_made_while_the_restore_loaded_is_kept() {
+        let ids = ids(4);
+        let mut code = code(&[ids[3]], 0);
+        code.split_with(ids[3]);
+        // The restore's files arrive in the focused group.
+        code.files.extend([ids[0], ids[1]]);
+        let before = (code.files.clone(), code.active, code.split.clone());
+        let untouched =
+            code.restore_groups(&ids[..2], (vec![ids[0]], 0), Some((vec![ids[1]], 0, true)));
+        assert!(!untouched);
+        assert_eq!(
+            (code.files.clone(), code.active, code.split.clone()),
+            before
+        );
     }
 
     #[test]
@@ -611,6 +784,115 @@ mod gpui_tests {
         app.read_with(&vcx, |app, _| {
             let code = app.tab_code().unwrap();
             assert_eq!(app.buffer(code.active_id().unwrap()).unwrap().path, c);
+        });
+    }
+
+    #[gpui::test]
+    fn a_key_pressed_right_after_a_focus_move_acts_on_the_new_group(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        open_rs(&app, &mut vcx, "/split/a.rs");
+        app.update_in(&mut vcx, |app, window, cx| app.editor_split(window, cx));
+        open_rs(&app, &mut vcx, "/split/b.rs");
+        vcx.run_until_parked();
+        assert_eq!(front(&app, &mut vcx), PathBuf::from("/split/b.rs"));
+        // The keyboard moves to the left group's text, and a key follows
+        // before anything is drawn.
+        vcx.update(|window, cx| {
+            let left = app.read(cx).tab_code().unwrap().other_active_id().unwrap();
+            let input = app.read(cx).buffer(left).unwrap().input.clone();
+            input.update(cx, |state, cx| state.focus(window, cx));
+            let before = app.read(cx).active_buffer().unwrap().path.clone();
+            assert_eq!(
+                before,
+                PathBuf::from("/split/b.rs"),
+                "nothing has drawn yet"
+            );
+            // Go to Line asks whether the editor has the keyboard, which it
+            // only does if the group focus has followed it.
+            window.dispatch_keystroke(gpui::Keystroke::parse("ctrl-g").unwrap(), cx);
+            assert!(
+                app.read(cx).editor.bar.is_some(),
+                "the command saw the group the keyboard is in"
+            );
+        });
+    }
+
+    /// A command from a menu is dispatched without a draw first, so nothing
+    /// but the capture listener can have settled the group.
+    #[gpui::test]
+    fn a_menu_command_right_after_a_focus_move_acts_on_the_new_group(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        open_rs(&app, &mut vcx, "/split/a.rs");
+        app.update_in(&mut vcx, |app, window, cx| app.editor_split(window, cx));
+        open_rs(&app, &mut vcx, "/split/b.rs");
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            let left = app.read(cx).tab_code().unwrap().other_active_id().unwrap();
+            let input = app.read(cx).buffer(left).unwrap().input.clone();
+            input.update(cx, |state, cx| state.focus(window, cx));
+            let node = window.focused(cx).unwrap();
+            node.dispatch_action(&crate::core::actions::EditorGoToLine, window, cx);
+            assert!(
+                app.read(cx).editor.bar.is_some(),
+                "the command saw the group the keyboard is in"
+            );
+            let front = app.read(cx).active_buffer().unwrap().path.clone();
+            assert_eq!(front, PathBuf::from("/split/a.rs"));
+        });
+    }
+
+    #[gpui::test]
+    fn what_is_opened_while_a_restore_loads_survives_it(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (a, b, c) = (root.join("a.rs"), root.join("b.rs"), root.join("c.rs"));
+        for p in [&a, &b, &c] {
+            std::fs::write(p, "fn main() {}\n").unwrap();
+        }
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        let state = TabEditor {
+            files: vec![a.clone(), b.clone()],
+            active: 0,
+            visible: true,
+            split: Some(SplitEditor {
+                files: vec![c.clone()],
+                active: 0,
+                focused: false,
+            }),
+        };
+        let tab = app.read_with(&vcx, |app, _| app.tabs[0].tree_id.get());
+        vcx.update(|_, cx| editor_session::put(cx, tab, state));
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.editor.restored.remove(&tab);
+            app.editor_restore_active(window, cx);
+        });
+        // Opened by hand while the three are still being read.
+        open_rs(&app, &mut vcx, "/split/opened.rs");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !split(&app, &mut vcx) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the files never landed"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            vcx.run_until_parked();
+        }
+        app.read_with(&vcx, |app, _| {
+            let code = app.tab_code().unwrap();
+            let path = |id| app.buffer(id).unwrap().path.clone();
+            assert_eq!(
+                path(code.active_id().unwrap()),
+                PathBuf::from("/split/opened.rs")
+            );
+            let shown: Vec<PathBuf> = code.all_files().into_iter().map(path).collect();
+            for p in [&a, &b, &c] {
+                assert!(shown.contains(p), "{} came back", p.display());
+            }
+            assert_eq!(path(code.other_active_id().unwrap()), c);
+            assert!(code.visible);
         });
     }
 }
