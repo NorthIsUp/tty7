@@ -214,6 +214,15 @@ impl Tty7App {
 
     /// Go to Symbol in Workspace: symbols anywhere in the project, asked of the front file's
     /// server as the query is typed.
+    /// Whether the file in front has a language server that can search the
+    /// whole project, for the editor's search row. Asks nothing of it.
+    pub(crate) fn lsp_can_search_workspace(&self, cx: &mut App) -> bool {
+        self.editor_active_local_file().is_some_and(|f| {
+            LspStore::context(&f.path, f.input.entity_id(), Freshen::Skip, None, cx)
+                .is_some_and(|doc| doc.caps.workspace_symbol_provider.is_some())
+        })
+    }
+
     pub(crate) fn lsp_workspace_symbols(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(f) = self.editor_active_local_file() else {
             return;

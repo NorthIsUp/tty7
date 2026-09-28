@@ -6099,6 +6099,10 @@ impl Tty7App {
     ) {
         let catalog = self.search_catalog(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
+        if tab.in_editor_row() {
+            let tabs = self.editor_search_tabs(cx);
+            view.update(cx, |view, cx| view.set_editor_tabs(tabs, cx));
+        }
         self.search_sub = Some(cx.subscribe_in(&view, window, Self::on_search_event));
         self.search = Some(view.clone());
         self.refresh_search_sessions(view, window, cx);
@@ -6198,6 +6202,17 @@ impl Tty7App {
             }
             SearchEvent::PreviewLocation { path, line, column } => {
                 self.lsp_preview_location(path, *line, *column, cx)
+            }
+            // Each editor tab is opened the way its own chord opens it, so
+            // it arrives set up: the outline around the caret, the server
+            // to ask. Closing first puts back a caret Go to Symbol moved.
+            SearchEvent::SwitchEditorTab(tab) => {
+                self.close_search(window, cx);
+                match tab {
+                    SearchTab::Symbols => self.editor_go_to_symbol(window, cx),
+                    SearchTab::WorkspaceSymbols => self.lsp_workspace_symbols(window, cx),
+                    _ => self.open_search(SearchTab::Files, "", window, cx),
+                }
             }
         }
     }

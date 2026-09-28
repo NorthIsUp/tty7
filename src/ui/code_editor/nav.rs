@@ -571,6 +571,20 @@ impl Tty7App {
         }
     }
 
+    /// The editor's search row as this window can fill it: Files always,
+    /// Symbols with a file in front, Workspace Symbols when that file's
+    /// language server searches the project.
+    pub(crate) fn editor_search_tabs(&self, cx: &mut App) -> Vec<SearchTab> {
+        let mut tabs = vec![SearchTab::Files];
+        if self.active_buffer().is_some() {
+            tabs.push(SearchTab::Symbols);
+        }
+        if self.lsp_can_search_workspace(cx) {
+            tabs.push(SearchTab::WorkspaceSymbols);
+        }
+        tabs
+    }
+
     /// Shows a symbol the picker is on, leaving the keyboard in the picker.
     pub(crate) fn editor_symbol_preview(&mut self, line: u32, column: u32, cx: &mut Context<Self>) {
         let Some(buffer) = self.editor.nav.preview.as_ref().map(|p| p.buffer) else {
@@ -1367,6 +1381,36 @@ pub(super) mod gpui_tests {
             "the chord that opened it closes it"
         );
         assert_eq!(caret(&app, &mut vcx), Position::new(5, 4));
+    }
+
+    /// Go to File and Go to Symbol share the editor's row: Tab walks from one
+    /// to the other, each arriving set up the way its chord sets it up.
+    #[gpui::test]
+    fn tab_walks_the_editors_row(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        // No file in front: Files is all the row would hold.
+        assert_eq!(
+            app.update(&mut vcx, |app, cx| app.editor_search_tabs(cx)),
+            vec![SearchTab::Files]
+        );
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        assert_eq!(
+            app.update(&mut vcx, |app, cx| app.editor_search_tabs(cx)),
+            vec![SearchTab::Files, SearchTab::Symbols]
+        );
+        app.update_in(&mut vcx, |app, window, cx| app.quick_open_file(window, cx));
+        vcx.run_until_parked();
+        let tab = |app: &Entity<Tty7App>, vcx: &mut gpui::VisualTestContext| {
+            app.read_with(vcx, |app, cx| app.search.as_ref().map(|v| v.read(cx).tab()))
+        };
+        assert_eq!(tab(&app, &mut vcx), Some(SearchTab::Files));
+        vcx.simulate_keystrokes("tab");
+        vcx.run_until_parked();
+        assert_eq!(tab(&app, &mut vcx), Some(SearchTab::Symbols));
+        vcx.simulate_keystrokes("tab");
+        vcx.run_until_parked();
+        assert_eq!(tab(&app, &mut vcx), Some(SearchTab::Files));
     }
 
     #[gpui::test]

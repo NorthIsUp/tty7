@@ -405,6 +405,8 @@ pub enum SearchEvent {
         line: u32,
         column: u32,
     },
+    /// Move to another tab on the editor's row, which the app sets up.
+    SwitchEditorTab(SearchTab),
     /// The same for a place a language server found (`ui::lsp`), which may
     /// be in another file.
     PreviewLocation {
@@ -437,6 +439,9 @@ pub struct SearchView {
     /// where the scope row would be. The other standalone tabs are named by
     /// their title.
     heading: Option<&'static str>,
+    /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
+    /// less what cannot answer), set by whoever opened an editor tab.
+    editor_tabs: Vec<SearchTab>,
     _sub: Subscription,
 }
 
@@ -471,6 +476,7 @@ impl SearchView {
             symbol_initial: None,
             symbol_moved: false,
             heading: None,
+            editor_tabs: Vec::new(),
             _sub,
         }
     }
@@ -615,6 +621,36 @@ impl SearchView {
         self.update_catalog(|catalog| catalog.locations = locations, window, cx);
     }
 
+    /// The editor tabs this window can offer, for the editor's row.
+    pub(crate) fn set_editor_tabs(&mut self, tabs: Vec<SearchTab>, cx: &mut Context<Self>) {
+        self.editor_tabs = tabs;
+        cx.notify();
+    }
+
+    /// The row over the list: the window's, the editor's (when it has more
+    /// than one tab to offer), or none — the tab then stands alone under its
+    /// name.
+    fn scope_row(&self) -> Option<Vec<SearchTab>> {
+        if !self.tab.stands_alone() {
+            return Some(SearchTab::ORDER.to_vec());
+        }
+        (self.tab.in_editor_row() && self.editor_tabs.len() > 1).then(|| self.editor_tabs.clone())
+    }
+
+    /// Moves to `tab` on whichever row it is on. The editor's tabs each need
+    /// the app to set them up (an outline, a server to ask), so those go by
+    /// way of it.
+    fn go_to_tab(&mut self, tab: SearchTab, window: &mut Window, cx: &mut Context<Self>) {
+        if tab == self.tab {
+            return;
+        }
+        if tab.in_editor_row() {
+            cx.emit(SearchEvent::SwitchEditorTab(tab));
+        } else {
+            self.set_tab(tab, None, window, cx);
+        }
+    }
+
     /// Sets what Go to Symbol in Workspace asks as the query changes.
     pub(crate) fn set_live_query(
         &mut self,
@@ -664,10 +700,15 @@ impl SearchView {
     }
 
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab.stands_alone() {
-            return;
-        }
-        self.set_tab(self.tab.step(forward), None, window, cx);
+        let Some(row) = self.scope_row() else { return };
+        let n = row.len();
+        let i = row.iter().position(|t| *t == self.tab).unwrap_or(0);
+        let next = row[if forward {
+            (i + 1) % n
+        } else {
+            (i + n - 1) % n
+        }];
+        self.go_to_tab(next, window, cx);
     }
 
     fn open_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -851,7 +892,7 @@ impl SearchView {
             .bg(theme.popover)
             .border_b_1()
             .border_color(theme.border)
-            .when(self.tab.stands_alone(), |row| {
+            .when(self.scope_row().is_none(), |row| {
                 // Go to File's rows are a capped sample of the project, so a
                 // count there would read as the size of something it is not.
                 let count = match self.tab {
@@ -885,8 +926,8 @@ impl SearchView {
                     )
                 })
             })
-            .when(!self.tab.stands_alone(), |row| {
-                row.children(SearchTab::ORDER.into_iter().enumerate().map(|(i, tab)| {
+            .when_some(self.scope_row(), |row, tabs| {
+                row.children(tabs.into_iter().enumerate().map(|(i, tab)| {
                     let active = tab == self.tab;
                     div()
                         .id(("search-tab", i))
@@ -908,7 +949,7 @@ impl SearchView {
                         })
                         .child(tab.title())
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.set_tab(tab, None, window, cx);
+                            this.go_to_tab(tab, window, cx);
                             this.list.update(cx, |state, cx| state.focus(window, cx));
                         }))
                 }))
@@ -926,7 +967,7 @@ impl SearchView {
                 .children(keys)
                 .child(label)
         };
-        let tabs = !self.in_sub_list() && !self.tab.stands_alone();
+        let tabs = !self.in_sub_list() && self.scope_row().is_some();
         h_flex()
             .flex_none()
             .items_center()

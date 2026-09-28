@@ -58,6 +58,21 @@ impl SearchTab {
         SearchTab::Actions,
     ];
 
+    /// The editor's row: finding your way around the code, as opposed to
+    /// around the window. Go to File and Go to Symbol open on it, and Tab
+    /// walks it the way it walks the window's row. Only the tabs that can
+    /// answer are shown — Symbols needs a file in front, Workspace Symbols a
+    /// language server that searches the project.
+    pub(crate) const EDITOR_ORDER: [SearchTab; 3] = [
+        SearchTab::Files,
+        SearchTab::Symbols,
+        SearchTab::WorkspaceSymbols,
+    ];
+
+    pub(crate) fn in_editor_row(self) -> bool {
+        Self::EDITOR_ORDER.contains(&self)
+    }
+
     pub(crate) fn title(self) -> &'static str {
         t(match self {
             SearchTab::All => L10nKey::SearchTabAll,
@@ -72,11 +87,10 @@ impl SearchTab {
         })
     }
 
-    /// A tab reached only by its own chord — Go to File, Go to Symbol, a
-    /// language server's places, Go to Symbol in Workspace. Each answers one
-    /// question, so it stands alone: its name where the scope row would be,
-    /// none of the row's tabs lit, and Tab does not trade the list for the
-    /// terminals.
+    /// A tab outside the window's row. It never sits under that row with
+    /// nothing lit, and Tab never trades it for the terminals: the editor's
+    /// tabs get their own row (`EDITOR_ORDER`), and a language server's places
+    /// stand alone under their name.
     pub(crate) fn stands_alone(self) -> bool {
         !Self::ORDER.contains(&self)
     }
