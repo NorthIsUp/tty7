@@ -80,7 +80,7 @@ impl SearchDelegate {
         })
     }
 
-    /// How many rows the filter left, for an editor picker's heading.
+    /// How many rows the filter left, for a standalone tab's heading.
     fn row_count(&self) -> usize {
         self.sections
             .iter()
@@ -434,7 +434,8 @@ pub struct SearchView {
     symbol_initial: Option<CommandKind>,
     symbol_moved: bool,
     /// What a language server's list is of — References, Definitions — shown
-    /// where the scope row would be. The other pickers are named by their tab.
+    /// where the scope row would be. The other standalone tabs are named by
+    /// their title.
     heading: Option<&'static str>,
     _sub: Subscription,
 }
@@ -663,7 +664,7 @@ impl SearchView {
     }
 
     fn step_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab.is_editor_picker() {
+        if self.tab.stands_alone() {
             return;
         }
         self.set_tab(self.tab.step(forward), None, window, cx);
@@ -850,8 +851,17 @@ impl SearchView {
             .bg(theme.popover)
             .border_b_1()
             .border_color(theme.border)
-            .when(self.tab.is_editor_picker(), |row| {
-                let count = self.list.read(cx).delegate().row_count();
+            .when(self.tab.stands_alone(), |row| {
+                // Go to File's rows are a capped sample of the project, so a
+                // count there would read as the size of something it is not.
+                let count = match self.tab {
+                    SearchTab::Files => 0,
+                    _ => self.list.read(cx).delegate().row_count(),
+                };
+                let heading = match self.tab {
+                    SearchTab::Locations => self.heading.unwrap_or_else(|| self.tab.title()),
+                    _ => self.tab.title(),
+                };
                 row.child(
                     div()
                         .h(px(24.))
@@ -863,7 +873,7 @@ impl SearchView {
                         .text_size(rems(SCOPE_TEXT))
                         .text_color(fg)
                         .font_weight(FontWeight::MEDIUM)
-                        .child(self.heading.unwrap_or_else(|| self.tab.title())),
+                        .child(heading),
                 )
                 .when(count > 0, |row| {
                     row.child(
@@ -875,7 +885,7 @@ impl SearchView {
                     )
                 })
             })
-            .when(!self.tab.is_editor_picker(), |row| {
+            .when(!self.tab.stands_alone(), |row| {
                 row.children(SearchTab::ORDER.into_iter().enumerate().map(|(i, tab)| {
                     let active = tab == self.tab;
                     div()
@@ -916,7 +926,7 @@ impl SearchView {
                 .children(keys)
                 .child(label)
         };
-        let tabs = !self.in_sub_list() && !self.tab.is_editor_picker();
+        let tabs = !self.in_sub_list() && !self.tab.stands_alone();
         h_flex()
             .flex_none()
             .items_center()
@@ -1335,14 +1345,14 @@ mod tests {
         assert!(app.read_with(&vcx, |app, _| app.search.is_none()));
     }
 
-    /// An editor picker stands alone: Tab does not swap the places a
-    /// language server found for the terminals, and the footer does not
-    /// offer it.
+    /// A tab reached by its own chord stands alone: Tab does not swap Go to
+    /// File or the places a language server found for the terminals.
     #[gpui::test]
-    fn an_editor_picker_keeps_its_list_on_tab(cx: &mut TestAppContext) {
+    fn a_standalone_tab_keeps_its_list_on_tab(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         crate::ui::i18n::set_locale("en");
         for tab in [
+            SearchTab::Files,
             SearchTab::Symbols,
             SearchTab::Locations,
             SearchTab::WorkspaceSymbols,

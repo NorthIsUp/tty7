@@ -72,15 +72,13 @@ impl SearchTab {
         })
     }
 
-    /// The editor's own pickers — Go to Symbol, a language server's places,
-    /// Go to Symbol in Workspace. Each answers one question about the code in
-    /// front, so it stands alone: no scope row to wander off along, and Tab
-    /// does not trade the list for the terminals.
-    pub(crate) fn is_editor_picker(self) -> bool {
-        matches!(
-            self,
-            SearchTab::Symbols | SearchTab::Locations | SearchTab::WorkspaceSymbols
-        )
+    /// A tab reached only by its own chord — Go to File, Go to Symbol, a
+    /// language server's places, Go to Symbol in Workspace. Each answers one
+    /// question, so it stands alone: its name where the scope row would be,
+    /// none of the row's tabs lit, and Tab does not trade the list for the
+    /// terminals.
+    pub(crate) fn stands_alone(self) -> bool {
+        !Self::ORDER.contains(&self)
     }
 
     pub(crate) fn placeholder(self) -> &'static str {
@@ -126,8 +124,17 @@ mod tests {
     #[test]
     fn files_is_reached_by_its_chord_not_by_the_row() {
         assert!(!SearchTab::ORDER.contains(&SearchTab::Files));
-        // Tab out of Go to File lands on the row again.
-        assert_eq!(SearchTab::Files.step(true), SearchTab::Terminals);
         assert!(!SearchTab::ORDER.contains(&SearchTab::Symbols));
+        // Reached by a chord, they stand alone rather than sit under a row
+        // with nothing in it lit.
+        for tab in [
+            SearchTab::Files,
+            SearchTab::Symbols,
+            SearchTab::Locations,
+            SearchTab::WorkspaceSymbols,
+        ] {
+            assert!(tab.stands_alone());
+        }
+        assert!(SearchTab::ORDER.iter().all(|tab| !tab.stands_alone()));
     }
 }
