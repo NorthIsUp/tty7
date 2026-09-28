@@ -52,6 +52,13 @@ impl Tty7App {
         LspStore::sync_window(cx.entity_id(), buffers, cx);
     }
 
+    /// The window is closing: every document it owns is closed now, so an
+    /// idle server can wind down instead of outliving the window (with a
+    /// tray icon the app itself keeps running).
+    pub(crate) fn lsp_window_closed(&self, cx: &mut Context<Self>) {
+        LspStore::sync_window(cx.entity_id(), Vec::new(), cx);
+    }
+
     /// A buffer's text changed.
     pub(crate) fn lsp_buffer_edited(&self, id: BufferId, cx: &mut Context<Self>) {
         if let Some(f) = self.editor_local_file(id) {

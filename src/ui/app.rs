@@ -1605,6 +1605,11 @@ impl Tty7App {
             crate::ui::tray::init(cx);
         }
         app.refresh_shells(cx);
+        // Backstop for every other way a window goes away (a workspace
+        // closed from elsewhere): its language-server documents go with it.
+        let app_id = cx.entity_id();
+        cx.on_release(move |_, cx| crate::ui::lsp::LspStore::sync_window(app_id, Vec::new(), cx))
+            .detach();
         cx.on_app_quit(|app, cx| {
             app.save_session(cx);
             crate::core::window_state::WindowState::from_bounds(app.window_bounds).save();
@@ -1670,7 +1675,10 @@ impl Tty7App {
             if asked {
                 return false;
             }
-            app.update(cx, |app, cx| app.prepare_window_close(cx));
+            app.update(cx, |app, cx| {
+                app.prepare_window_close(cx);
+                app.lsp_window_closed(cx);
+            });
             true
         });
 
@@ -1772,6 +1780,7 @@ impl Tty7App {
             return;
         }
         self.prepare_window_close(cx);
+        self.lsp_window_closed(cx);
         window.remove_window();
     }
 
