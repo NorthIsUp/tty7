@@ -22,9 +22,16 @@ started it, not the way the defaults would.
 Supported for every recognised agent except Aider. Turn it off with
 `restore_agent_sessions: false`.
 
+A tab none of whose panes survived comes back asleep and starts, resuming its
+agent, when you first open it, so a dozen agent tabs are not a dozen cold starts
+at launch. `restore_asleep: false` starts them all at once instead.
+
 <Note>
-  Resume needs the agent's hooks installed, since the session id comes from
-  them. [Installing hooks →](/agents/status)
+  Resume needs the session id. Claude Code names it on its own command line —
+  quick launch starts it with `--session-id <uuid>`, and a typed
+  `claude --resume <uuid>` counts too — so Claude resumes without hooks. Every
+  other agent needs its hooks installed, and hooks are also what follow a
+  `/resume` made inside Claude. [Installing hooks →](/agents/status)
 </Note>
 
 ## Fork a live session
