@@ -859,6 +859,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentCursorCli => "Cursor CLI",
         L10nKey::SettingsAgentPrimeAgent => "Prime Agent",
         L10nKey::SettingsAgentAntigravity => "Antigravity",
+        L10nKey::SettingsAgentQoderCn => "Qoder CN CLI",
         L10nKey::SettingsSearchAboutKeywords => {
             "バージョン ライセンス クレジット ビルド 更新 確認 github about version license credits update check"
         }
@@ -1016,6 +1017,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchAntigravityKeywords => {
             "エージェント 統合 フック インストール antigravity agy google agent integration hooks install"
+        }
+        L10nKey::SettingsSearchQoderCnKeywords => {
+            "エージェント 統合 フック インストール qodercn qoderclicn qoder 中国版 agent integration hooks install"
         }
         L10nKey::SettingsSearchPiKeywords => {
             "エージェント 統合 拡張 インストール pi agent integration extension install"
@@ -1245,6 +1249,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorAlreadyOpen => "「{path}」はすでにエディタで開かれています",
         L10nKey::EditorGoToLine => "行へ移動",
         L10nKey::EditorGoToLineAction => "行へ移動…",
+        L10nKey::EditorCopyRelativePath => "相対パスをコピー",
         L10nKey::EditorGoToLinePlaceholder => "行番号、または 行:列（1–{total}）",
         L10nKey::EditorSaveAs => "名前を付けて保存",
         L10nKey::EditorSaveAsAction => "名前を付けて保存…",
