@@ -1,0 +1,20 @@
+# The same commands CI runs (.github/workflows/ci.yml), under mise.
+[tools]
+rust = "stable"
+
+[tasks.build]
+run = "cargo build --locked"
+
+[tasks.test]
+description = "Tests; extra args go to cargo test (e.g. `mise run test -p tty7-core`)"
+run = "cargo test --locked"
+
+[tasks.fmt]
+run = "cargo fmt"
+
+[tasks.check]
+description = "What CI gates on: fmt, then build and test"
+run = ["cargo fmt --check", "cargo build --locked", "cargo test --locked"]
+
+[tasks.run]
+run = "cargo run --locked --bin tty7-app"
