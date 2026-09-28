@@ -22,6 +22,8 @@ use crate::ui::editor_text::{self, EditorConfig, Indent, LineEnding, TextFormat}
 use crate::ui::host_ops::{HostId, HostOps, MTime, SharedHost, WatchSub};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 
+mod gutter;
+
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
@@ -117,6 +119,8 @@ pub(crate) struct OpenFile {
     /// scrollbar every other scrolling surface in tty7 has. The editor itself
     /// gets one from `Input`.
     pub(crate) preview_scroll: gpui::ScrollHandle,
+    /// Git change markers — see `gutter`.
+    gutter: gutter::BufferGutter,
     _sub: Subscription,
     _observe: Subscription,
 }
@@ -1247,6 +1251,7 @@ impl Tty7App {
                 .default_value(text)
         });
         let id = input.entity_id();
+        let git_gutter = gutter::BufferGutter::attach(&input, id, cx);
         let sub = cx.subscribe_in(
             &input,
             window,
@@ -1277,6 +1282,7 @@ impl Tty7App {
             preview,
             wrap,
             preview_scroll: gpui::ScrollHandle::new(),
+            gutter: git_gutter,
             _sub: sub,
             _observe: observe,
         });
@@ -1297,6 +1303,7 @@ impl Tty7App {
         if let Some(f) = self.buffer_mut(id) {
             f.dirty = dirty;
         }
+        self.editor_gutter_note_edit(id, cx);
         cx.notify();
     }
 
@@ -1587,6 +1594,7 @@ impl Tty7App {
                         f.saved_format = format;
                         f.conflict = None;
                         app.editor_note_edit(id, cx);
+                        app.editor_gutter_refetch(id);
                         // A save is a working-tree edit the `.git` watch cannot
                         // see, and the file tree only sees it while it happens
                         // to be showing that directory.
@@ -2104,6 +2112,11 @@ impl Tty7App {
             .menu(
                 t(L10nKey::EditorGoToLineAction),
                 Box::new(crate::core::actions::EditorGoToLine),
+            )
+            .menu_with_disabled(
+                t(L10nKey::EditorGitRevertChange),
+                Box::new(crate::core::actions::EditorRevertChange),
+                !this.editor_gutter_can_revert(id, cx),
             );
         this.editor_file_menu_items(menu, id, app, cx)
     }
@@ -2823,6 +2836,7 @@ impl Tty7App {
         if !self.code_panel_visible() {
             return None;
         }
+        self.editor_gutter_sync(cx);
         let body = match self.active_buffer() {
             None => self.render_editor_empty(cx).into_any_element(),
             Some(f) if f.preview => {
@@ -2869,6 +2883,7 @@ impl Tty7App {
                             .text_size(cx.theme().mono_font_size)
                             .size_full(),
                     )
+                    .children(self.render_editor_gutter_peek(id, cx))
                     .context_menu(move |menu, _window, cx| {
                         Self::editor_body_menu(menu, &app, id, cx)
                     })
@@ -2919,6 +2934,10 @@ impl Tty7App {
             shell
                 .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                     if ev.keystroke.key != "escape" {
+                        return;
+                    }
+                    if this.editor_gutter_close_peek(cx) {
+                        cx.stop_propagation();
                         return;
                     }
                     // Escape in the go-to-line or Save As box dismisses the

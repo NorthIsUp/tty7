@@ -592,6 +592,12 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorGoToLine", "ctrl-g"),
         // Unbound: ⌘N is New Window, and the editor's header has a + for it.
         ("EditorNewFile", ""),
+        // Alt+F5 / Shift+Alt+F5 (VS Code's) are fixed `Input`-context
+        // bindings: a default on a function key would hide it from the shell.
+        ("EditorNextChange", ""),
+        ("EditorPrevChange", ""),
+        ("EditorRevertChange", ""),
+        ("ToggleEditorGitGutter", ""),
         ("OpenSshProfiles", ""),
         ("RestartSshSession", "secondary-shift-r"),
         ("Quit", per_platform("secondary-q", "secondary-shift-q")),
@@ -881,6 +887,22 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorNewFile" => (
             CommandGroup::Terminal,
             t(L10nKey::EditorNewFile).to_string(),
+        ),
+        "EditorNextChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitNextChange).to_string(),
+        ),
+        "EditorPrevChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitPrevChange).to_string(),
+        ),
+        "EditorRevertChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitRevertChange).to_string(),
+        ),
+        "ToggleEditorGitGutter" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitToggleGutter).to_string(),
         ),
         "OpenSshProfiles" => (
             CommandGroup::Ssh,
@@ -1573,6 +1595,10 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorSaveAs" => KeyBinding::new(keystroke, EditorSaveAs, None),
         "EditorGoToLine" => KeyBinding::new(keystroke, EditorGoToLine, None),
         "EditorNewFile" => KeyBinding::new(keystroke, EditorNewFile, None),
+        "EditorNextChange" => KeyBinding::new(keystroke, EditorNextChange, None),
+        "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
+        "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),
+        "ToggleEditorGitGutter" => KeyBinding::new(keystroke, ToggleEditorGitGutter, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),
         "Quit" => KeyBinding::new(keystroke, Quit, None),
