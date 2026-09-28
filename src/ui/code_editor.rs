@@ -3257,15 +3257,28 @@ impl Tty7App {
             }
         });
         let cursor: Option<SharedString> = active.map(|f| {
-            let pos = f.input.read(cx).cursor_position();
-            t_fmt(
+            let input = f.input.read(cx);
+            let pos = input.cursor_position();
+            let ln_col = t_fmt(
                 L10nKey::EditorLnCol,
                 &[
                     ("line", &(pos.line + 1).to_string()),
                     ("column", &(pos.character + 1).to_string()),
                 ],
-            )
-            .into()
+            );
+            // Multi-cursor: the position is the primary caret's, the count
+            // says there are more.
+            match input.selection_count() {
+                1 => ln_col.into(),
+                n => {
+                    let n = n.to_string();
+                    format!(
+                        "{ln_col} {}",
+                        t_fmt(L10nKey::EditorSelections, &[("n", &n)])
+                    )
+                    .into()
+                }
+            }
         });
         let wrap: Option<bool> = active.map(|f| f.wrap);
         let is_markdown = active.is_some_and(|f| f.language() == "markdown");
