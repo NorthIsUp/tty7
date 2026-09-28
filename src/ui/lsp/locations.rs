@@ -158,6 +158,7 @@ impl Tty7App {
         };
         let Some(doc) = LspStore::context(
             &f.path,
+            f.input.entity_id(),
             Freshen::Text(&text),
             Some(window.window_handle()),
             cx,
@@ -206,7 +207,8 @@ impl Tty7App {
         let Some(f) = self.editor_active_local_file() else {
             return;
         };
-        let Some(doc) = LspStore::context(&f.path, Freshen::Skip, None, cx) else {
+        let Some(doc) = LspStore::context(&f.path, f.input.entity_id(), Freshen::Skip, None, cx)
+        else {
             return;
         };
         if doc.caps.workspace_symbol_provider.is_none() {
@@ -215,6 +217,7 @@ impl Tty7App {
         let app = cx.entity().downgrade();
         let handle = window.window_handle();
         let path = f.path.clone();
+        let requester = f.input.entity_id();
         let live: crate::ui::search::LiveQuery =
             std::rc::Rc::new(move |query: &str, cx: &mut App| {
                 let (app, path, query) = (app.clone(), path.clone(), query.to_owned());
@@ -223,7 +226,7 @@ impl Tty7App {
                 cx.defer(move |cx| {
                     let _ = handle.update(cx, |_, window, cx| {
                         let _ = app.update(cx, |app, cx| {
-                            app.lsp_workspace_query(&path, query, window, cx)
+                            app.lsp_workspace_query(&path, requester, query, window, cx)
                         });
                     });
                 });
@@ -238,6 +241,7 @@ impl Tty7App {
     fn lsp_workspace_query(
         &mut self,
         path: &Path,
+        requester: gpui::EntityId,
         query: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -252,7 +256,7 @@ impl Tty7App {
             }
             return;
         }
-        let Some(doc) = LspStore::context(path, Freshen::Skip, None, cx) else {
+        let Some(doc) = LspStore::context(path, requester, Freshen::Skip, None, cx) else {
             return;
         };
         let client = doc.client.clone();

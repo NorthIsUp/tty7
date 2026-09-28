@@ -34,7 +34,13 @@ use crate::ui::app::Tty7App;
 const MAX_COMPLETIONS: usize = 300;
 
 pub(crate) struct LspProvider {
+    /// Every open buffer's text when the code-action menu was last filled:
+    /// an action picked from it is applied only if what it edits is
+    /// unchanged since.
+    actions_baseline: std::cell::RefCell<Option<std::collections::HashMap<PathBuf, Rope>>>,
     path: PathBuf,
+    /// The buffer this provider serves — always the document's owner.
+    input: gpui::EntityId,
     app: WeakEntity<Tty7App>,
 }
 
@@ -45,7 +51,9 @@ pub(super) fn install(
     cx: &mut App,
 ) {
     let provider = Rc::new(LspProvider {
+        actions_baseline: Default::default(),
         path: path.to_path_buf(),
+        input: input.entity_id(),
         app,
     });
     input.update(cx, |state, cx| {
@@ -69,7 +77,13 @@ pub(super) fn uninstall(input: &Entity<InputState>, cx: &mut App) {
 
 impl LspProvider {
     fn context(&self, sync: Freshen<'_>, window: &Window, cx: &mut App) -> Option<DocContext> {
-        LspStore::context(&self.path, sync, Some(window.window_handle()), cx)
+        LspStore::context(
+            &self.path,
+            self.input,
+            sync,
+            Some(window.window_handle()),
+            cx,
+        )
     }
 }
 
@@ -143,7 +157,7 @@ impl CompletionProvider for LspProvider {
     ) -> Task<Result<lsp_types::CompletionItem>> {
         // Resolving asks nothing of the text, which the caller may be in the
         // middle of changing: nothing is sent first.
-        let Some(doc) = LspStore::context(&self.path, Freshen::Skip, None, cx) else {
+        let Some(doc) = LspStore::context(&self.path, self.input, Freshen::Skip, None, cx) else {
             return Task::ready(Ok(item));
         };
         let resolvable = doc
@@ -367,7 +381,7 @@ impl DefinitionProvider for LspProvider {
             return false;
         };
         let position = location.target_selection_range.start;
-        let encoding = LspStore::context(&self.path, Freshen::Skip, None, cx)
+        let encoding = LspStore::context(&self.path, self.input, Freshen::Skip, None, cx)
             .map(|d| d.encoding)
             .unwrap_or_default();
         let app = self.app.clone();
@@ -440,6 +454,7 @@ impl CodeActionProvider for LspProvider {
         if doc.caps.code_action_provider.is_none() {
             return not_available();
         }
+        *self.actions_baseline.borrow_mut() = Some(LspStore::snapshot(cx));
         let lsp_range = convert::offsets_to_lsp_range(&text, range, doc.encoding);
         // The diagnostics the range touches, which is what turns a server's
         // quick fixes on.
@@ -501,6 +516,14 @@ impl CodeActionProvider for LspProvider {
             Some(lsp_types::CodeActionProviderCapability::Options(o))
                 if o.resolve_provider == Some(true)
         );
+        // Taken when the menu was filled, which is also when an action that
+        // came with its edit was computed. Without one there is nothing to
+        // vouch for the open buffers, and an edit to any of them is refused.
+        let baseline = self
+            .actions_baseline
+            .borrow_mut()
+            .take()
+            .unwrap_or_default();
         let client = doc.client.clone();
         let encoding = doc.encoding;
         window.spawn(cx, async move |cx| {
@@ -513,7 +536,13 @@ impl CodeActionProvider for LspProvider {
                 action
             };
             if let Some(edit) = action.edit {
-                cx.update(|_, cx| super::apply_workspace_edit(edit, encoding, cx))?;
+                let applied = cx.update(|_, cx| {
+                    super::apply_workspace_edit(edit, encoding, Some(baseline), cx)
+                })?;
+                if !applied {
+                    // Its command would act on the same stale ground.
+                    return Ok(());
+                }
             }
             if let Some(command) = action.command {
                 // Whatever this changes comes back as `workspace/applyEdit`.

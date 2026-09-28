@@ -61,8 +61,9 @@ impl Tty7App {
         )
     }
 
-    /// Off closes every document's server (`LspStore` watches the config);
-    /// on lets the next frame open them again.
+    /// `LspStore` watches the config: off closes every document and lets
+    /// its server go; on asks every window for the files it has open, which
+    /// starts their servers again.
     pub(crate) fn set_editor_lsp(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.editor_lsp = on);
         cx.notify();

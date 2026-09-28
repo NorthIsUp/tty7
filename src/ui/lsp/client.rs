@@ -16,6 +16,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
 use serde_json::Value;
@@ -23,7 +24,18 @@ use serde_json::Value;
 use super::rpc::{self, FrameReader, Incoming, RequestId, ResponseError};
 
 type Reply = smol::channel::Sender<Result<Value, ResponseError>>;
-type Pending = Arc<Mutex<HashMap<RequestId, Reply>>>;
+/// Requests waiting for an answer. `None` once the server's output has
+/// closed: nothing will ever be answered again, and a request made after
+/// that fails at once instead of waiting forever.
+type Pending = Arc<Mutex<Option<HashMap<RequestId, Reply>>>>;
+
+/// How long an ordinary request waits for its answer. Everything the editor
+/// asks is interactive — someone is waiting on a completion, a jump, a
+/// rename — and a server that has not answered in this long is stuck.
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// `initialize` may index before answering; give it longer.
+const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Something the server did that nobody asked for.
 #[derive(Debug)]
@@ -121,7 +133,7 @@ impl LspClient {
                 }
             })?;
 
-        let pending: Pending = Arc::default();
+        let pending: Pending = Arc::new(Mutex::new(Some(HashMap::new())));
         let (events_tx, events) = smol::channel::unbounded();
         {
             let pending = pending.clone();
@@ -145,7 +157,11 @@ impl LspClient {
                             };
                             let event = match message {
                                 Incoming::Response { id, result } => {
-                                    let reply = pending.lock().unwrap().remove(&id);
+                                    let reply = pending
+                                        .lock()
+                                        .unwrap()
+                                        .as_mut()
+                                        .and_then(|waiting| waiting.remove(&id));
                                     if let Some(reply) = reply {
                                         let _ = reply.try_send(result);
                                     }
@@ -167,7 +183,7 @@ impl LspClient {
                     // Every request still waiting will never be answered:
                     // dropping the senders fails them rather than leaving
                     // them hanging.
-                    pending.lock().unwrap().clear();
+                    pending.lock().unwrap().take();
                     let _ = events_tx.send_blocking(ServerEvent::Exited);
                 })?;
         }
@@ -211,7 +227,17 @@ impl LspClient {
         method: &str,
         params: Value,
     ) -> impl std::future::Future<Output = anyhow::Result<Value>> + use<> {
-        self.request_inner(method, params, true)
+        self.request_inner(method, params, true, REQUEST_TIMEOUT)
+    }
+
+    /// [`Self::request_raw`] with its own time limit.
+    pub(crate) fn request_raw_within(
+        self: &Arc<Self>,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> impl std::future::Future<Output = anyhow::Result<Value>> + use<> {
+        self.request_inner(method, params, true, timeout)
     }
 
     /// `initialize`, which is the one request that goes past the gate.
@@ -219,7 +245,7 @@ impl LspClient {
         self: &Arc<Self>,
         params: Value,
     ) -> impl std::future::Future<Output = anyhow::Result<Value>> + use<> {
-        self.request_inner("initialize", params, false)
+        self.request_inner("initialize", params, false, INITIALIZE_TIMEOUT)
     }
 
     fn request_inner(
@@ -227,15 +253,27 @@ impl LspClient {
         method: &str,
         params: Value,
         gated: bool,
+        timeout: Duration,
     ) -> impl std::future::Future<Output = anyhow::Result<Value>> + use<> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = smol::channel::bounded(1);
-        self.pending.lock().unwrap().insert(id, tx);
-        self.send(rpc::encode(&rpc::request(id, method, params)), gated);
+        // Checked and registered under one lock: the reader closes the map
+        // under the same lock, so a request either makes it in before the
+        // server went away (and is failed with the rest) or sees it gone.
+        let registered = match self.pending.lock().unwrap().as_mut() {
+            Some(waiting) => {
+                waiting.insert(id, tx);
+                true
+            }
+            None => false,
+        };
+        if registered {
+            self.send(rpc::encode(&rpc::request(id, method, params)), gated);
+        }
         let guard = CancelOnDrop {
             client: Arc::downgrade(self),
             id,
-            done: false,
+            done: !registered,
         };
         let method = method.to_owned();
         async move {
@@ -243,7 +281,19 @@ impl LspClient {
             // capturing only `guard.done` would drop the guard — and cancel
             // the request — before it was ever sent an answer.
             let mut guard = guard;
-            let answer = rx.recv().await;
+            if !registered {
+                return Err(anyhow!("{method}: the language server has exited"));
+            }
+            let answer = smol::future::or(async { Some(rx.recv().await) }, async {
+                smol::Timer::after(timeout).await;
+                None
+            })
+            .await;
+            // A timeout leaves `done` unset, so dropping the guard tells the
+            // server to stop working on it.
+            let Some(answer) = answer else {
+                return Err(anyhow!("{method}: no answer in {}s", timeout.as_secs_f32()));
+            };
             guard.done = true;
             match answer {
                 Ok(Ok(value)) => Ok(value),
@@ -332,7 +382,13 @@ impl Drop for CancelOnDrop {
         let Some(client) = self.client.upgrade() else {
             return;
         };
-        if client.pending.lock().unwrap().remove(&self.id).is_some() {
+        let removed = client
+            .pending
+            .lock()
+            .unwrap()
+            .as_mut()
+            .and_then(|waiting| waiting.remove(&self.id));
+        if removed.is_some() {
             client.notify_raw("$/cancelRequest", serde_json::json!({ "id": self.id }));
         }
     }
@@ -475,6 +531,35 @@ mod tests {
             smol::block_on(events.recv()).unwrap(),
             ServerEvent::Exited
         ));
+    }
+
+    #[test]
+    fn a_request_after_the_server_exited_fails_at_once() {
+        let (client, events, server) = connect();
+        client.open_gate();
+        drop(server);
+        assert!(matches!(
+            smol::block_on(events.recv()).unwrap(),
+            ServerEvent::Exited
+        ));
+        // No timeout involved: a limit of an hour would hang the test.
+        let late =
+            client.request_raw_within("textDocument/hover", Value::Null, Duration::from_secs(3600));
+        let err = smol::block_on(late).unwrap_err();
+        assert!(format!("{err:#}").contains("exited"), "{err:#}");
+    }
+
+    #[test]
+    fn a_request_nobody_answers_times_out_and_is_cancelled() {
+        let (client, _events, mut server) = connect();
+        client.open_gate();
+        let asked = client.request_raw_within("slow", Value::Null, Duration::from_millis(50));
+        let sent = server.next();
+        let err = smol::block_on(asked).unwrap_err();
+        assert!(format!("{err:#}").contains("no answer"), "{err:#}");
+        let cancel = server.next();
+        assert_eq!(cancel["method"], "$/cancelRequest");
+        assert_eq!(cancel["params"]["id"], sent["id"]);
     }
 
     #[test]

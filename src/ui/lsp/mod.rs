@@ -170,8 +170,15 @@ pub(crate) struct LspStore {
     docs: HashMap<PathBuf, Doc>,
     missing: HashMap<&'static str, Instant>,
     next_generation: u64,
+    /// Each window editor's way to offer its buffers again, for when the
+    /// setting is turned back on. Returns `false` once the window is gone.
+    windows: HashMap<EntityId, Resync>,
+    /// `editor_lsp` as last seen, to tell a turn-on from any other change.
+    enabled: bool,
     _subscriptions: Vec<Subscription>,
 }
+
+pub(crate) type Resync = Rc<dyn Fn(&mut App) -> bool>;
 
 impl Global for LspStore {}
 
@@ -199,15 +206,17 @@ impl LspStore {
         }
         let quit = cx.on_app_quit(|cx| LspStore::on_quit(cx));
         let config = cx.observe_global::<crate::core::config::Config>(|cx| {
-            if !cx.global::<crate::core::config::Config>().editor_lsp
-                && cx
-                    .try_global::<LspStore>()
-                    .is_some_and(|s| !s.docs.is_empty())
-            {
-                cx.update_global::<LspStore, _>(|store, cx| store.close_all(cx));
+            let enabled = cx.global::<crate::core::config::Config>().editor_lsp;
+            if cx.try_global::<LspStore>().is_none() {
+                return;
             }
+            cx.update_global::<LspStore, _>(|store, cx| store.set_enabled(enabled, cx));
         });
+        let enabled = cx
+            .try_global::<crate::core::config::Config>()
+            .is_some_and(|c| c.editor_lsp);
         cx.set_global(LspStore {
+            enabled,
             _subscriptions: vec![quit, config],
             ..Default::default()
         });
@@ -219,6 +228,48 @@ impl LspStore {
     }
 
     // ---- The editor's side ----
+
+    /// Remembers how a window's editor offers its buffers, so turning the
+    /// setting back on can ask every window for them again.
+    pub(crate) fn register_window(app_id: EntityId, resync: Resync, cx: &mut App) {
+        Self::update(cx, |store, _| {
+            store.windows.entry(app_id).or_insert(resync);
+        });
+    }
+
+    /// The `editor_lsp` setting, as it changes. Off closes every document
+    /// and lets the servers go; on asks each window for its open buffers,
+    /// which starts them again — deferred, since the setting is changed from
+    /// inside some window's own update.
+    fn set_enabled(&mut self, enabled: bool, cx: &mut App) {
+        let was = std::mem::replace(&mut self.enabled, enabled);
+        if !enabled {
+            if !self.docs.is_empty() || !self.servers.is_empty() {
+                self.close_all(cx);
+            }
+            return;
+        }
+        if was {
+            return;
+        }
+        let windows: Vec<(EntityId, Resync)> = self
+            .windows
+            .iter()
+            .map(|(id, r)| (*id, r.clone()))
+            .collect();
+        cx.defer(move |cx| {
+            let gone: Vec<EntityId> = windows
+                .into_iter()
+                .filter(|(_, resync)| !resync(cx))
+                .map(|(id, _)| id)
+                .collect();
+            if let Some(store) = try_store_mut(cx) {
+                for id in gone {
+                    store.windows.remove(&id);
+                }
+            }
+        });
+    }
 
     /// Brings the documents one window's editor owns in line with the
     /// buffers it has: opens the new ones, closes the ones that went away or
@@ -373,34 +424,57 @@ impl LspStore {
 
     /// The server behind `path`, with any edit still waiting sent first (see
     /// [`Freshen`]) so the request that follows sees the text the caller sees.
+    ///
+    /// Only the buffer that owns the document may ask (`requester` is its
+    /// `InputState`'s id). The same file open in a second window is a second
+    /// buffer whose text can differ from the owner's; letting it send that
+    /// text would swap the document under the owner, and letting it ask
+    /// against the owner's text would answer with positions for a text it
+    /// does not hold. So a non-owner is refused, quietly: that buffer simply
+    /// has no language features until the owner closes and it takes over.
     pub(crate) fn context(
         path: &Path,
+        requester: EntityId,
         sync: Freshen<'_>,
         window: Option<AnyWindowHandle>,
         cx: &mut App,
     ) -> Option<DocContext> {
         cx.try_global::<LspStore>()?;
         Self::update(cx, |store, _| {
-            match sync {
-                Freshen::Text(text) => store.flush_text(path, text),
-                Freshen::Skip => {}
-            }
-            let doc = store.docs.get_mut(path)?;
-            if window.is_some() {
-                doc.window = window;
-            }
-            let server = store.servers.get(&doc.server)?;
-            if server.phase != Phase::Running {
-                return None;
-            }
-            Some(DocContext {
-                client: server.client.clone()?,
-                uri: doc.uri.clone(),
-                encoding: server.encoding,
-                caps: server.caps.clone(),
-                diagnostics: doc.diagnostics.clone(),
-                root: doc.server.root.clone(),
-            })
+            store.context_for(path, requester, sync, window)
+        })
+    }
+
+    fn context_for(
+        &mut self,
+        path: &Path,
+        requester: EntityId,
+        sync: Freshen<'_>,
+        window: Option<AnyWindowHandle>,
+    ) -> Option<DocContext> {
+        // Checked before anything is sent: a non-owner must never sync.
+        if self.docs.get(path)?.owner_id != requester {
+            return None;
+        }
+        match sync {
+            Freshen::Text(text) => self.flush_text(path, text),
+            Freshen::Skip => {}
+        }
+        let doc = self.docs.get_mut(path)?;
+        if window.is_some() {
+            doc.window = window;
+        }
+        let server = self.servers.get(&doc.server)?;
+        if server.phase != Phase::Running {
+            return None;
+        }
+        Some(DocContext {
+            client: server.client.clone()?,
+            uri: doc.uri.clone(),
+            encoding: server.encoding,
+            caps: server.caps.clone(),
+            diagnostics: doc.diagnostics.clone(),
+            root: doc.server.root.clone(),
         })
     }
 
@@ -849,8 +923,23 @@ impl LspStore {
                         match serde_json::from_value::<lsp_types::ApplyWorkspaceEditParams>(params)
                         {
                             Ok(params) => {
-                                apply_workspace_edit(params.edit, encoding, cx);
-                                Ok(json!({ "applied": true }))
+                                // Measured against what this server last
+                                // heard: a buffer typed in since would take
+                                // the edit at the wrong places.
+                                let per_file = workspace_edit_files(params.edit);
+                                match self.stale_target(&per_file, None, cx) {
+                                    Some(path) => Ok(json!({
+                                        "applied": false,
+                                        "failureReason": format!(
+                                            "{} changed since the server last saw it",
+                                            path.display()
+                                        ),
+                                    })),
+                                    None => {
+                                        spawn_apply(per_file, encoding, cx);
+                                        Ok(json!({ "applied": true }))
+                                    }
+                                }
                             }
                             Err(e) => {
                                 Ok(json!({ "applied": false, "failureReason": e.to_string() }))
@@ -1018,13 +1107,10 @@ impl LspStore {
         let key = key.clone();
         cx.spawn(async move |cx| {
             let executor = cx.background_executor().clone();
-            let answered = client.request_raw("shutdown", Value::Null);
-            let timeout = executor.timer(Duration::from_secs(2));
-            smol::future::or(async { answered.await.map(|_| ()).ok() }, async {
-                timeout.await;
-                None
-            })
-            .await;
+            // Two seconds to say it is done; it is told to exit either way.
+            let _ = client
+                .request_raw_within("shutdown", Value::Null, Duration::from_secs(2))
+                .await;
             client.notify_raw("exit", Value::Null);
             for _ in 0..20 {
                 if client.reap_if_exited() {
@@ -1189,12 +1275,105 @@ fn initialize_params(root: &Path, spec: &ServerSpec) -> Value {
 /// does, straight to disk otherwise. Run on a later turn of the event loop,
 /// never inside the update that asked for it — a buffer's own window may be
 /// the one being updated.
+///
+/// `baseline` is what every open document held when the request that
+/// produced the edit went out ([`LspStore::snapshot`]). If any buffer the
+/// edit touches holds something else now — typed in, opened or closed since
+/// — nothing at all is applied: half a rename is worse than none. Without a
+/// baseline, the text the server last heard is the measure. Returns whether
+/// the edit was applied.
 pub(crate) fn apply_workspace_edit(
     edit: lsp_types::WorkspaceEdit,
     encoding: Encoding,
+    baseline: Option<HashMap<PathBuf, Rope>>,
     cx: &mut App,
-) {
+) -> bool {
     let per_file = workspace_edit_files(edit);
+    let stale = cx
+        .try_global::<LspStore>()
+        .and_then(|store| store.stale_target(&per_file, baseline.as_ref(), cx));
+    if let Some(path) = stale {
+        log::info!(
+            "lsp: not applying an edit: {} changed since it was asked for",
+            path.display()
+        );
+        return false;
+    }
+    spawn_apply(per_file, encoding, cx);
+    true
+}
+
+/// Whether every text in `now` is the one in `baseline`, for the files an
+/// edit touches: the first that is not. A file open in only one of the two
+/// was opened or closed in between, which counts as changed.
+pub(crate) fn first_stale(
+    targets: &[PathBuf],
+    now: &HashMap<PathBuf, Rope>,
+    baseline: &HashMap<PathBuf, Rope>,
+) -> Option<PathBuf> {
+    targets
+        .iter()
+        .find(|path| match (now.get(*path), baseline.get(*path)) {
+            (Some(now), Some(then)) => now != then,
+            (None, None) => false,
+            _ => true,
+        })
+        .cloned()
+}
+
+impl LspStore {
+    /// What every open document's buffer holds right now — the baseline a
+    /// request that answers with edits is checked against.
+    pub(crate) fn snapshot(cx: &App) -> HashMap<PathBuf, Rope> {
+        let Some(store) = cx.try_global::<LspStore>() else {
+            return HashMap::new();
+        };
+        store
+            .docs
+            .iter()
+            .filter_map(|(path, doc)| {
+                Some((path.clone(), doc.owner.upgrade()?.read(cx).text().clone()))
+            })
+            .collect()
+    }
+
+    fn stale_target(
+        &self,
+        per_file: &[(Uri, Vec<lsp_types::TextEdit>)],
+        baseline: Option<&HashMap<PathBuf, Rope>>,
+        cx: &App,
+    ) -> Option<PathBuf> {
+        let targets: Vec<PathBuf> = per_file
+            .iter()
+            .filter_map(|(u, _)| uri_to_path(u))
+            .collect();
+        let open = |path: &PathBuf| {
+            let doc = self.docs.get(path)?;
+            Some((doc, doc.owner.upgrade()?))
+        };
+        let now: HashMap<PathBuf, Rope> = targets
+            .iter()
+            .filter_map(|p| Some((p.clone(), open(p)?.1.read(cx).text().clone())))
+            .collect();
+        let server_heard: HashMap<PathBuf, Rope>;
+        let baseline = match baseline {
+            Some(baseline) => baseline,
+            None => {
+                server_heard = targets
+                    .iter()
+                    .filter_map(|p| {
+                        let (doc, _) = open(p)?;
+                        Some((p.clone(), doc.sent.clone().filter(|_| !doc.dirty)?))
+                    })
+                    .collect();
+                &server_heard
+            }
+        };
+        first_stale(&targets, &now, baseline)
+    }
+}
+
+fn spawn_apply(per_file: Vec<(Uri, Vec<lsp_types::TextEdit>)>, encoding: Encoding, cx: &mut App) {
     cx.spawn(async move |cx| {
         for (uri, edits) in per_file {
             let Some(path) = uri_to_path(&uri) else {

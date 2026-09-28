@@ -3,6 +3,7 @@
 //! definition, format, rename), and the status bar's word on the server.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, WeakEntity, Window, div, px};
@@ -49,6 +50,14 @@ impl Tty7App {
         } else {
             Vec::new()
         };
+        let app = cx.entity().downgrade();
+        LspStore::register_window(
+            cx.entity_id(),
+            Rc::new(move |cx: &mut gpui::App| {
+                app.update(cx, |app, cx| app.lsp_sync_buffers(cx)).is_ok()
+            }),
+            cx,
+        );
         LspStore::sync_window(cx.entity_id(), buffers, cx);
     }
 
@@ -84,6 +93,7 @@ impl Tty7App {
         let text = f.input.read(cx).text().clone();
         let doc = LspStore::context(
             &f.path,
+            f.input.entity_id(),
             Freshen::Text(&text),
             Some(window.window_handle()),
             cx,
@@ -269,12 +279,16 @@ impl Tty7App {
         let text = f.input.read(cx).text().clone();
         let Some(doc) = LspStore::context(
             &f.path,
+            f.input.entity_id(),
             Freshen::Text(&text),
             Some(window.window_handle()),
             cx,
         ) else {
             return;
         };
+        // Every open buffer as the server sees it now; the answer is applied
+        // only if none of those it touches has changed by then.
+        let baseline = LspStore::snapshot(cx);
         let old_name = text
             .word_range(offset)
             .map(|r| text.slice(r).to_string())
@@ -293,7 +307,9 @@ impl Tty7App {
         cx.spawn_in(window, async move |_, cx| {
             let result = request.await;
             let _ = cx.update(|window, cx| match result {
-                Ok(Some(edit)) => super::apply_workspace_edit(edit, encoding, cx),
+                Ok(Some(edit)) => {
+                    super::apply_workspace_edit(edit, encoding, Some(baseline), cx);
+                }
                 Ok(None) => {}
                 Err(e) => {
                     let context = t_fmt(L10nKey::LspRenameFailed, &[("name", &old_name)]);
