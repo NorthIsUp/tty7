@@ -9359,6 +9359,37 @@ impl Render for Tty7App {
                     }
                     this.editor_go_to_line(window, cx)
                 }))
+                // The language-server commands (`ui::lsp`) belong to the
+                // editor only while it has the focus; F2 and F12 mean
+                // something to programs in the terminal too.
+                .on_action(cx.listener(|this, _: &EditorGoToDefinition, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_go_to_definition(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorQuickFix, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_code_actions(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorRenameSymbol, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_rename_start(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &EditorFormatDocument, window, cx| {
+                    if !this.editor_has_focus(window, cx) {
+                        cx.propagate();
+                        return;
+                    }
+                    this.lsp_format_document(window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &EditorNewFile, window, cx| {
                     this.editor_new_file(window, cx)
                 }))

@@ -263,6 +263,12 @@ pub struct Config {
     /// [`Self::editor_soft_wrap`]. Files that are not Markdown ignore it.
     #[serde(default)]
     pub editor_markdown_preview: bool,
+    /// Whether the code editor starts language servers (rust-analyzer,
+    /// typescript-language-server, …) for the files it opens, for
+    /// diagnostics, completion, hover and go to definition. On by default;
+    /// a language whose server is not installed simply goes without.
+    #[serde(default = "default_true")]
+    pub editor_lsp: bool,
     /// Whether the sidebar files tabs nobody pinned into groups of its own —
     /// by repository, and by host for an SSH pane. Off, those tabs sit in one
     /// flat list below the pinned groups, which are the user's and show
@@ -759,6 +765,7 @@ impl Default for Config {
             scm_changes_tree: false,
             editor_soft_wrap: false,
             editor_markdown_preview: false,
+            editor_lsp: true,
             sidebar_auto_grouping: true,
             notify_on_command_finish: NotifyMode::Unfocused,
             check_for_updates: true,
