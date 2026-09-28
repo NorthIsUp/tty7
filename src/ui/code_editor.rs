@@ -2100,10 +2100,27 @@ impl Tty7App {
             )
             .menu(t(L10nKey::AppMenuSelectAll), Box::new(edit::SelectAll))
             .separator()
+            // The line commands act on the caret's line or every line the
+            // selection touches; the chords come from gpui-component's
+            // `CodeEditor` key context, which sits deeper than any of the
+            // app's own bindings and so wins while the editor has focus.
+            .menu(
+                t(L10nKey::EditorToggleComment),
+                Box::new(edit::ToggleLineComment),
+            )
+            .menu(t(L10nKey::EditorMoveLineUp), Box::new(edit::MoveLineUp))
+            .menu(t(L10nKey::EditorMoveLineDown), Box::new(edit::MoveLineDown))
+            .menu(t(L10nKey::EditorDuplicateLine), Box::new(edit::CopyLineDown))
+            .menu(t(L10nKey::EditorDeleteLine), Box::new(edit::DeleteLine))
+            .separator()
             .menu(t(L10nKey::AppMenuFind), Box::new(edit::Search))
             .menu(
                 t(L10nKey::EditorGoToLineAction),
                 Box::new(crate::core::actions::EditorGoToLine),
+            )
+            .menu(
+                t(L10nKey::EditorGoToMatchingBracket),
+                Box::new(edit::MoveToMatchingBracket),
             );
         this.editor_file_menu_items(menu, id, app, cx)
     }
