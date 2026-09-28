@@ -1203,6 +1203,15 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorGoToLine => "Go to line",
         L10nKey::EditorGoToLineAction => "Go to Line…",
         L10nKey::EditorCopyRelativePath => "Copy Relative Path",
+        L10nKey::EditorGitNextChange => "Go to Next Change",
+        L10nKey::EditorGitPrevChange => "Go to Previous Change",
+        L10nKey::EditorGitRevertChange => "Revert Change",
+        L10nKey::EditorGitToggleGutter => "Toggle Git Change Markers",
+        L10nKey::EditorGitPeekRevert => "Revert",
+        L10nKey::EditorGitPeekSummary => "−{removed} +{added} lines against the staged version",
+        L10nKey::EditorGitPeekAddedOnly => {
+            "These lines are new: the staged version has nothing here."
+        }
         L10nKey::EditorGoToLinePlaceholder => "Line, or line:column (1–{total})",
         L10nKey::EditorSaveAs => "Save as",
         L10nKey::EditorSaveAsAction => "Save As…",

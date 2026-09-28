@@ -101,6 +101,15 @@ fn fixed_bindings() -> Vec<KeyBinding> {
     bindings.push(KeyBinding::new("f12", EditorGoToDefinition, input));
     bindings.push(KeyBinding::new("f2", EditorRenameSymbol, input));
     bindings.push(KeyBinding::new("shift-alt-f", EditorFormatDocument, input));
+    // The gutter's change markers, on VS Code's chords. Only in an `Input`:
+    // a function key bound for the whole window would never reach the shell,
+    // and the handlers let the key through when the code editor is not the
+    // field that has it.
+    {
+        let input = Some("Input");
+        bindings.push(KeyBinding::new("alt-f5", EditorNextChange, input));
+        bindings.push(KeyBinding::new("shift-alt-f5", EditorPrevChange, input));
+    }
     bindings
 }
 
@@ -630,6 +639,12 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorQuickFix", ""),
         ("EditorRenameSymbol", ""),
         ("EditorFormatDocument", ""),
+        // Alt+F5 / Shift+Alt+F5 (VS Code's) are fixed `Input`-context
+        // bindings: a default on a function key would hide it from the shell.
+        ("EditorNextChange", ""),
+        ("EditorPrevChange", ""),
+        ("EditorRevertChange", ""),
+        ("ToggleEditorGitGutter", ""),
         ("OpenSshProfiles", ""),
         ("RestartSshSession", "secondary-shift-r"),
         ("Quit", per_platform("secondary-q", "secondary-shift-q")),
@@ -932,6 +947,22 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorNewFile" => (
             CommandGroup::Terminal,
             t(L10nKey::EditorNewFile).to_string(),
+        ),
+        "EditorNextChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitNextChange).to_string(),
+        ),
+        "EditorPrevChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitPrevChange).to_string(),
+        ),
+        "EditorRevertChange" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitRevertChange).to_string(),
+        ),
+        "ToggleEditorGitGutter" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGitToggleGutter).to_string(),
         ),
         "OpenSshProfiles" => (
             CommandGroup::Ssh,
@@ -1628,6 +1659,10 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorQuickFix" => KeyBinding::new(keystroke, EditorQuickFix, None),
         "EditorRenameSymbol" => KeyBinding::new(keystroke, EditorRenameSymbol, None),
         "EditorFormatDocument" => KeyBinding::new(keystroke, EditorFormatDocument, None),
+        "EditorNextChange" => KeyBinding::new(keystroke, EditorNextChange, None),
+        "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
+        "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),
+        "ToggleEditorGitGutter" => KeyBinding::new(keystroke, ToggleEditorGitGutter, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),
         "Quit" => KeyBinding::new(keystroke, Quit, None),
@@ -2886,6 +2921,39 @@ mod gpui_tests {
             assert_eq!(backspace(cx), inherited, "init must not drop them");
             rebind(cx);
             assert_eq!(backspace(cx), inherited, "nor may a rebind");
+        });
+    }
+
+    /// The gutter's next / previous change chords live only in an `Input`:
+    /// the editor gets them, a terminal never loses a function key to them.
+    #[gpui::test]
+    fn editor_change_chords_are_bound_only_in_an_input(cx: &mut TestAppContext) {
+        use gpui::Action as _;
+        cx.update(|cx| {
+            running_on_json(cx, "{}");
+            let hits = |keys: &str, contexts: &[&str]| -> Vec<&'static str> {
+                let input = [Keystroke::parse(keys).expect("the keystroke parses")];
+                let context: Vec<_> = contexts
+                    .iter()
+                    .map(|c| gpui::KeyContext::parse(c).expect("the context parses"))
+                    .collect();
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &context)
+                    .0
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect()
+            };
+            assert_eq!(
+                hits("alt-f5", &["Workspace", "Input"]).first(),
+                Some(&EditorNextChange::name_for_type())
+            );
+            assert_eq!(
+                hits("shift-alt-f5", &["Workspace", "Input"]).first(),
+                Some(&EditorPrevChange::name_for_type())
+            );
+            assert!(hits("alt-f5", &["Workspace"]).is_empty());
         });
     }
 

@@ -1251,6 +1251,15 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorGoToLine => "行へ移動",
         L10nKey::EditorGoToLineAction => "行へ移動…",
         L10nKey::EditorCopyRelativePath => "相対パスをコピー",
+        L10nKey::EditorGitNextChange => "次の変更へ移動",
+        L10nKey::EditorGitPrevChange => "前の変更へ移動",
+        L10nKey::EditorGitRevertChange => "変更を元に戻す",
+        L10nKey::EditorGitToggleGutter => "Git 変更マーカーの切り替え",
+        L10nKey::EditorGitPeekRevert => "元に戻す",
+        L10nKey::EditorGitPeekSummary => "ステージ済みの版と比べて −{removed} +{added} 行",
+        L10nKey::EditorGitPeekAddedOnly => {
+            "新しく追加された行です。ステージ済みの版にはここに何もありません。"
+        }
         L10nKey::EditorGoToLinePlaceholder => "行番号、または 行:列（1–{total}）",
         L10nKey::EditorSaveAs => "名前を付けて保存",
         L10nKey::EditorSaveAsAction => "名前を付けて保存…",
