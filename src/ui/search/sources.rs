@@ -90,6 +90,10 @@ pub(crate) struct Catalog {
     /// The project's files, from the window's last walk of it. A fresh walk
     /// may land after the search opens (`Tty7App::refresh_file_index`).
     pub files: FileList,
+    /// The symbols of the file in front of the editor, in document order,
+    /// each with how deep it sits — filled only for Go to Symbol
+    /// (`Tty7App::editor_go_to_symbol`).
+    pub symbols: Vec<(usize, Item)>,
 }
 
 impl Catalog {
@@ -109,6 +113,7 @@ impl Catalog {
             sessions: Vec::new(),
             sessions_here: 0,
             files: FileList::default(),
+            symbols: Vec::new(),
         }
     }
 
@@ -123,6 +128,7 @@ impl Catalog {
             })),
             SearchTab::Hosts => Some(Box::new(Hosts(&self.hosts))),
             SearchTab::Files => Some(Box::new(Files(&self.files))),
+            SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
         }
     }
 
@@ -420,6 +426,52 @@ impl Source for Sessions<'_> {
 
 /// A typed address outranks any saved host: typing one is saying where to go.
 const TYPED_ADDRESS_SCORE: i32 = 10_000;
+
+/// Go to Symbol's rows. Browsing shows the file's shape, each symbol
+/// indented under what holds it; a search ranks them flat, each naming what
+/// holds it instead.
+struct Symbols<'a>(&'a [(usize, Item)]);
+
+/// How far one level of nesting indents a symbol while browsing.
+const SYMBOL_INDENT: &str = "    ";
+
+impl Source for Symbols<'_> {
+    fn tab(&self) -> SearchTab {
+        SearchTab::Symbols
+    }
+
+    fn browse(&self, _cx: &App) -> Vec<Section> {
+        if self.0.is_empty() {
+            return Vec::new();
+        }
+        vec![Section {
+            title: None,
+            rows: self
+                .0
+                .iter()
+                .map(|(depth, item)| {
+                    let mut item = item.clone();
+                    item.title = format!("{}{}", SYMBOL_INDENT.repeat(*depth), item.title);
+                    item.subtitle = None;
+                    Row::Item(item)
+                })
+                .collect(),
+        }]
+    }
+
+    fn highlights(&self, _cx: &App) -> Vec<Item> {
+        Vec::new()
+    }
+
+    fn on_the_empty_all_tab(&self) -> bool {
+        false
+    }
+
+    fn search(&self, query: &str, _cx: &App) -> Vec<(i32, Item)> {
+        let items: Vec<Item> = self.0.iter().map(|(_, item)| item.clone()).collect();
+        rank(&items, query, |_| 0)
+    }
+}
 
 struct Hosts<'a>(&'a [Item]);
 
