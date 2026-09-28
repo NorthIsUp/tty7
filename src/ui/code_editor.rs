@@ -2984,31 +2984,19 @@ impl Tty7App {
                 let Some(code) = app.tabs[tab_ix].code.as_deref_mut() else {
                     return;
                 };
-                match (left.is_empty(), right) {
-                    (false, Some(((right, right_active), focused))) if !right.is_empty() => {
-                        code.files = left;
-                        code.active = left_active;
-                        code.split = Some(split::OtherGroup {
-                            files: right,
-                            active: right_active,
-                            focus_left: true,
-                        });
-                        if focused {
-                            code.swap_focus();
-                        }
-                    }
-                    (false, _) => {
-                        code.files = left;
-                        code.active = left_active;
-                    }
-                    (true, Some(((right, right_active), _))) if !right.is_empty() => {
-                        code.files = right;
-                        code.active = right_active;
-                    }
-                    _ => {}
-                }
-                code.visible = state.visible && !code.files.is_empty();
-                if tab_ix == app.active && code.visible {
+                let restored: Vec<BufferId> = opened.iter().map(|(_, id)| *id).collect();
+                // Merged into what the tab has now, not written over it: a
+                // file opened, or a split made, while these were loading stays.
+                let untouched = code.restore_groups(
+                    &restored,
+                    (left, left_active),
+                    right.map(|((files, active), focused)| (files, active, focused)),
+                );
+                let visible = state.visible && !code.files.is_empty();
+                code.visible |= visible;
+                // Only a restore nobody has touched takes the keyboard; one the
+                // reader has moved on from leaves it where they put it.
+                if untouched && tab_ix == app.active && visible {
                     app.focus_editor(window, cx);
                 }
                 cx.notify();
@@ -3168,6 +3156,7 @@ impl Tty7App {
             DocumentChrome::Dock | DocumentChrome::DockHoisted => shell.size_full().min_w_0(),
         };
         let shell = self.editor_nav_actions(shell, cx);
+        let shell = self.editor_split_command_sync(shell, cx);
         Some(
             shell
                 .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
