@@ -25,7 +25,7 @@ use gpui_component::{ActiveTheme as _, h_flex};
 use tty7_core::core::machine::TabId;
 
 use super::outline::{self, Outline, SymbolKind};
-use super::{BufferId, CURSOR_SCROLL_ATTEMPTS, place_cursor};
+use super::{BufferId, CURSOR_SCROLL_ATTEMPTS, TabCode, place_cursor};
 use crate::ui::app::Tty7App;
 use crate::ui::host_ops::HostId;
 use crate::ui::i18n::{L10nKey, t};
@@ -630,14 +630,52 @@ impl Tty7App {
 
     // ---- Chrome ----
 
+    /// The palette's editor rows, offered while a file is in front of it.
+    pub(crate) fn editor_palette_items(&self) -> Vec<Item> {
+        use crate::ui::search::CommandGroup;
+        if !self.code_panel_visible() || self.active_buffer().is_none() {
+            return Vec::new();
+        }
+        [
+            (L10nKey::CmdEditorGoToSymbol, CommandKind::EditorGoToSymbol),
+            (L10nKey::CmdEditorGoBack, CommandKind::EditorNavigateBack),
+            (
+                L10nKey::CmdEditorGoForward,
+                CommandKind::EditorNavigateForward,
+            ),
+            (L10nKey::CmdEditorSplitRight, CommandKind::EditorSplitRight),
+        ]
+        .into_iter()
+        .map(|(key, kind)| Item::localized(key, kind).in_group(CommandGroup::View))
+        .collect()
+    }
+
     /// The editor's own chords, handled by the element that holds it.
     pub(crate) fn editor_nav_actions<E: InteractiveElement>(
         &self,
         element: E,
         cx: &mut Context<Self>,
     ) -> E {
-        use crate::core::actions::{EditorGoToSymbol, EditorNavigateBack, EditorNavigateForward};
+        use crate::core::actions::{
+            EditorFocusLeftGroup, EditorFocusRightGroup, EditorGoToSymbol, EditorNavigateBack,
+            EditorNavigateForward, EditorSplitRight,
+        };
         element
+            .on_action(cx.listener(|this, _: &EditorSplitRight, window, cx| {
+                if !this.editor_split(window, cx) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditorFocusLeftGroup, window, cx| {
+                if !this.editor_focus_group(true, window, cx) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditorFocusRightGroup, window, cx| {
+                if !this.editor_focus_group(false, window, cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &EditorGoToSymbol, window, cx| {
                 this.editor_go_to_symbol(window, cx)
             }))
@@ -656,11 +694,22 @@ impl Tty7App {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let f = self.active_buffer()?;
-        if f.preview {
-            return None;
-        }
-        let id = f.id();
+        let id = self.tab_code().and_then(TabCode::active_id)?;
+        let slot = self.tab_code().map_or(0, TabCode::focused_slot);
+        self.render_editor_breadcrumbs_for(id, slot, true, window, cx)
+    }
+
+    /// The breadcrumbs of one group's file. `focused` is whether that group
+    /// has the focus; the other group's symbols first bring the focus over.
+    pub(crate) fn render_editor_breadcrumbs_for(
+        &mut self,
+        id: BufferId,
+        slot: usize,
+        focused: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let f = self.buffer(id)?;
         let caret = f.input.read(cx).cursor_position();
         let segments: Vec<String> = if f.untitled.is_some() {
             vec![f.label().to_string()]
@@ -670,7 +719,8 @@ impl Tty7App {
             path_segments(&f.path, if local { roots } else { &[] })
         };
         let file = (f.untitled.is_none()).then(|| f.path.clone());
-        let supported = f.untitled.is_none() && outline::supports(f.language());
+        // A rendered Markdown file keeps the path; its symbols are the source's.
+        let supported = !f.preview && f.untitled.is_none() && outline::supports(f.language());
         let chain: Vec<(SymbolKind, String)> = match supported {
             true => self
                 .editor_outline(id, false, cx)
@@ -706,7 +756,7 @@ impl Tty7App {
             );
         }
         let path = div()
-            .id("editor-breadcrumb-path")
+            .id(("editor-breadcrumb-path", slot))
             .flex_shrink(1.)
             .min_w_0()
             .overflow_hidden()
@@ -737,7 +787,7 @@ impl Tty7App {
                 );
             }
             div()
-                .id("editor-breadcrumb-symbols")
+                .id(("editor-breadcrumb-symbols", slot))
                 .flex_shrink(1.)
                 .min_w_0()
                 .overflow_hidden()
@@ -749,12 +799,18 @@ impl Tty7App {
                     gpui_component::tooltip::Tooltip::new(t(L10nKey::EditorGoToSymbolAction))
                         .build(window, cx)
                 })
-                .on_click(cx.listener(|this, _, window, cx| this.editor_go_to_symbol(window, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if !focused {
+                        let left = slot == 0;
+                        this.editor_focus_group(left, window, cx);
+                    }
+                    this.editor_go_to_symbol(window, cx)
+                }))
         });
 
         Some(
             h_flex()
-                .id("editor-breadcrumbs")
+                .id(("editor-breadcrumbs", slot))
                 .flex_none()
                 .w_full()
                 .h(px(24.))
@@ -1062,14 +1118,14 @@ mod tests {
 }
 
 #[cfg(test)]
-mod gpui_tests {
+pub(super) mod gpui_tests {
     use super::*;
     use crate::ui::app::test_window::harness_with_tabs;
     use crate::ui::editor_text::{EditorConfig, TextFormat};
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     /// `alpha` on line 0, `beta` on 30, `gamma` on 50.
-    fn source() -> String {
+    pub(crate) fn source() -> String {
         let mut lines = vec!["fn alpha() {".to_string()];
         lines.extend((1..=20).map(|_| "    let x = 1;".to_string()));
         lines.push("}".into());
@@ -1082,7 +1138,11 @@ mod gpui_tests {
         lines.join("\n") + "\n"
     }
 
-    fn open_rs(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, path: &str) -> BufferId {
+    pub(crate) fn open_rs(
+        app: &Entity<Tty7App>,
+        vcx: &mut VisualTestContext,
+        path: &str,
+    ) -> BufferId {
         let path = PathBuf::from(path);
         app.update_in(vcx, |app, window, cx| {
             let host = app.active_host(cx).expect("a host");
@@ -1105,7 +1165,7 @@ mod gpui_tests {
         })
     }
 
-    fn caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) -> Position {
+    pub(crate) fn caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) -> Position {
         app.read_with(vcx, |app, cx| {
             app.active_buffer()
                 .unwrap()
@@ -1116,11 +1176,11 @@ mod gpui_tests {
     }
 
     /// What drawing the editor does: sample the caret.
-    fn draw(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) {
+    pub(crate) fn draw(app: &Entity<Tty7App>, vcx: &mut VisualTestContext) {
         app.update(vcx, |app, cx| app.editor_nav_tick(cx));
     }
 
-    fn put_caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, line: u32) {
+    pub(crate) fn put_caret(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, line: u32) {
         app.update_in(vcx, |app, window, cx| {
             let input = app.active_buffer().unwrap().input.clone();
             input.update(cx, |s, cx| {
@@ -1258,6 +1318,49 @@ mod gpui_tests {
             caret(&app, &mut vcx).line,
             8,
             "the place moved down with its code"
+        );
+    }
+
+    #[gpui::test]
+    fn the_symbol_chord_puts_go_to_symbol_away(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        put_caret(&app, &mut vcx, 5);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.editor_go_to_symbol(window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(app.read_with(&vcx, |app, _| app.search.is_some()));
+        vcx.simulate_keystrokes("secondary-shift-o");
+        vcx.run_until_parked();
+        assert!(
+            app.read_with(&vcx, |app, _| app.search.is_none()),
+            "the chord that opened it closes it"
+        );
+        assert_eq!(caret(&app, &mut vcx), Position::new(5, 4));
+    }
+
+    #[gpui::test]
+    fn the_palette_offers_the_editor_commands_only_with_a_file_open(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        crate::ui::i18n::set_locale("en");
+        assert!(app.read_with(&vcx, |app, _| app.editor_palette_items().is_empty()));
+        open_rs(&app, &mut vcx, "/nav-test/a.rs");
+        let kinds: Vec<CommandKind> = app.read_with(&vcx, |app, _| {
+            app.editor_palette_items()
+                .into_iter()
+                .map(|i| i.kind)
+                .collect()
+        });
+        assert_eq!(
+            kinds,
+            [
+                CommandKind::EditorGoToSymbol,
+                CommandKind::EditorNavigateBack,
+                CommandKind::EditorNavigateForward,
+                CommandKind::EditorSplitRight,
+            ]
         );
     }
 }

@@ -25,6 +25,7 @@ use crate::ui::i18n::{L10nKey, t, t_fmt};
 mod gutter;
 mod nav;
 pub(crate) mod outline;
+mod split;
 
 pub(crate) use nav::KEY_CONTEXT as NAV_KEY_CONTEXT;
 
@@ -185,6 +186,10 @@ pub(crate) struct TabCode {
     pub(crate) roots: Vec<PathBuf>,
     pub(crate) expanded: std::collections::HashSet<PathBuf>,
     pub(crate) selected: Option<PathBuf>,
+    /// The second editor group, when the editor is split — the one without
+    /// the focus. `files` and `active` above are always the focused group's
+    /// (see `split`).
+    pub(crate) split: Option<split::OtherGroup>,
 }
 
 impl TabCode {
@@ -196,6 +201,7 @@ impl TabCode {
             roots: Vec::new(),
             expanded: std::collections::HashSet::new(),
             selected: None,
+            split: None,
         }
     }
 
@@ -834,12 +840,22 @@ impl Tty7App {
         self.tabs.iter().position(|t| t.tree_id.get() == tab)
     }
 
-    /// How many tabs show this buffer.
+    /// How many places show this buffer: every tab showing it, twice for a
+    /// tab whose split shows it in both groups.
     fn buffer_refs(&self, id: BufferId) -> usize {
         self.tabs
             .iter()
             .filter_map(|t| t.code.as_deref())
-            .filter(|c| c.files.contains(&id))
+            .map(|c| c.views_of(id))
+            .sum()
+    }
+
+    /// How many tabs show this buffer, in either group.
+    fn buffer_tabs(&self, id: BufferId) -> usize {
+        self.tabs
+            .iter()
+            .filter_map(|t| t.code.as_deref())
+            .filter(|c| c.shows(id))
             .count()
     }
 
@@ -857,10 +873,9 @@ impl Tty7App {
         let Some(code) = self.tabs.get(tab_ix).and_then(|t| t.code.as_deref()) else {
             return Vec::new();
         };
-        code.files
-            .iter()
-            .copied()
-            .filter(|id| self.buffer(*id).is_some_and(|b| b.dirty) && self.buffer_refs(*id) == 1)
+        code.all_files()
+            .into_iter()
+            .filter(|id| self.buffer(*id).is_some_and(|b| b.dirty) && self.buffer_tabs(*id) == 1)
             .collect()
     }
 
@@ -2366,7 +2381,7 @@ impl Tty7App {
             .get_mut(tab_ix)
             .and_then(|t| t.code.as_deref_mut())
         {
-            code.forget(id);
+            code.close_in_focused(id);
         }
         if self.buffer_refs(id) == 0 {
             self.editor_drop_buffer(id, cx);
@@ -2380,7 +2395,7 @@ impl Tty7App {
         // see that happen now.
         self.editor_saves_failed(id);
         for code in self.tabs.iter_mut().filter_map(|t| t.code.as_deref_mut()) {
-            code.forget(id);
+            code.forget_everywhere(id);
         }
         self.editor.buffers.retain(|b| b.id() != id);
         self.editor.nav.forget_buffer(id);
@@ -2452,10 +2467,15 @@ impl Tty7App {
         if let Some(tab_ix) = ids.first().and_then(|id| {
             self.tabs
                 .iter()
-                .position(|t| t.code.as_deref().is_some_and(|c| c.files.contains(id)))
+                .position(|t| t.code.as_deref().is_some_and(|c| c.shows(*id)))
         }) && tab_ix == self.active
             && let Some(code) = self.tab_code_mut()
-            && let Some(pos) = code.files.iter().position(|f| *f == ids[0])
+            && let Some(pos) = {
+                if !code.files.contains(&ids[0]) {
+                    code.swap_focus();
+                }
+                code.files.iter().position(|f| *f == ids[0])
+            }
         {
             code.active = pos;
             code.visible = true;
@@ -2749,7 +2769,7 @@ impl Tty7App {
             .tabs
             .iter()
             .filter_map(|t| t.code.as_deref())
-            .flat_map(|c| c.files.iter().copied())
+            .flat_map(TabCode::all_files)
             .collect();
         let orphans: Vec<(BufferId, bool)> = self
             .editor
@@ -2807,7 +2827,14 @@ impl Tty7App {
         // What was recorded is what is being put back; recording it again
         // before the files have loaded would write down an empty tab.
         self.editor.recorded.insert(tab_id, state.clone());
-        let files = state.files.clone();
+        // Both groups' files in one trip, the left group's first.
+        let files: Vec<PathBuf> = state
+            .files
+            .iter()
+            .chain(state.split.iter().flat_map(|s| s.files.iter()))
+            .cloned()
+            .collect();
+        let requested = files.clone();
         HostOps::run_in(
             host.clone(),
             window,
@@ -2819,29 +2846,64 @@ impl Tty7App {
                     .collect::<Vec<_>>()
             },
             move |app, loaded: Vec<Option<Loaded>>, window, cx| {
-                let front = loaded
-                    .get(state.active)
-                    .and_then(Option::as_ref)
-                    .map(|l| l.path.clone());
-                let mut ids = Vec::new();
-                for l in loaded.into_iter().flatten() {
-                    ids.push(app.editor_install(host.clone(), l, tab_id, false, window, cx));
+                let mut opened: Vec<(PathBuf, BufferId)> = Vec::new();
+                for (path, l) in requested.into_iter().zip(loaded) {
+                    if let Some(l) = l {
+                        let id = app.editor_install(host.clone(), l, tab_id, false, window, cx);
+                        opened.push((path, id));
+                    }
                 }
+                let group = |paths: &[PathBuf], active: usize| -> (Vec<BufferId>, usize) {
+                    let front = paths.get(active);
+                    let mut ids: Vec<BufferId> = Vec::new();
+                    let mut at = 0;
+                    for path in paths {
+                        let Some(&(_, id)) = opened.iter().find(|(p, _)| p == path) else {
+                            continue;
+                        };
+                        if ids.contains(&id) {
+                            continue;
+                        }
+                        if Some(path) == front {
+                            at = ids.len();
+                        }
+                        ids.push(id);
+                    }
+                    (ids, at)
+                };
+                let (left, left_active) = group(&state.files, state.active);
+                let right = state
+                    .split
+                    .as_ref()
+                    .map(|s| (group(&s.files, s.active), s.focused));
                 let Some(tab_ix) = app.tab_index_of(tab_id) else {
                     return;
                 };
                 let Some(code) = app.tabs[tab_ix].code.as_deref_mut() else {
                     return;
                 };
-                if let Some(front) = front
-                    && let Some(pos) = code.files.iter().position(|id| {
-                        app.editor
-                            .buffers
-                            .iter()
-                            .any(|b| b.id() == *id && b.path == front)
-                    })
-                {
-                    code.active = pos;
+                match (left.is_empty(), right) {
+                    (false, Some(((right, right_active), focused))) if !right.is_empty() => {
+                        code.files = left;
+                        code.active = left_active;
+                        code.split = Some(split::OtherGroup {
+                            files: right,
+                            active: right_active,
+                            focus_left: true,
+                        });
+                        if focused {
+                            code.swap_focus();
+                        }
+                    }
+                    (false, _) => {
+                        code.files = left;
+                        code.active = left_active;
+                    }
+                    (true, Some(((right, right_active), _))) if !right.is_empty() => {
+                        code.files = right;
+                        code.active = right_active;
+                    }
+                    _ => {}
                 }
                 code.visible = state.visible && !code.files.is_empty();
                 if tab_ix == app.active && code.visible {
@@ -2865,24 +2927,38 @@ impl Tty7App {
             if !self.editor.restored.contains(&tab_id) {
                 continue;
             }
-            let mut files = Vec::new();
-            let mut active = 0;
-            for (pos, id) in code.files.iter().enumerate() {
-                // Only files on the window's own machine: an SFTP buffer's
-                // host is a connection that will not exist next launch.
-                let Some(f) = self.buffer(*id) else { continue };
-                if f.untitled.is_some() || f.host.id() != spawn_host {
-                    continue;
+            // Only files on the window's own machine: an SFTP buffer's host
+            // is a connection that will not exist next launch.
+            let group = |ids: &[BufferId], front: usize| -> (Vec<PathBuf>, usize) {
+                let mut files = Vec::new();
+                let mut active = 0;
+                for (pos, id) in ids.iter().enumerate() {
+                    let Some(f) = self.buffer(*id) else { continue };
+                    if f.untitled.is_some() || f.host.id() != spawn_host {
+                        continue;
+                    }
+                    if pos == front {
+                        active = files.len();
+                    }
+                    files.push(f.path.clone());
                 }
-                if pos == code.active {
-                    active = files.len();
-                }
-                files.push(f.path.clone());
-            }
+                (files, active)
+            };
+            let sides = code.sides();
+            let (files, active) = group(&sides[0].files, sides[0].active);
+            let split = sides.get(1).and_then(|right| {
+                let (files, active) = group(&right.files, right.active);
+                (!files.is_empty()).then_some(editor_session::SplitEditor {
+                    files,
+                    active,
+                    focused: right.focused,
+                })
+            });
             let state = TabEditor {
                 files,
                 active,
                 visible: code.visible,
+                split,
             };
             if self.editor.recorded.get(&tab_id) != Some(&state) {
                 changed.push((tab_id, state));
@@ -2903,12 +2979,12 @@ impl Tty7App {
             .tabs
             .get(tab_ix)
             .and_then(|t| t.code.as_deref())
-            .map(|c| c.files.clone())
+            .map(TabCode::all_files)
         else {
             return;
         };
         for id in ids {
-            if self.buffer_refs(id) == 1 && self.buffer(id).is_some_and(|b| !b.dirty) {
+            if self.buffer_tabs(id) == 1 && self.buffer(id).is_some_and(|b| !b.dirty) {
                 self.editor_drop_buffer(id, cx);
             }
         }
@@ -2939,62 +3015,15 @@ impl Tty7App {
         if !self.code_panel_visible() {
             return None;
         }
+        self.editor_split_follow_focus(window, cx);
         self.editor_gutter_sync(cx);
         self.editor_nav_tick(cx);
         let breadcrumbs = self.render_editor_breadcrumbs(window, cx);
-        let body = match self.active_buffer() {
-            None => self.render_editor_empty(cx).into_any_element(),
-            Some(f) if f.preview => {
-                let markdown = f.input.read(cx).text().to_string();
-                let scroll = f.preview_scroll.clone();
-                // The bar's wrapper takes its height from `flex_1`, so it needs
-                // a column with a definite height to grow inside — hand it one
-                // rather than dropping it straight into the overlay, or the
-                // pane sizes to its content and there is nothing left to
-                // scroll.
-                v_flex()
-                    .size_full()
-                    .child(crate::ui::scrollbar::with_vertical_scrollbar(
-                        "editor-md-preview-scrollbar",
-                        div()
-                            .id("editor-md-preview")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&scroll)
-                            .px_4()
-                            .py_3()
-                            .child(
-                                gpui_component::text::TextView::markdown(
-                                    "editor-md-preview-body",
-                                    markdown,
-                                )
-                                .style(crate::ui::theme::markdown_style(cx)),
-                            ),
-                        &scroll,
-                    ))
-                    .into_any_element()
-            }
-            Some(f) => {
-                let input = f.input.clone();
-                let id = f.id();
-                let app = cx.entity().downgrade();
-                div()
-                    .id("editor-body")
-                    .size_full()
-                    .child(
-                        Input::new(&input)
-                            .appearance(false)
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_size(cx.theme().mono_font_size)
-                            .size_full(),
-                    )
-                    .children(self.render_editor_gutter_peek(id, cx))
-                    .context_menu(move |menu, _window, cx| {
-                        Self::editor_body_menu(menu, &app, id, cx)
-                    })
-                    .into_any_element()
-            }
-        };
+        let body = self.render_editor_body(
+            self.tab_code().and_then(TabCode::active_id),
+            self.tab_code().map_or(0, TabCode::focused_slot),
+            cx,
+        );
         let conflict_banner = self
             .active_buffer()
             .and_then(|f| f.conflict.map(|c| (f.id(), c)))
@@ -3009,10 +3038,9 @@ impl Tty7App {
             .min_w_0()
             .h_full()
             .children(header)
-            .children(breadcrumbs)
             .when_some(conflict_banner, |this, b| this.child(b))
             .children(bar)
-            .child(div().flex_1().min_h_0().child(body));
+            .child(self.render_editor_groups(breadcrumbs, body, window, cx));
 
         // The panel's own paint is the same either way; only the box is not.
         // Filling the workspace means stopping the window's translucency and
@@ -3060,6 +3088,69 @@ impl Tty7App {
                 .child(self.render_code_status_bar(window, cx))
                 .into_any_element(),
         )
+    }
+
+    /// One group's text: the file `id`, rendered or as source, or the empty
+    /// panel. `slot` tells the two groups' elements apart.
+    pub(crate) fn render_editor_body(
+        &self,
+        id: Option<BufferId>,
+        slot: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match id.and_then(|id| self.buffer(id)) {
+            None => self.render_editor_empty(cx).into_any_element(),
+            Some(f) if f.preview => {
+                let markdown = f.input.read(cx).text().to_string();
+                let scroll = f.preview_scroll.clone();
+                // The bar's wrapper takes its height from `flex_1`, so it needs
+                // a column with a definite height to grow inside — hand it one
+                // rather than dropping it straight into the overlay, or the
+                // pane sizes to its content and there is nothing left to
+                // scroll.
+                v_flex()
+                    .size_full()
+                    .child(crate::ui::scrollbar::with_vertical_scrollbar(
+                        ("editor-md-preview-scrollbar", slot),
+                        div()
+                            .id(("editor-md-preview", slot))
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&scroll)
+                            .px_4()
+                            .py_3()
+                            .child(
+                                gpui_component::text::TextView::markdown(
+                                    ("editor-md-preview-body", slot),
+                                    markdown,
+                                )
+                                .style(crate::ui::theme::markdown_style(cx)),
+                            ),
+                        &scroll,
+                    ))
+                    .into_any_element()
+            }
+            Some(f) => {
+                let input = f.input.clone();
+                let id = f.id();
+                let app = cx.entity().downgrade();
+                div()
+                    .id(("editor-body", slot))
+                    .size_full()
+                    .child(
+                        Input::new(&input)
+                            .appearance(false)
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_size(cx.theme().mono_font_size)
+                            .size_full(),
+                    )
+                    .children(self.render_editor_gutter_peek(id, cx))
+                    .context_menu(move |menu, _window, cx| {
+                        Self::editor_body_menu(menu, &app, id, cx)
+                    })
+                    .into_any_element()
+            }
+        }
     }
 
     /// The editor header alone, for the strip above a docked column.
@@ -3335,35 +3426,9 @@ impl Tty7App {
     }
 
     fn render_code_status_bar(&self, window: &Window, cx: &mut Context<Self>) -> gpui::Div {
-        // The roots below belong to this window's own machine. A file read
-        // over SFTP is on another one, where they mean nothing, so it shows
-        // its own full path rather than borrowing the local repo's name.
-        let tree_host = self.spawn_host(cx);
-        let code = self.tab_code();
+        // No path here: the breadcrumbs over the text show where the file is.
         let muted = cx.theme().muted_foreground;
         let active = self.active_buffer();
-        let path_text: Option<SharedString> = code.map(|c| {
-            let repo = c
-                .roots
-                .first()
-                .and_then(|r| r.file_name())
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            match active {
-                Some(f) if f.untitled.is_some() => f.label(),
-                Some(f) if f.host.id() != tree_host => f.path.display().to_string().into(),
-                Some(f) => {
-                    let rel = c
-                        .roots
-                        .iter()
-                        .find_map(|r| f.path.strip_prefix(r).ok())
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| f.label().to_string());
-                    format!("{repo} › {rel}").into()
-                }
-                None => repo.into(),
-            }
-        });
         let cursor: Option<SharedString> = active.map(|f| {
             let input = f.input.read(cx);
             let pos = input.cursor_position();
@@ -3415,9 +3480,6 @@ impl Tty7App {
             .border_color(cx.theme().sidebar_border)
             .text_size(gpui::rems(crate::ui::right_panel::META))
             .text_color(muted)
-            .when_some(path_text, |this, t| {
-                this.child(div().min_w_0().text_ellipsis().child(t))
-            })
             .child(div().flex_1())
             .children(self.render_lsp_status(cx))
             .when(is_markdown, |this| {

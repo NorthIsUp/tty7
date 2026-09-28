@@ -116,6 +116,11 @@ pub enum CommandKind {
         line: Option<u32>,
         column: Option<u32>,
     },
+    /// The code editor's navigation, from the palette.
+    EditorGoToSymbol,
+    EditorNavigateBack,
+    EditorNavigateForward,
+    EditorSplitRight,
     /// A Go to Symbol row: this 0-based place in the file in front.
     GoToSymbol {
         line: u32,
@@ -252,6 +257,10 @@ impl CommandKind {
             DocumentWidthTwoThirds => "document-width-two-thirds",
             ToggleDocumentPreview => "document-preview",
             ToggleDocumentWrap => "document-wrap",
+            EditorGoToSymbol => "editor-go-to-symbol",
+            EditorNavigateBack => "editor-go-back",
+            EditorNavigateForward => "editor-go-forward",
+            EditorSplitRight => "editor-split-right",
             RestartSshSession => "ssh-reconnect",
             ScmCommit => "git-commit",
             ScmStageAll => "git-stage-all",
@@ -381,6 +390,10 @@ impl CommandKind {
             DocumentWidthTwoThirds => "DocumentWidthTwoThirds",
             ToggleDocumentPreview => "ToggleDocumentPreview",
             ToggleDocumentWrap => "ToggleDocumentWrap",
+            EditorGoToSymbol => "EditorGoToSymbol",
+            EditorNavigateBack => "EditorNavigateBack",
+            EditorNavigateForward => "EditorNavigateForward",
+            EditorSplitRight => "EditorSplitRight",
             RestartSshSession => "RestartSshSession",
             OpenSshProfiles => "OpenSshProfiles",
             ScmCommit => "ScmCommit",

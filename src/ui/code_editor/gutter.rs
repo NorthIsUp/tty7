@@ -398,9 +398,18 @@ impl Tty7App {
         if !enabled(cx) {
             return;
         }
-        let Some(id) = self.tab_code().and_then(TabCode::active_id) else {
-            return;
-        };
+        // Both groups' files when the editor is split: the one without the
+        // focus is on screen too.
+        let shown = self
+            .tab_code()
+            .map(|c| [c.active_id(), c.other_active_id()])
+            .unwrap_or_default();
+        for id in shown.into_iter().flatten() {
+            self.editor_gutter_sync_buffer(id, cx);
+        }
+    }
+
+    fn editor_gutter_sync_buffer(&mut self, id: BufferId, cx: &mut Context<Self>) {
         let Some(f) = self.buffer(id) else {
             return;
         };
