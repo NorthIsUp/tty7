@@ -1064,6 +1064,24 @@ code {
   overflow-x: auto;
 }
 
+/* Panning, xterm's box has to span every column: at the view's width it ends
+   partway across the pane, so its scrollback stops taking touches past that
+   point and its scrollbar pans off with the text. `pinScrollbar` keeps the
+   bar at the visible edge. */
+.term.panning .xterm {
+  width: max-content;
+}
+
+/* xterm's vertical scrollbar is VS Code's: a 14px square slider. Shape it like
+   the thin rounded indicator WebKit draws for the sideways pan, so the two
+   axes read as one kind of thing. The colours come from the theme. */
+.term .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: auto !important;
+  right: 2px;
+  width: 3px !important;
+  border-radius: 1.5px;
+}
+
 .term .xterm {
   -webkit-user-select: text;
   user-select: text;

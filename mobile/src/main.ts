@@ -778,6 +778,12 @@ function terminalTheme(): ITheme {
   const theme: Record<string, string> = dark
     ? { background: "#191b20", foreground: "#e2e5eb", cursor: "#78a8f5", cursorAccent: "#191b20", selectionBackground: "#78a8f555" }
     : { background: "#ffffff", foreground: "#0f1419", cursor: "#1f6bf0", cursorAccent: "#ffffff", selectionBackground: "#1f6bf033" };
+  // xterm's scrollbar, drawn to match the system indicator WebKit gives the
+  // pan (style.css shapes it).
+  const bar = dark ? "#ffffff" : "#000000";
+  theme.scrollbarSliderBackground = `${bar}59`;
+  theme.scrollbarSliderHoverBackground = `${bar}59`;
+  theme.scrollbarSliderActiveBackground = `${bar}73`;
   NAMES.forEach((n, i) => {
     theme[n] = ansi[i];
     theme[`bright${n[0].toUpperCase()}${n.slice(1)}`] = ansi[i + 8];
@@ -1080,7 +1086,25 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       zoom.replaceChildren(ico(readable ? "fit" : "zoom"));
       zoom.ariaLabel = readable ? "Fit the whole width" : "Make the text readable";
       follow();
+      // The new font size is laid out on the next frame.
+      requestAnimationFrame(pinScrollbar);
     };
+    // xterm puts its scrollbar at the right of its own box, which pans with
+    // the text; shift it so it stays at the right of what is on screen. The
+    // `translate` property, not `transform`, so it never fights xterm's own
+    // styling of the bar.
+    const pinScrollbar = () => {
+      const box = screenEl.querySelector<HTMLElement>(".xterm");
+      const bar = box?.querySelector<HTMLElement>(".xterm-scrollable-element > .scrollbar.vertical");
+      if (!box || !bar) return;
+      if (!screenEl.classList.contains("panning")) {
+        bar.style.translate = "";
+        return;
+      }
+      const edge = screenEl.scrollLeft + screenEl.clientWidth - parseFloat(getComputedStyle(screenEl).paddingRight);
+      bar.style.translate = `${Math.min(0, edge - (box.offsetLeft + box.offsetWidth))}px 0`;
+    };
+    screenEl.addEventListener("scroll", pinScrollbar, { passive: true });
     const follow = () => {
       if (!screenEl.classList.contains("panning")) return;
       const cell = screenEl.scrollWidth / cols;
