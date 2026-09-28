@@ -310,6 +310,12 @@ impl CLIAgent {
         }
     }
 
+    /// Whether [`Self::resume_command`] can be followed by a prompt the agent
+    /// sends as the resumed session's next turn.
+    pub fn resume_takes_prompt(self) -> bool {
+        matches!(self, CLIAgent::Claude | CLIAgent::Codex)
+    }
+
     /// The session `argv` names by itself, so a resume needs no hook to learn
     /// it: Claude's `--session-id <uuid>` (which quick launch mints) or
     /// `--resume <uuid>`. A fork starts an id only a hook can report, and a

@@ -1468,6 +1468,8 @@ l10n_keys! {
     CmdMarkTabAsUnread,
     CmdHibernateTab,
     CmdHibernateTabSubtitle,
+    CmdContinueAllAgents,
+    CmdContinueAllAgentsSubtitle,
     CmdClosePaneTab,
     CmdCloseWindow,
     CmdCloseWindowSubtitle,

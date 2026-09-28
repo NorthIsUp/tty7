@@ -1778,6 +1778,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
         L10nKey::CmdHibernateTab => "タブを休止",
+        L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
+        }
         L10nKey::CmdHibernateTabSubtitle => "プロセスを停止してメモリを解放。選択すると復帰",
         L10nKey::CmdClosePaneTab => "ペイン / タブを閉じる",
         L10nKey::CmdCloseWindow => "ウィンドウを閉じる",
