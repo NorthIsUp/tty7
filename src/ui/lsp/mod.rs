@@ -191,6 +191,18 @@ pub(crate) fn path_to_uri(path: &Path) -> Option<Uri> {
     url::Url::from_file_path(path).ok()?.as_str().parse().ok()
 }
 
+/// An absolute path for a test, spelled for this platform: `/p/a.rs` as
+/// given, `C:\p\a.rs` on Windows, where a leading slash alone is not
+/// absolute and so has no `file://` URI.
+#[cfg(test)]
+pub(crate) fn test_path(unix: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(format!("C:{}", unix.replace('/', "\\")))
+    } else {
+        PathBuf::from(unix)
+    }
+}
+
 pub(crate) fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
     let url = url::Url::parse(uri.as_str()).ok()?;
     if url.scheme() != "file" {

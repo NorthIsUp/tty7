@@ -8,8 +8,10 @@ use lsp_types::{
 
 use super::*;
 
+/// A `file://` URI spelled out, not built from a path: these tests are
+/// about grouping URIs, and `/a.rs` is not an absolute path on Windows.
 fn uri(path: &str) -> Uri {
-    path_to_uri(Path::new(path)).unwrap()
+    format!("file://{path}").parse().unwrap()
 }
 
 fn edit(line: u32, text: &str) -> TextEdit {
@@ -322,7 +324,7 @@ mod harness {
                 })
             })
             .unwrap();
-        let path = PathBuf::from("/tmp/tty7-lsp-test/src/lib.rs");
+        let path = test_path("/tmp/tty7-lsp-test/src/lib.rs");
         let (client_reads, server_writes) = std::io::pipe().unwrap();
         let (server_reads, client_writes) = std::io::pipe().unwrap();
         let (client, _events) =
@@ -330,7 +332,7 @@ mod harness {
         client.open_gate();
         let key = ServerKey {
             name: "rust-analyzer",
-            root: PathBuf::from("/tmp/tty7-lsp-test"),
+            root: test_path("/tmp/tty7-lsp-test"),
         };
         cx.update(|cx| {
             LspStore::ensure(cx);

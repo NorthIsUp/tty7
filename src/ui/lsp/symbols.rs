@@ -111,7 +111,7 @@ mod tests {
     #[allow(deprecated)]
     fn a_flat_answer_is_nested_by_range() {
         let text = Rope::from("struct A {\n  f: u8,\n}\nfn g() {}\n");
-        let uri = super::super::path_to_uri(std::path::Path::new("/a.rs")).unwrap();
+        let uri: lsp_types::Uri = "file:///a.rs".parse().unwrap();
         let info = |name: &str, kind, r| SymbolInformation {
             name: name.into(),
             kind,

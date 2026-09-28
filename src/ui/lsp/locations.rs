@@ -461,7 +461,8 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn workspace_symbols_become_rows_naming_where_they_live() {
-        let uri = super::super::path_to_uri(Path::new("/p/src/net.rs")).unwrap();
+        let root = super::super::test_path("/p");
+        let uri = super::super::path_to_uri(&root.join("src").join("net.rs")).unwrap();
         let hits = workspace_symbols(lsp_types::WorkspaceSymbolResponse::Flat(vec![
             lsp_types::SymbolInformation {
                 name: "Server".into(),
@@ -482,9 +483,13 @@ mod tests {
             column: 11,
             text: String::new(),
         };
-        let row = symbol_item(&found, &hits[0], Path::new("/p"));
+        let row = symbol_item(&found, &hits[0], &root);
         assert_eq!(row.title, "Server");
-        assert_eq!(row.subtitle.as_deref(), Some("net · src/net.rs:4"));
+        let rel = Path::new("src").join("net.rs");
+        assert_eq!(
+            row.subtitle.as_deref(),
+            Some(format!("net · {}:4", rel.display()).as_str())
+        );
         assert_eq!(row.note.as_deref(), Some("struct"));
     }
 

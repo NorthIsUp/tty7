@@ -3757,6 +3757,18 @@ impl Tty7App {
 mod tests {
     use super::*;
 
+    /// A temp dir as the editor will see paths under it: resolved through
+    /// symlinks where the OS puts one in the way (`/var` is `/private/var` on
+    /// macOS). Not on Windows, where `canonicalize` answers in the `\\?\` form
+    /// no path the editor holds is ever in.
+    pub(crate) fn test_real_dir(dir: &Path) -> PathBuf {
+        if cfg!(windows) {
+            dir.to_path_buf()
+        } else {
+            dir.canonicalize().unwrap()
+        }
+    }
+
     /// Handing a file the editor cannot read to the desktop is how a click
     /// opens a PNG. It must not be how a click runs a build's output.
     #[cfg(unix)]

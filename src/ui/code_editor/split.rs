@@ -691,7 +691,7 @@ mod gpui_tests {
     fn a_split_is_recorded_and_comes_back(cx: &mut TestAppContext) {
         let dir = tempfile::tempdir().unwrap();
         // Canonical, as a loaded file's path is: /var is /private/var here.
-        let root = dir.path().canonicalize().unwrap();
+        let root = crate::ui::code_editor::tests::test_real_dir(dir.path());
         let (a, b, c) = (root.join("a.rs"), root.join("b.rs"), root.join("c.rs"));
         for p in [&a, &b, &c] {
             std::fs::write(p, "fn main() {}\n").unwrap();
@@ -746,7 +746,7 @@ mod gpui_tests {
         // The left group held only untitled or remote buffers, which are
         // not recorded: only the right group's files were written down.
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = crate::ui::code_editor::tests::test_real_dir(dir.path());
         let c = root.join("c.rs");
         std::fs::write(&c, "fn main() {}\n").unwrap();
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
@@ -846,7 +846,7 @@ mod gpui_tests {
     #[gpui::test]
     fn what_is_opened_while_a_restore_loads_survives_it(cx: &mut TestAppContext) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = crate::ui::code_editor::tests::test_real_dir(dir.path());
         let (a, b, c) = (root.join("a.rs"), root.join("b.rs"), root.join("c.rs"));
         for p in [&a, &b, &c] {
             std::fs::write(p, "fn main() {}\n").unwrap();

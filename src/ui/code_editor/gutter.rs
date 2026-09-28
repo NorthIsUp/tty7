@@ -1294,7 +1294,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("tty7-gutter-base-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("sub")).unwrap();
-        let root = std::fs::canonicalize(&root).unwrap();
+        let root = crate::ui::code_editor::tests::test_real_dir(&root);
         git(&root, &["init", "--quiet"]);
         let file = root.join("sub").join("a b.txt");
         std::fs::write(&file, "one\n").unwrap();
