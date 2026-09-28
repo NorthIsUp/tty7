@@ -427,7 +427,15 @@ impl Tty7App {
         HostOps::run(
             host,
             cx,
-            move |h| fetch_base(h, &path),
+            // A panic would skip the landing and leave `fetching` set for
+            // good; no base is the right answer to a read that blew up.
+            move |h| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fetch_base(h, &path)))
+                    .unwrap_or(Fetched {
+                        root: None,
+                        bytes: None,
+                    })
+            },
             move |app, fetched: Fetched, cx| {
                 let Some(f) = app.buffer_mut(id) else {
                     return;
@@ -442,7 +450,14 @@ impl Tty7App {
                     f.gutter.base = base;
                     // Not an edit, but the hunks are just as stale.
                     f.gutter.edits += 1;
-                    app.editor_gutter_schedule(id, Duration::ZERO, cx);
+                    if f.gutter.base.is_some() {
+                        app.editor_gutter_schedule(id, Duration::ZERO, cx);
+                    } else {
+                        // Untracked now, or no longer in a repository.
+                        let at = f.gutter.edits;
+                        f.gutter.diff_task = None;
+                        app.editor_gutter_install(id, at, Vec::new(), cx);
+                    }
                 }
                 cx.notify();
             },
@@ -1084,5 +1099,62 @@ mod tests {
                 "one\nTWO\nthree\nfour\nfive\n"
             );
         });
+    }
+
+    /// The base is the index — staged edits are not changes — read through
+    /// the host; an untracked file and a file outside any repository have
+    /// none.
+    #[test]
+    fn the_base_is_the_staged_version() {
+        fn git(root: &Path, args: &[&str]) {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .output()
+                .expect("git runs");
+            assert!(out.status.success(), "git {args:?} failed");
+        }
+        let root = std::env::temp_dir().join(format!("tty7-gutter-base-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let root = std::fs::canonicalize(&root).unwrap();
+        git(&root, &["init", "--quiet"]);
+        let file = root.join("sub").join("a b.txt");
+        std::fs::write(&file, "one\n").unwrap();
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &[
+                "-c",
+                "user.email=t@x",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "one",
+            ],
+        );
+        std::fs::write(&file, "two\n").unwrap();
+        git(&root, &["add", "."]);
+        std::fs::write(&file, "three\n").unwrap();
+        std::fs::write(root.join("new.txt"), "new\n").unwrap();
+
+        let host = tty7_core::host::local::LocalHost::new();
+        let fetched = fetch_base(&*host, &file);
+        assert_eq!(fetched.root.as_deref(), Some(root.as_path()));
+        assert_eq!(fetched.bytes.as_deref(), Some(&b"two\n"[..]));
+
+        let untracked = fetch_base(&*host, &root.join("new.txt"));
+        assert!(untracked.root.is_some());
+        assert_eq!(untracked.bytes, None);
+
+        let _ = std::fs::remove_dir_all(&root);
+        let outside =
+            std::env::temp_dir().join(format!("tty7-gutter-plain-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("x.txt"), "x\n").unwrap();
+        let plain = fetch_base(&*host, &outside.join("x.txt"));
+        assert!(plain.bytes.is_none());
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }
