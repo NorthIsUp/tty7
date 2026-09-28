@@ -271,6 +271,10 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Sessions) if self.query.trim().is_empty() => {
                 t(L10nKey::SearchSessionsEmptyHint)
             }
+            Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
+                headline = t(L10nKey::SearchSymbolsNone);
+                t(L10nKey::SearchSymbolsNoneHint)
+            }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
         // The headline in body ink and the way out under it in caption ink:
@@ -373,6 +377,13 @@ pub enum SearchEvent {
     PreviewTheme(usize),
     /// Put back the theme that was live before the preview started.
     CancelThemePreview,
+    /// Show this 0-based place in the file Go to Symbol is listing, leaving
+    /// the keyboard in the search. Closing the search without a choice puts
+    /// the caret back (`Tty7App::close_search`).
+    PreviewSymbol {
+        line: u32,
+        column: u32,
+    },
 }
 
 pub struct SearchView {
@@ -389,6 +400,11 @@ pub struct SearchView {
     /// How many session lists have arrived since the search opened. A test
     /// waits on it: the scan runs on a real thread and lands when it lands.
     sessions_landed: usize,
+    /// The symbol Go to Symbol opened on — the one around the caret — which
+    /// is not previewed until the highlight has moved: opening the picker
+    /// must not move the caret.
+    symbol_initial: Option<CommandKind>,
+    symbol_moved: bool,
     _sub: Subscription,
 }
 
@@ -420,6 +436,8 @@ impl SearchView {
             parked_query: None,
             previewing: None,
             sessions_landed: 0,
+            symbol_initial: None,
+            symbol_moved: false,
             _sub,
         }
     }
@@ -526,6 +544,28 @@ impl SearchView {
         self.update_catalog(|catalog| catalog.files = files, window, cx);
     }
 
+    /// Go to Symbol's rows, with the highlight on `selected` — the symbol the
+    /// caret is in — when it is one of them.
+    pub(crate) fn set_symbols(
+        &mut self,
+        symbols: Vec<(usize, Item)>,
+        selected: Option<CommandKind>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.symbol_moved = false;
+        self.symbol_initial = selected.clone();
+        self.update_catalog(|catalog| catalog.symbols = symbols, window, cx);
+        if let Some(kind) = selected {
+            self.list.update(cx, |state, cx| {
+                if let Some(ix) = state.delegate().position_of(&kind) {
+                    state.set_selected_index(Some(ix), window, cx);
+                    state.scroll_to_selected_item(window, cx);
+                }
+            });
+        }
+    }
+
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
@@ -552,6 +592,11 @@ impl SearchView {
             state.set_selected_index(target, window, cx);
         });
         cx.notify();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn symbol_count(&self) -> usize {
+        self.catalog.symbols.len()
     }
 
     /// The tab showing — or, in a row's own list, the one Escape returns to.
@@ -689,6 +734,17 @@ impl SearchView {
                 false => cx.emit(SearchEvent::Dismiss),
             },
             ListEvent::Select(ix) => {
+                if !self.in_sub_list()
+                    && self.tab == SearchTab::Symbols
+                    && let Some(Row::Item(item)) = list.read(cx).delegate().row_at(*ix)
+                    && let CommandKind::GoToSymbol { line, column } = item.kind
+                {
+                    if self.symbol_moved || self.symbol_initial.as_ref() != Some(&item.kind) {
+                        self.symbol_moved = true;
+                        cx.emit(SearchEvent::PreviewSymbol { line, column });
+                    }
+                    return;
+                }
                 if self.in_sub_list()
                     && let Some(Row::Item(item)) = list.read(cx).delegate().row_at(*ix)
                     && let CommandKind::SetTheme(i) = item.kind

@@ -30,6 +30,9 @@ pub(crate) enum SearchTab {
     Terminals,
     Sessions,
     Hosts,
+    /// Go to Symbol: the symbols of the file in front of the editor. Like
+    /// Files, reached by its chord (or the breadcrumbs), never by the row.
+    Symbols,
 }
 
 impl SearchTab {
@@ -57,6 +60,7 @@ impl SearchTab {
             SearchTab::Terminals => L10nKey::SearchTabTerminals,
             SearchTab::Sessions => L10nKey::SearchTabSessions,
             SearchTab::Hosts => L10nKey::SearchTabHosts,
+            SearchTab::Symbols => L10nKey::SearchTabSymbols,
         })
     }
 
@@ -68,6 +72,7 @@ impl SearchTab {
             SearchTab::Terminals => L10nKey::SearchPlaceholderTerminals,
             SearchTab::Sessions => L10nKey::SearchPlaceholderSessions,
             SearchTab::Hosts => L10nKey::SearchPlaceholderHosts,
+            SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
         })
     }
 
@@ -102,5 +107,6 @@ mod tests {
         assert!(!SearchTab::ORDER.contains(&SearchTab::Files));
         // Tab out of Go to File lands on the row again.
         assert_eq!(SearchTab::Files.step(true), SearchTab::Terminals);
+        assert!(!SearchTab::ORDER.contains(&SearchTab::Symbols));
     }
 }

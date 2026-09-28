@@ -125,10 +125,16 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabActions => "Commands",
         L10nKey::SearchTabTerminals => "Terminals",
         L10nKey::SearchTabHosts => "Hosts",
+        L10nKey::SearchTabSymbols => "Symbols",
         L10nKey::SearchPlaceholderAll => "Search files, actions, terminals and hosts…",
         L10nKey::SearchPlaceholderActions => "Search commands…",
         L10nKey::SearchPlaceholderTerminals => "Search open tabs, shells and agents…",
         L10nKey::SearchPlaceholderHosts => "Search hosts, or type user@host to connect…",
+        L10nKey::SearchPlaceholderSymbols => "Go to a symbol in this file…",
+        L10nKey::SearchSymbolsNone => "No symbols in this file",
+        L10nKey::SearchSymbolsNoneHint => {
+            "Symbols are listed for Rust, Go, Python, JavaScript, TypeScript, C, C++, Java, Ruby, shell and Markdown."
+        }
         L10nKey::SearchTabFiles => "Files",
         L10nKey::SearchPlaceholderFiles => "Go to a file by name — add :line to jump to it…",
         L10nKey::SearchFilesNoRoots => "No project to search",
@@ -1203,6 +1209,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::EditorGoToLineAction => "Go to Line…",
         L10nKey::EditorCopyRelativePath => "Copy Relative Path",
         L10nKey::EditorGoToLinePlaceholder => "Line, or line:column (1–{total})",
+        L10nKey::EditorGoToSymbolAction => "Go to Symbol in Editor…",
+        L10nKey::EditorNavigateBack => "Go Back",
+        L10nKey::EditorNavigateForward => "Go Forward",
         L10nKey::EditorSaveAs => "Save as",
         L10nKey::EditorSaveAsAction => "Save As…",
         L10nKey::EditorSaveAsPlaceholder => "Full path to save to",

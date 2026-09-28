@@ -6131,6 +6131,10 @@ impl Tty7App {
                 if matches!(kind, CommandKind::SetTheme(_)) {
                     self.theme_preview_restore = None;
                 }
+                // Likewise the symbol Go to Symbol has the caret on.
+                if matches!(kind, CommandKind::GoToSymbol { .. }) {
+                    self.editor_symbol_preview_commit();
+                }
                 self.close_search(window, cx);
                 self.run_command(kind, window, cx);
             }
@@ -6143,6 +6147,9 @@ impl Tty7App {
                 }
             }
             SearchEvent::CancelThemePreview => self.cancel_preset_preview(window, cx),
+            SearchEvent::PreviewSymbol { line, column } => {
+                self.editor_symbol_preview(*line, *column, cx)
+            }
         }
     }
 
@@ -6153,6 +6160,9 @@ impl Tty7App {
         // other than confirming the pick puts the old one back.
         self.cancel_preset_preview(window, cx);
         self.focus_active(window, cx);
+        // Nor was a symbol Go to Symbol previewed: the caret goes back, and
+        // the keyboard with it to the editor it came from.
+        self.editor_symbol_preview_cancel(window, cx);
         cx.notify();
     }
 
@@ -6345,6 +6355,7 @@ impl Tty7App {
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
+            GoToSymbol { line, column } => self.editor_go_to_position(line, column, window, cx),
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
             ResumeSession {
                 agent,

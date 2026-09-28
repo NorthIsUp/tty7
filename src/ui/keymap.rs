@@ -292,6 +292,11 @@ fn steals_a_control_code(chord: &str) -> bool {
 /// simply swallows the byte does not belong on this list.
 fn control_code_binding_allowed(action: &str, chord: &str) -> bool {
     matches!(action, "EditorSave" | "EditorGoToLine")
+        // Bound in the text field's context only, and handled only by the
+        // code editor: in the terminal the chord is never matched, and in any
+        // other field it falls through. VS Code's Go Forward, ⌃⇧-, folds to
+        // Ctrl+_ (US) there.
+        || action_context(action) == Some(crate::ui::code_editor::NAV_KEY_CONTEXT)
         || (cfg!(not(target_os = "macos")) && chord == "ctrl-v")
 }
 
@@ -590,6 +595,16 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorSave", "secondary-s"),
         ("EditorSaveAs", "secondary-shift-s"),
         ("EditorGoToLine", "ctrl-g"),
+        // VS Code's chords. ⌘⇧O is the workspace switcher everywhere but the
+        // editor, which takes it back while it has the focus (see
+        // `action_context`). Back and Forward are ⌃- and ⌃⇧- on macOS; off
+        // it ⌃- is Decrease Font Size, so Alt+←/→ as VS Code has them there.
+        ("EditorGoToSymbol", "secondary-shift-o"),
+        ("EditorNavigateBack", per_platform("ctrl--", "alt-left")),
+        (
+            "EditorNavigateForward",
+            per_platform("ctrl-shift--", "alt-right"),
+        ),
         // Unbound: ⌘N is New Window, and the editor's header has a + for it.
         ("EditorNewFile", ""),
         ("OpenSshProfiles", ""),
@@ -877,6 +892,18 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorGoToLine" => (
             CommandGroup::Terminal,
             t(L10nKey::EditorGoToLineAction).to_string(),
+        ),
+        "EditorGoToSymbol" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorGoToSymbolAction).to_string(),
+        ),
+        "EditorNavigateBack" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorNavigateBack).to_string(),
+        ),
+        "EditorNavigateForward" => (
+            CommandGroup::Terminal,
+            t(L10nKey::EditorNavigateForward).to_string(),
         ),
         "EditorNewFile" => (
             CommandGroup::Terminal,
@@ -1440,6 +1467,9 @@ fn action_context(action: &str) -> Option<&'static str> {
         // carries on to the PTY as SYN (#677).
         "AlternatePaste" => Some("Terminal && !alt_screen"),
         "ScmCommit" | "ScmCommitAmend" => Some("ScmCommit"),
+        "EditorGoToSymbol" | "EditorNavigateBack" | "EditorNavigateForward" => {
+            Some(crate::ui::code_editor::NAV_KEY_CONTEXT)
+        }
         _ => None,
     }
 }
@@ -1572,6 +1602,21 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorSave" => KeyBinding::new(keystroke, EditorSave, None),
         "EditorSaveAs" => KeyBinding::new(keystroke, EditorSaveAs, None),
         "EditorGoToLine" => KeyBinding::new(keystroke, EditorGoToLine, None),
+        "EditorGoToSymbol" => KeyBinding::new(
+            keystroke,
+            EditorGoToSymbol,
+            Some(crate::ui::code_editor::NAV_KEY_CONTEXT),
+        ),
+        "EditorNavigateBack" => KeyBinding::new(
+            keystroke,
+            EditorNavigateBack,
+            Some(crate::ui::code_editor::NAV_KEY_CONTEXT),
+        ),
+        "EditorNavigateForward" => KeyBinding::new(
+            keystroke,
+            EditorNavigateForward,
+            Some(crate::ui::code_editor::NAV_KEY_CONTEXT),
+        ),
         "EditorNewFile" => KeyBinding::new(keystroke, EditorNewFile, None),
         "OpenSshProfiles" => KeyBinding::new(keystroke, OpenSshProfiles, None),
         "RestartSshSession" => KeyBinding::new(keystroke, RestartSshSession, None),

@@ -22,6 +22,11 @@ use crate::ui::editor_text::{self, EditorConfig, Indent, LineEnding, TextFormat}
 use crate::ui::host_ops::{HostId, HostOps, MTime, SharedHost, WatchSub};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 
+mod nav;
+pub(crate) mod outline;
+
+pub(crate) use nav::KEY_CONTEXT as NAV_KEY_CONTEXT;
+
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 const RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
@@ -281,6 +286,8 @@ pub(crate) struct EditorPanelState {
     watched_dirs: HashSet<PathBuf>,
     watched_files: HashSet<PathBuf>,
     events_tx: smol::channel::Sender<Vec<PathBuf>>,
+    /// Back/forward history, outlines and Go to Symbol's preview.
+    nav: nav::EditorNav,
 }
 
 impl EditorPanelState {
@@ -323,6 +330,7 @@ impl EditorPanelState {
             watched_dirs: HashSet::new(),
             watched_files: HashSet::new(),
             events_tx: tx,
+            nav: nav::EditorNav::default(),
         }
     }
 }
@@ -2269,6 +2277,7 @@ impl Tty7App {
             code.forget(id);
         }
         self.editor.buffers.retain(|b| b.id() != id);
+        self.editor.nav.forget_buffer(id);
         if matches!(
             self.editor.bar.as_ref().map(|b| &b.kind),
             Some(BarKind::SaveAs { id: bar_id, .. }) if *bar_id == id
@@ -2802,6 +2811,7 @@ impl Tty7App {
     /// A tab was closed for good: forget what it had open.
     pub(crate) fn editor_forget_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
         self.editor.recorded.remove(&tab);
+        self.editor.nav.forget_tab(tab);
         editor_session::remove(cx, tab);
     }
 }
@@ -2823,6 +2833,8 @@ impl Tty7App {
         if !self.code_panel_visible() {
             return None;
         }
+        self.editor_nav_tick(cx);
+        let breadcrumbs = self.render_editor_breadcrumbs(window, cx);
         let body = match self.active_buffer() {
             None => self.render_editor_empty(cx).into_any_element(),
             Some(f) if f.preview => {
@@ -2889,6 +2901,7 @@ impl Tty7App {
             .min_w_0()
             .h_full()
             .children(header)
+            .children(breadcrumbs)
             .when_some(conflict_banner, |this, b| this.child(b))
             .children(bar)
             .child(div().flex_1().min_h_0().child(body));
@@ -2915,6 +2928,7 @@ impl Tty7App {
                 .children(crate::ui::app::overlay_surface_layers(cx)),
             DocumentChrome::Dock | DocumentChrome::DockHoisted => shell.size_full().min_w_0(),
         };
+        let shell = self.editor_nav_actions(shell, cx);
         Some(
             shell
                 .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {

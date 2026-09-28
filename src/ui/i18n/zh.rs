@@ -110,10 +110,16 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTabActions => "命令",
         L10nKey::SearchTabTerminals => "终端",
         L10nKey::SearchTabHosts => "主机",
+        L10nKey::SearchTabSymbols => "符号",
         L10nKey::SearchPlaceholderAll => "搜索文件、操作、终端和主机…",
         L10nKey::SearchPlaceholderActions => "搜索命令…",
         L10nKey::SearchPlaceholderTerminals => "搜索已打开的标签页、Shell 和 Agent…",
         L10nKey::SearchPlaceholderHosts => "搜索主机，或输入 user@host 连接…",
+        L10nKey::SearchPlaceholderSymbols => "跳转到本文件中的符号…",
+        L10nKey::SearchSymbolsNone => "此文件中没有符号",
+        L10nKey::SearchSymbolsNoneHint => {
+            "支持 Rust、Go、Python、JavaScript、TypeScript、C、C++、Java、Ruby、Shell 和 Markdown 的符号。"
+        }
         L10nKey::SearchTabFiles => "文件",
         L10nKey::SearchPlaceholderFiles => "按名称转到文件，加上 :行号 可直接跳转…",
         L10nKey::SearchFilesNoRoots => "没有可搜索的项目",
@@ -1123,6 +1129,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorGoToLineAction => "跳转到行…",
         L10nKey::EditorCopyRelativePath => "复制相对路径",
         L10nKey::EditorGoToLinePlaceholder => "行号，或 行:列（1–{total}）",
+        L10nKey::EditorGoToSymbolAction => "跳转到编辑器中的符号…",
+        L10nKey::EditorNavigateBack => "后退",
+        L10nKey::EditorNavigateForward => "前进",
         L10nKey::EditorSaveAs => "另存为",
         L10nKey::EditorSaveAsAction => "另存为…",
         L10nKey::EditorSaveAsPlaceholder => "要保存到的完整路径",

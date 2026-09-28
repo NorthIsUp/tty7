@@ -126,10 +126,16 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTabActions => "コマンド",
         L10nKey::SearchTabTerminals => "ターミナル",
         L10nKey::SearchTabHosts => "ホスト",
+        L10nKey::SearchTabSymbols => "シンボル",
         L10nKey::SearchPlaceholderAll => "ファイル、アクション、ターミナル、ホストを検索…",
         L10nKey::SearchPlaceholderActions => "コマンドを検索…",
         L10nKey::SearchPlaceholderTerminals => "開いているタブ、シェル、エージェントを検索…",
         L10nKey::SearchPlaceholderHosts => "ホストを検索、または user@host を入力して接続…",
+        L10nKey::SearchPlaceholderSymbols => "このファイル内のシンボルへ移動…",
+        L10nKey::SearchSymbolsNone => "このファイルにシンボルはありません",
+        L10nKey::SearchSymbolsNoneHint => {
+            "Rust、Go、Python、JavaScript、TypeScript、C、C++、Java、Ruby、シェル、Markdown のシンボルを一覧できます。"
+        }
         L10nKey::SearchTabFiles => "ファイル",
         L10nKey::SearchPlaceholderFiles => "名前でファイルに移動（:行番号 でその行へ）…",
         L10nKey::SearchFilesNoRoots => "検索するプロジェクトがありません",
@@ -1251,6 +1257,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::EditorGoToLineAction => "行へ移動…",
         L10nKey::EditorCopyRelativePath => "相対パスをコピー",
         L10nKey::EditorGoToLinePlaceholder => "行番号、または 行:列（1–{total}）",
+        L10nKey::EditorGoToSymbolAction => "エディタ内のシンボルへ移動…",
+        L10nKey::EditorNavigateBack => "戻る",
+        L10nKey::EditorNavigateForward => "進む",
         L10nKey::EditorSaveAs => "名前を付けて保存",
         L10nKey::EditorSaveAsAction => "名前を付けて保存…",
         L10nKey::EditorSaveAsPlaceholder => "保存先のフルパス",

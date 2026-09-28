@@ -116,6 +116,11 @@ pub enum CommandKind {
         line: Option<u32>,
         column: Option<u32>,
     },
+    /// A Go to Symbol row: this 0-based place in the file in front.
+    GoToSymbol {
+        line: u32,
+        column: u32,
+    },
     /// Connect with a typed `ssh` command line (`-p`, `-J`, an alias…).
     OpenSshConnect(String),
     SetTheme(usize),
@@ -270,6 +275,7 @@ impl CommandKind {
             | SetTheme(_)
             | GoToTab { .. }
             | OpenFile { .. }
+            | GoToSymbol { .. }
             | ResumeSession { .. }
             | ForkSession { .. }
             | CopySessionId(_)
@@ -406,6 +412,7 @@ impl CommandKind {
             | SetTheme(_)
             | GoToTab { .. }
             | OpenFile { .. }
+            | GoToSymbol { .. }
             | ResumeSession { .. }
             | ForkSession { .. }
             | CopySessionId(_)
