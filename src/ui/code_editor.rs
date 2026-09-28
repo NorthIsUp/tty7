@@ -1544,6 +1544,101 @@ impl Tty7App {
         self.editor_note_edit(id, cx);
     }
 
+    /// Run one of gpui-component's editing actions on the active buffer, as
+    /// if it had been pressed there. Returns false with no buffer to run it
+    /// on. The palette closes before its row runs, so this focuses the
+    /// buffer first rather than relying on where the focus happens to be.
+    pub(crate) fn editor_dispatch(
+        &mut self,
+        action: &dyn gpui::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.code_panel_visible() {
+            return false;
+        }
+        let Some(input) = self.active_buffer().map(|f| f.input.clone()) else {
+            return false;
+        };
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        handle.dispatch_action(action, window, cx);
+        true
+    }
+
+    /// The window's listeners for the editor's text commands, when the user
+    /// has bound one: each runs on the editor only while it has the focus.
+    pub(crate) fn with_editor_text_commands(
+        root: gpui::Stateful<gpui::Div>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        use crate::core::actions::{
+            EditorJoinLines, EditorRemoveSurroundingBrackets, EditorTransformLowercase,
+            EditorTransformTitleCase, EditorTransformUppercase, EditorTrimTrailingWhitespace,
+        };
+        root.on_action(
+            cx.listener(|this, _: &EditorTransformUppercase, window, cx| {
+                if !this.editor_has_focus(window, cx) {
+                    cx.propagate();
+                    return;
+                }
+                this.editor_dispatch(&gpui_component::input::TransformToUppercase, window, cx);
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &EditorTransformLowercase, window, cx| {
+                if !this.editor_has_focus(window, cx) {
+                    cx.propagate();
+                    return;
+                }
+                this.editor_dispatch(&gpui_component::input::TransformToLowercase, window, cx);
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &EditorTransformTitleCase, window, cx| {
+                if !this.editor_has_focus(window, cx) {
+                    cx.propagate();
+                    return;
+                }
+                this.editor_dispatch(&gpui_component::input::TransformToTitleCase, window, cx);
+            }),
+        )
+        .on_action(
+            cx.listener(|this, _: &EditorTrimTrailingWhitespace, window, cx| {
+                if !this.editor_has_focus(window, cx) {
+                    cx.propagate();
+                    return;
+                }
+                this.editor_dispatch(&gpui_component::input::TrimTrailingWhitespace, window, cx);
+            }),
+        )
+        .on_action(cx.listener(|this, _: &EditorJoinLines, window, cx| {
+            if !this.editor_has_focus(window, cx) {
+                cx.propagate();
+                return;
+            }
+            this.editor_dispatch(&gpui_component::input::JoinLines, window, cx);
+        }))
+        .on_action(
+            cx.listener(|this, _: &EditorRemoveSurroundingBrackets, window, cx| {
+                if !this.editor_has_focus(window, cx) {
+                    cx.propagate();
+                    return;
+                }
+                this.editor_dispatch(
+                    &gpui_component::input::RemoveSurroundingBrackets,
+                    window,
+                    cx,
+                );
+            }),
+        )
+    }
+
+    /// Whether an editor exists to run [`Self::editor_dispatch`] on.
+    pub(crate) fn editor_can_dispatch(&self) -> bool {
+        self.code_panel_visible() && self.active_buffer().is_some()
+    }
+
     pub(crate) fn editor_has_focus(&self, window: &Window, cx: &Context<Self>) -> bool {
         self.code_panel_visible()
             && self.active_buffer().is_some_and(|f| {

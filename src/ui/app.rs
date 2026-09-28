@@ -5914,6 +5914,37 @@ impl Tty7App {
             }
         }
 
+        // The editor's text commands, while there is a buffer to run them on.
+        if self.editor_can_dispatch() {
+            actions.extend(
+                [
+                    Item::localized(
+                        L10nKey::CmdEditorTransformUppercase,
+                        CommandKind::EditorTransformUppercase,
+                    ),
+                    Item::localized(
+                        L10nKey::CmdEditorTransformLowercase,
+                        CommandKind::EditorTransformLowercase,
+                    ),
+                    Item::localized(
+                        L10nKey::CmdEditorTransformTitleCase,
+                        CommandKind::EditorTransformTitleCase,
+                    ),
+                    Item::localized(
+                        L10nKey::CmdEditorTrimTrailingWhitespace,
+                        CommandKind::EditorTrimTrailingWhitespace,
+                    ),
+                    Item::localized(L10nKey::CmdEditorJoinLines, CommandKind::EditorJoinLines),
+                    Item::localized(
+                        L10nKey::CmdEditorRemoveSurroundingBrackets,
+                        CommandKind::EditorRemoveSurroundingBrackets,
+                    ),
+                ]
+                .into_iter()
+                .map(|item| item.in_group(CommandGroup::View)),
+            );
+        }
+
         // Offered only where it would do something. A connection opened from a
         // saved host has nothing to save, and a pane that is not an SSH one has
         // no connection at all — either would be a row that quietly did nothing
@@ -6313,6 +6344,28 @@ impl Tty7App {
             }
             ToggleDocumentPreview => self.toggle_document_preview(cx),
             ToggleDocumentWrap => self.toggle_document_wrap(window, cx),
+            EditorTransformUppercase => {
+                self.editor_dispatch(&gpui_component::input::TransformToUppercase, window, cx);
+            }
+            EditorTransformLowercase => {
+                self.editor_dispatch(&gpui_component::input::TransformToLowercase, window, cx);
+            }
+            EditorTransformTitleCase => {
+                self.editor_dispatch(&gpui_component::input::TransformToTitleCase, window, cx);
+            }
+            EditorTrimTrailingWhitespace => {
+                self.editor_dispatch(&gpui_component::input::TrimTrailingWhitespace, window, cx);
+            }
+            EditorJoinLines => {
+                self.editor_dispatch(&gpui_component::input::JoinLines, window, cx);
+            }
+            EditorRemoveSurroundingBrackets => {
+                self.editor_dispatch(
+                    &gpui_component::input::RemoveSurroundingBrackets,
+                    window,
+                    cx,
+                );
+            }
             RestartSshSession => self.restart_ssh_session(window, cx),
             SetTheme(i) => {
                 if let Some(id) = crate::ui::presets::all(cx).get(i).map(|t| t.id.clone()) {
@@ -9550,6 +9603,7 @@ impl Render for Tty7App {
                 .children(self.render_switcher(window, cx))
                 .when_some(self.search.clone(), |this, search| this.child(search))
                 .children(gpui_component::Root::render_notification_layer(window, cx));
+        let root = Self::with_editor_text_commands(root, cx);
 
         if let Some(start) = prof {
             crate::ui::perf::record("window", start.elapsed());

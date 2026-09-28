@@ -145,6 +145,12 @@ fn fixed_bindings() -> Vec<KeyBinding> {
             KeyBinding::new("secondary-l", SelectLine, editor),
             KeyBinding::new("secondary-shift-\\", MoveToMatchingBracket, editor),
         ]);
+        #[cfg(target_os = "macos")]
+        bindings.push(KeyBinding::new(
+            "ctrl-j",
+            gpui_component::input::JoinLines,
+            editor,
+        ));
     }
     bindings
 }
@@ -690,6 +696,15 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("EditorQuickFix", ""),
         ("EditorRenameSymbol", ""),
         ("EditorFormatDocument", ""),
+        // The editor's text commands. Unbound: none of them has a chord in
+        // VS Code either, except Join Lines, whose ⌃J is a fixed `CodeEditor`
+        // binding on macOS (in the terminal it is a line feed).
+        ("EditorTransformUppercase", ""),
+        ("EditorTransformLowercase", ""),
+        ("EditorTransformTitleCase", ""),
+        ("EditorTrimTrailingWhitespace", ""),
+        ("EditorJoinLines", ""),
+        ("EditorRemoveSurroundingBrackets", ""),
         // Alt+F5 / Shift+Alt+F5 (VS Code's) are fixed `Input`-context
         // bindings: a default on a function key would hide it from the shell.
         ("EditorNextChange", ""),
@@ -998,6 +1013,30 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "EditorFormatDocument" => (
             CommandGroup::Terminal,
             t(L10nKey::LspFormatDocument).to_string(),
+        ),
+        "EditorTransformUppercase" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorTransformUppercase).to_string(),
+        ),
+        "EditorTransformLowercase" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorTransformLowercase).to_string(),
+        ),
+        "EditorTransformTitleCase" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorTransformTitleCase).to_string(),
+        ),
+        "EditorTrimTrailingWhitespace" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorTrimTrailingWhitespace).to_string(),
+        ),
+        "EditorJoinLines" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorJoinLines).to_string(),
+        ),
+        "EditorRemoveSurroundingBrackets" => (
+            CommandGroup::Terminal,
+            t(L10nKey::CmdEditorRemoveSurroundingBrackets).to_string(),
         ),
         "EditorGoToSymbol" => (
             CommandGroup::Terminal,
@@ -1752,6 +1791,16 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "EditorQuickFix" => KeyBinding::new(keystroke, EditorQuickFix, None),
         "EditorRenameSymbol" => KeyBinding::new(keystroke, EditorRenameSymbol, None),
         "EditorFormatDocument" => KeyBinding::new(keystroke, EditorFormatDocument, None),
+        "EditorTransformUppercase" => KeyBinding::new(keystroke, EditorTransformUppercase, None),
+        "EditorTransformLowercase" => KeyBinding::new(keystroke, EditorTransformLowercase, None),
+        "EditorTransformTitleCase" => KeyBinding::new(keystroke, EditorTransformTitleCase, None),
+        "EditorTrimTrailingWhitespace" => {
+            KeyBinding::new(keystroke, EditorTrimTrailingWhitespace, None)
+        }
+        "EditorJoinLines" => KeyBinding::new(keystroke, EditorJoinLines, None),
+        "EditorRemoveSurroundingBrackets" => {
+            KeyBinding::new(keystroke, EditorRemoveSurroundingBrackets, None)
+        }
         "EditorNextChange" => KeyBinding::new(keystroke, EditorNextChange, None),
         "EditorPrevChange" => KeyBinding::new(keystroke, EditorPrevChange, None),
         "EditorRevertChange" => KeyBinding::new(keystroke, EditorRevertChange, None),
@@ -2806,7 +2855,8 @@ mod gpui_tests {
                     .map(|b| b.action().name())
             };
             let editor = ["Workspace", "Input CodeEditor"];
-            for (keys, action) in [
+            let join_lines = cfg!(target_os = "macos").then_some(("ctrl-j", "input::JoinLines"));
+            for (keys, action) in join_lines.into_iter().chain([
                 ("secondary-/", "input::ToggleLineComment"),
                 ("alt-up", "input::MoveLineUp"),
                 ("alt-down", "input::MoveLineDown"),
@@ -2817,7 +2867,7 @@ mod gpui_tests {
                 ("secondary-shift-enter", "input::InsertLineAbove"),
                 ("secondary-l", "input::SelectLine"),
                 ("secondary-shift-\\", "input::MoveToMatchingBracket"),
-            ] {
+            ]) {
                 assert_eq!(first(keys, &editor), Some(action), "{keys} in the editor");
                 assert_ne!(
                     first(keys, &["Workspace", "Input"]),
