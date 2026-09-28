@@ -310,6 +310,27 @@ impl CLIAgent {
         }
     }
 
+    /// The session `argv` names by itself, so a resume needs no hook to learn
+    /// it: Claude's `--session-id <uuid>` (which quick launch mints) or
+    /// `--resume <uuid>`. A fork starts an id only a hook can report, and a
+    /// bare `--resume` opens the picker, so neither counts.
+    pub fn session_id_in_argv(self, argv: &[String]) -> Option<String> {
+        if self != CLIAgent::Claude || argv.iter().any(|t| t == "--fork-session") {
+            return None;
+        }
+        let named = argv
+            .iter()
+            .enumerate()
+            .find_map(|(i, t)| match t.split_once('=') {
+                Some(("--session-id" | "--resume", v)) => Some(v),
+                _ if matches!(t.as_str(), "--session-id" | "--resume" | "-r") => {
+                    argv.get(i + 1).map(String::as_str)
+                }
+                _ => None,
+            })?;
+        uuid::Uuid::parse_str(named).ok().map(|_| named.to_string())
+    }
+
     fn session_command_flags(
         self,
         session_id: &str,
@@ -1150,6 +1171,44 @@ pub fn parse_agent_event(payload: &[u8]) -> Option<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_argv_names_its_own_session() {
+        const ID: &str = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let c = CLIAgent::Claude;
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--session-id", ID]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "-r", ID, "--model", "opus"]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", &format!("--resume={ID}")]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--resume"])),
+            None,
+            "the picker"
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--resume", "fix the bug"])),
+            None
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "-r", ID, "--fork-session"])),
+            None
+        );
+        assert_eq!(
+            CLIAgent::Codex.session_id_in_argv(&argv(&["codex", "resume", ID])),
+            None
+        );
+    }
 
     fn argv(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
