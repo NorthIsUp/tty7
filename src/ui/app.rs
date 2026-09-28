@@ -10507,7 +10507,13 @@ fn tabs_from_session(
     let Some(session) = session.filter(|s| !s.tabs.is_empty()) else {
         return (Vec::new(), 0, 0);
     };
-    let alive = alive_panes_on(&crate::terminal::PaneRoute::for_workspace(workspace));
+    let route = crate::terminal::PaneRoute::for_workspace(workspace);
+    let alive = alive_panes_on(&route);
+    // A remote listing is not asked for, so only here can "nothing of it is
+    // running" be told apart from "nobody checked".
+    let lazy = cx.global::<Config>().restore_asleep
+        && matches!(route, crate::terminal::PaneRoute::Local)
+        && alive.is_some();
     let mut tabs: Vec<Tab> = Vec::with_capacity(session.tabs.len());
     let mut dropped = 0usize;
     let home = crate::ui::path_display::home_for_host(
@@ -10519,7 +10525,12 @@ fn tabs_from_session(
         // the point. The one exception is the tab the window opens onto — a
         // tab on screen is awake, so that one is woken here, by the same
         // restore every other tab is getting.
-        if st.hibernated && index != session.active {
+        //
+        // A tab none of whose panes survived (a reboot, Quit and Stop) sleeps
+        // the same way: twelve agents come back as twelve places to click,
+        // not twelve cold starts racing each other at launch.
+        let dead = lazy && !layout_has_live_pane(&st.pane, alive.as_ref());
+        if (st.hibernated || dead) && index != session.active {
             tabs.push(asleep_tab(st, home.clone()));
             continue;
         }
@@ -10563,6 +10574,20 @@ fn tabs_from_session(
     }
     let active = session.active.min(tabs.len().saturating_sub(1));
     (tabs, active, dropped)
+}
+
+fn layout_has_live_pane(
+    pane: &SessionPane,
+    alive: Option<&std::collections::HashMap<u64, Option<String>>>,
+) -> bool {
+    match pane {
+        SessionPane::Leaf { pane_id, .. } => {
+            pane_id.is_some_and(|id| alive.is_some_and(|a| a.contains_key(&id)))
+        }
+        SessionPane::Split { a, b, .. } => {
+            layout_has_live_pane(a, alive) || layout_has_live_pane(b, alive)
+        }
+    }
 }
 
 /// A tab restored asleep: its place, its name and its group, and nothing
@@ -11559,7 +11584,8 @@ mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_W, Dir, OpenedFrom, Pane, Rename, TERMINAL_MIN_W,
         TITLE_BAR_HEIGHT, Tab, TabAgentSession, clear_window_override_values, close_prompt,
-        document_column_px, inherited_start_dir, join_shell_args, leaf_shares_the_window_daemon,
+        document_column_px, inherited_start_dir, join_shell_args, layout_has_live_pane,
+        leaf_shares_the_window_daemon,
         mru_order, native_ssh_pane_alive, one_slot_move, pane_free_for, parse_ssh_connect_input,
         parse_ssh_option_words, rename_outcome, side_panel_max, split_machine_held,
         split_shell_args, step_in_order, strip_band, wd_path_saveable,
@@ -11574,6 +11600,31 @@ mod tests {
         // On: painted exactly while the pointer is over the bar.
         assert!(!super::titlebar_chrome_shown(true, false));
         assert!(super::titlebar_chrome_shown(true, true));
+    }
+
+    #[test]
+    fn a_tab_sleeps_through_restore_only_when_nothing_of_it_survived() {
+        use crate::core::session::{SessionAxis, SessionPane};
+        let leaf = |id: Option<u64>| SessionPane::Leaf {
+            cwd: None,
+            pane_id: id,
+            shell: None,
+            ssh_spec: None,
+            agent: None,
+            agent_session_id: None,
+            agent_launch_argv: None,
+        };
+        let split = SessionPane::Split {
+            axis: SessionAxis::Horizontal,
+            ratio: 0.5,
+            a: Box::new(leaf(Some(1))),
+            b: Box::new(leaf(Some(2))),
+        };
+        let alive: std::collections::HashMap<u64, Option<String>> = [(2, None)].into();
+        assert!(layout_has_live_pane(&split, Some(&alive)));
+        assert!(!layout_has_live_pane(&leaf(Some(1)), Some(&alive)));
+        assert!(!layout_has_live_pane(&leaf(None), Some(&alive)));
+        assert!(!layout_has_live_pane(&split, Some(&Default::default())));
     }
 
     #[test]
