@@ -392,6 +392,11 @@ async fn pane_close(state: State<'_, Arc<AppState>>, handle: u32) -> CmdResult<(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // iroh builds its reqwest client with `rustls-no-provider`, which panics
+    // unless a process-wide provider is installed first. `ring` is the one
+    // already in the tree. An `Err` means one is installed, which is fine.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
