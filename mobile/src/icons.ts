@@ -31,6 +31,9 @@ export const icon = {
   scan: stroke(
     `<path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5"/><rect x="8" y="8" width="8" height="8" rx="1.2"/>`,
   ),
+  search: stroke(`<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/>`),
+  close: stroke(`<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>`, 2),
+  check: stroke(`<path d="M5 12.5 10 17.5 19 7"/>`, 2.2),
   enter: stroke(`<path d="M19 5.5v6.5a3 3 0 0 1-3 3H6"/><path d="M9.5 11.5 6 15l3.5 3.5"/>`, 2),
   phone: stroke(`<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/>`),
   copy: stroke(`<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.2"/><path d="M15.5 8.5V6.2A2.2 2.2 0 0 0 13.3 4H6.2A2.2 2.2 0 0 0 4 6.2v7.1a2.2 2.2 0 0 0 2.2 2.2h2.3"/>`),

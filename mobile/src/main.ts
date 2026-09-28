@@ -98,6 +98,8 @@ interface ScreenParts {
   subtitle?: Child;
   body: Child[];
   footer?: Child;
+  /** Floats over the bottom of the list: search and the one "+". */
+  dock?: Child;
 }
 
 /** A screen with a large title that folds into the bar as it scrolls away. */
@@ -130,7 +132,35 @@ function screen(parts: ScreenParts) {
     ([entry]) => bar.classList.toggle("folded", !entry.isIntersecting),
     { root: scroll, threshold: 0, rootMargin: "-8px 0px 0px 0px" },
   ).observe(large);
-  return h("div", { class: "screen" }, bar, scroll, parts.footer);
+  const view = h("div", { class: "screen" }, bar, scroll, parts.footer, parts.dock);
+  if (parts.dock) view.classList.add("docked");
+  if (!parts.back && !parts.trailing?.length) view.classList.add("root");
+  return view;
+}
+
+/** The bar floating at the bottom of a list: a search field, and the screen's
+ * one way to add something, within the thumb's reach. */
+function floatingBar(placeholder: string, onSearch: (query: string) => void, add: { label: string; run: () => void }) {
+  const field = h("input", {
+    type: "search",
+    class: "search-input",
+    placeholder,
+    enterKeyHint: "search",
+    autocapitalize: "off",
+    spellcheck: false,
+    ariaLabel: placeholder,
+  });
+  field.setAttribute("autocorrect", "off");
+  field.oninput = () => onSearch(field.value.trim().toLowerCase());
+  field.onkeydown = (e) => {
+    if (e.key === "Enter") field.blur();
+  };
+  return h(
+    "div",
+    { class: "float-bar" },
+    h("label", { class: "search" }, ico("search"), field),
+    h("button", { class: "fab", ariaLabel: add.label, onclick: add.run }, ico("plus")),
+  );
 }
 
 function section(title: Child, ...rows: Child[]) {
@@ -145,19 +175,43 @@ function section(title: Child, ...rows: Child[]) {
 // ---------------------------------------------------------------------------
 // Machines
 
+/** What the last visit to each machine saw: its link and how many tabs it
+ * had. The list shows it rather than holding a stream open per machine. */
+const seen = new Map<string, { link: LinkInfo | null; tabs: number | null }>();
+
+function hostMeta(hostId: string): { tone: string; text: string } | null {
+  const last = seen.get(hostId);
+  if (!last) return null;
+  const tabs = last.tabs === null ? "" : ` · ${last.tabs} ${last.tabs === 1 ? "tab" : "tabs"}`;
+  if (last.link === null) return { tone: "offline", text: "Offline" };
+  if (last.link.path === "connecting") return { tone: "connecting", text: `Connecting…${tabs}` };
+  const path = last.link.path === "direct" ? "Direct" : "Relay";
+  return { tone: last.link.path, text: `${path} · ${last.link.rtt_ms} ms${tabs}` };
+}
+
 function hostsScreen(direction: "push" | "pop" = "pop") {
   go(direction, () => {
     const body = h("div", { class: "stack" });
-    const pairButton = h(
-      "button",
-      { class: "nav-icon", ariaLabel: "Pair a machine", onclick: () => pairScreen() },
-      ico("plus"),
-    );
-    const view = screen({ title: "Machines", trailing: [pairButton], body: [body] });
+    let all: Host[] = [];
+    let query = "";
+    const dock = floatingBar("Search machines", (q) => {
+      query = q;
+      render();
+    }, { label: "Pair a machine", run: () => pairScreen() });
+    dock.hidden = true;
+    const view = screen({ title: "Machines", body: [body], dock });
 
+    const render = () => {
+      const shown = all.filter((host) => host.name.toLowerCase().includes(query));
+      body.replaceChildren(
+        shown.length
+          ? section(null, ...shown.map(hostRow))
+          : h("p", { class: "search-empty" }, `No machine matches “${query}”.`),
+      );
+    };
     api.hosts().then((hosts) => {
+      all = hosts;
       if (hosts.length === 0) {
-        pairButton.hidden = true;
         body.replaceChildren(
           h(
             "div",
@@ -174,23 +228,27 @@ function hostsScreen(direction: "push" | "pop" = "pop") {
         );
         return;
       }
-      body.replaceChildren(
-        section(
-          null,
-          ...hosts.map((host) =>
-            h(
-              "button",
-              { class: "row", onclick: () => hostScreen(host, "push") },
-              h("span", { class: "tile" }, ico("machine")),
-              h("span", { class: "row-text" }, h("span", { class: "row-title" }, host.name)),
-              ico("chevron", "icon row-chevron"),
-            ),
-          ),
-        ),
-      );
+      dock.hidden = false;
+      render();
     });
     return view;
   });
+}
+
+function hostRow(host: Host) {
+  const meta = hostMeta(host.id);
+  return h(
+    "button",
+    { class: meta?.tone === "offline" ? "row machine dim" : "row machine", onclick: () => hostScreen(host, "push") },
+    h("span", { class: "tile" }, ico("machine")),
+    h(
+      "span",
+      { class: "row-text" },
+      h("span", { class: "row-title" }, host.name),
+      meta && h("span", { class: `row-sub link ${meta.tone}` }, h("span", { class: "link-dot" }), meta.text),
+    ),
+    ico("chevron", "icon row-chevron"),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -390,13 +448,26 @@ const SLOW_CONNECT_MS = 10_000;
 function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
   go(direction, () => {
     const link = h("p", { class: "link" });
-    renderLink(link, { path: "connecting", rtt_ms: 0 });
+    // Shown here and remembered for the machine list.
+    const showLink = (info: LinkInfo | null) => {
+      renderLink(link, info);
+      seen.set(host.id, { link: info, tabs: seen.get(host.id)?.tabs ?? null });
+    };
+    showLink({ path: "connecting", rtt_ms: 0 });
     const notice = h("div", { class: "notice-slot" });
     const body = h("div", { class: "stack" }, skeleton());
 
     let alive = true;
     let lastTree: Tree | null = null;
     let slow: number | undefined;
+    let query = "";
+    const draw = () => {
+      if (lastTree) body.replaceChildren(...renderTree(host, lastTree, query));
+    };
+    const dock = floatingBar("Search tabs", (q) => {
+      query = q;
+      draw();
+    }, { label: "New tab", run: () => lastTree && newTabSheet(host, lastTree, failed) });
 
     const menu = menuButton([
       { label: "Refresh", icon: "refresh", run: () => api.refresh(host.id).catch(() => start()) },
@@ -419,6 +490,7 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
       trailing: [menu],
       subtitle: link,
       body: [notice, body],
+      dock,
     });
 
     const retry = retrier(() => start());
@@ -445,7 +517,7 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
       offlineNow = true;
       dropped = true;
       retry.schedule();
-      renderLink(link, null);
+      showLink(null);
       notice.replaceChildren(
         noticeCard({
           title: `Can't reach ${host.name}`,
@@ -471,7 +543,7 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
       // Retrying under a tree, the dropped connection's notice stays up to
       // say why the tree may be stale, until a new one replaces it.
       if (!(lastTree && dropped)) notice.replaceChildren();
-      renderLink(link, { path: "connecting", rtt_ms: 0 });
+      showLink({ path: "connecting", rtt_ms: 0 });
       if (!lastTree) body.replaceChildren(skeleton());
       // A machine that never answers leaves nothing to show but a spinner;
       // say what is likely wrong while still trying.
@@ -500,10 +572,11 @@ function hostScreen(host: Host, direction: "push" | "pop" = "pop") {
               if (!lastTree || dropped) notice.replaceChildren();
               dropped = false;
               lastTree = msg.tree;
-              body.replaceChildren(...renderTree(host, msg.tree, failed));
+              seen.set(host.id, { link: seen.get(host.id)?.link ?? null, tabs: tabCount(msg.tree) });
+              draw();
               break;
             case "link":
-              renderLink(link, msg.link);
+              showLink(msg.link);
               break;
             case "error":
               clearTimeout(slow);
@@ -564,11 +637,40 @@ const STATUS_WORD: Record<AgentStatus, string> = {
  * to, or null for the paired machine itself. */
 type Place = { key: string; name: string } | null;
 
-function renderTree(host: Host, tree: Tree, failed: (message: string) => void): Node[] {
+function tabCount(tree: Tree) {
+  const count = (list: WorkspaceView[]) => list.reduce((n, ws) => n + ws.tabs.length, 0);
+  return count(tree.workspaces) + (tree.remotes ?? []).reduce((n, r) => n + count(r.workspaces), 0);
+}
+
+/** The panes a search keeps: by tab name, pane title, directory or agent. */
+function matching(ws: WorkspaceView, query: string): WorkspaceView {
+  if (!query) return ws;
+  const hit = (tab: TabView, pane: PaneView) =>
+    [tab.name, pane.title, pane.cwd, pane.agent && agentLook(pane.agent.kind).name, ws.name].some((text) =>
+      text?.toLowerCase().includes(query),
+    );
+  return {
+    ...ws,
+    tabs: ws.tabs
+      .map((tab) => ({ ...tab, panes: tab.panes.filter((pane) => hit(tab, pane)) }))
+      .filter((tab) => tab.panes.length > 0),
+  };
+}
+
+function renderTree(host: Host, tree: Tree, query = ""): Node[] {
+  if (query) {
+    const groups = [
+      ...tree.workspaces.map((ws) => [null, matching(ws, query)] as const),
+      ...(tree.remotes ?? []).flatMap((r) => r.workspaces.map((ws) => [r, matching(ws, query)] as const)),
+    ].filter(([, ws]) => ws.tabs.length > 0);
+    return groups.length
+      ? groups.map(([place, ws]) => workspaceGroup(host, place, ws, place?.name))
+      : [h("p", { class: "search-empty" }, `No tab matches “${query}”.`)];
+  }
   const out: Node[] = [];
   const remotes = tree.remotes ?? [];
 
-  out.push(...tree.workspaces.map((ws) => workspaceGroup(host, null, ws, failed)));
+  out.push(...tree.workspaces.map((ws) => workspaceGroup(host, null, ws)));
   if (tree.workspaces.length === 0) {
     out.push(
       h(
@@ -625,7 +727,7 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
           !remote.pending &&
           remote.workspaces.length === 0 &&
           h("p", { class: "remote-note" }, `No workspaces on ${remote.name}.`),
-        ...remote.workspaces.map((ws) => workspaceGroup(host, remote, ws, failed)),
+        ...remote.workspaces.map((ws) => workspaceGroup(host, remote, ws)),
       ),
     );
   }
@@ -633,41 +735,137 @@ function renderTree(host: Host, tree: Tree, failed: (message: string) => void): 
 }
 
 /** A workspace is one card of its tabs, named as the desktop's sidebar names
- * them; a split tab gives each of its panes a row. */
-function workspaceGroup(host: Host, place: Place, ws: WorkspaceView, failed: (message: string) => void) {
+ * them; a split tab gives each of its panes a row. `where` names the machine
+ * when a search mixes them. */
+function workspaceGroup(host: Host, place: Place, ws: WorkspaceView, where?: string) {
+  const rows = ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, place, tab, pane)));
   return h(
     "section",
     { class: "group" },
     h(
       "div",
       { class: "group-head" },
-      h("h2", { class: "group-title" }, workspaceName(ws.name)),
-      newTabButton(host, place, ws, failed),
+      h("h2", { class: "group-title" }, where ? `${where} · ${workspaceName(ws.name)}` : workspaceName(ws.name)),
+      h("span", { class: "group-count" }, String(ws.tabs.length)),
     ),
-    h(
-      "div",
-      { class: "card" },
-      ...ws.tabs.flatMap((tab) => tab.panes.map((pane) => paneRow(host, place, tab, pane))),
-    ),
+    rows.length ? h("div", { class: "card" }, ...rows) : h("p", { class: "group-empty" }, "No tabs open."),
   );
 }
 
-/** Starts a shell in a new tab at the end of a workspace, in the directory
- * its last tab is in, sized to this screen, and opens it. */
-function newTabButton(host: Host, place: Place, ws: WorkspaceView, failed: (message: string) => void) {
-  const button = h("button", { class: "head-action" }, ico("plus"), "New tab");
-  button.onclick = async () => {
-    button.disabled = true;
+/** The agents a new tab can start in, and the command that starts each. */
+const STARTERS = [
+  { kind: "claude", command: "claude" },
+  { kind: "codex", command: "codex" },
+  { kind: null, command: null },
+] as const;
+
+function remembered(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function remember(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private storage off: the choice is just not kept.
+  }
+}
+
+/** The sheet "+" opens on a machine: pick what runs, pick the workspace, Open.
+ * The tab starts in the directory its workspace's last tab is in, sized to
+ * this screen, and the agent's command is typed into it once it is live. */
+function newTabSheet(host: Host, tree: Tree, failed: (message: string) => void) {
+  type Target = { place: Place; ws: WorkspaceView };
+  const targets: Target[] = [
+    ...tree.workspaces.map((ws) => ({ place: null, ws })),
+    ...(tree.remotes ?? [])
+      .filter((r) => r.connected && !r.error && !r.pending)
+      .flatMap((r) => r.workspaces.map((ws) => ({ place: { key: r.key, name: r.name }, ws }))),
+  ];
+  let starter = Math.max(0, STARTERS.findIndex((s) => (s.kind ?? "shell") === remembered("newtab.agent")));
+  let target = 0;
+
+  const agents = h("div", { class: "agent-grid" });
+  const places = h("div", { class: "card" });
+  const open = h("button", { class: "button primary wide sheet-open" }, "Open");
+  const error = h("p", { class: "field-error", role: "alert" });
+
+  const draw = () => {
+    agents.replaceChildren(
+      ...STARTERS.map((s, i) =>
+        h(
+          "button",
+          { class: i === starter ? "agent-choice on" : "agent-choice", onclick: () => ((starter = i), draw()) },
+          avatar(s.kind ? { kind: s.kind, status: "idle" } : null),
+          h("span", {}, s.kind ? agentLook(s.kind).name : "Shell"),
+        ),
+      ),
+    );
+    places.replaceChildren(
+      ...targets.map((t, i) =>
+        h(
+          "button",
+          { class: "row choice", onclick: () => ((target = i), draw()) },
+          h("span", { class: "row-title" }, workspaceName(t.ws.name)),
+          h("span", { class: "row-meta" }, t.place?.name ?? `${t.ws.tabs.length} ${t.ws.tabs.length === 1 ? "tab" : "tabs"}`),
+          i === target ? ico("check", "icon choice-check") : h("span", { class: "choice-check" }),
+        ),
+      ),
+    );
+    open.disabled = targets.length === 0;
+  };
+  draw();
+
+  const sheet = h(
+    "div",
+    { class: "sheet", role: "dialog", ariaLabel: "New tab" },
+    h("span", { class: "sheet-grip" }),
+    h(
+      "div",
+      { class: "sheet-head" },
+      h("h2", { class: "sheet-title" }, "New tab"),
+      h("button", { class: "round", ariaLabel: "Close", onclick: () => close() }, ico("close")),
+    ),
+    h("div", { class: "sheet-body" },
+      h("section", { class: "sheet-group" }, h("h3", { class: "group-title" }, "Agent"), agents),
+      h(
+        "section",
+        { class: "sheet-group" },
+        h("h3", { class: "group-title" }, "Workspace"),
+        targets.length ? places : h("p", { class: "group-empty" }, `Open a workspace in tty7 on ${host.name} first.`),
+      ),
+      error,
+    ),
+    open,
+  );
+  const scrim = h("div", { class: "scrim", onclick: (e: Event) => e.target === scrim && close() }, sheet);
+  const close = () => {
+    scrim.classList.add("leaving");
+    setTimeout(() => scrim.remove(), still.matches ? 0 : 220);
+  };
+  open.onclick = async () => {
+    const { place, ws } = targets[target];
+    const s = STARTERS[starter];
+    remember("newtab.agent", s.kind ?? "shell");
+    open.disabled = true;
+    error.textContent = "";
     const cwd = ws.tabs.at(-1)?.panes[0]?.cwd ?? null;
     try {
       const created = await api.tabNew(host.id, place?.key ?? null, ws.id, cwd, phoneGrid());
-      terminalScreen(host, place, { id: created.pane_id, title: "shell", cwd }, "New tab");
+      scrim.remove();
+      const title = s.kind ? agentLook(s.kind).name : "shell";
+      terminalScreen(host, place, { id: created.pane_id, title, cwd }, title, s.command ?? undefined);
     } catch (e) {
+      error.textContent = sentence(errorText(e));
       failed(errorText(e));
-      button.disabled = false;
+      open.disabled = false;
     }
   };
-  return button;
+  document.body.append(scrim);
 }
 
 /** The grid that fills this screen at the readable size: what a tab started
@@ -675,8 +873,9 @@ function newTabButton(host: Host, place: Place, ws: WorkspaceView, failed: (mess
 function phoneGrid() {
   const cellW = READABLE_PX * CELL_EM;
   const cellH = READABLE_PX * 1.18;
-  // The terminal screen's bar and key bar, and the xterm padding.
-  const chrome = 48 + 56 + 16;
+  // The terminal screen's bar, its dock (keys, page dots, message box, the
+  // home indicator's gap) and the xterm padding.
+  const chrome = 56 + 132 + 16;
   return {
     cols: Math.max(20, Math.floor((window.innerWidth - 12) / cellW)),
     rows: Math.max(5, Math.floor((window.innerHeight - chrome) / cellH)),
@@ -720,6 +919,7 @@ function paneRow(host: Host, place: Place, tab: TabView, pane: PaneView) {
       ),
       sub.length > 0 && h("span", { class: "row-sub" }, ...sub),
     ),
+    agent && agent.status !== "idle" && agent.status !== "done" && h("span", { class: `status-dot ${agent.status}` }),
     ico("chevron", "icon row-chevron"),
   );
 }
@@ -731,17 +931,13 @@ function avatar(agent: AgentView | null | undefined, cls = "avatar") {
   const el = h("span", { class: cls });
   if (agent) {
     const look = agentLook(agent.kind);
-    el.style.setProperty("--field", look.field);
-    el.style.setProperty("--mark-ink", look.ink);
-    el.classList.add("agent");
     el.title = `${look.name}: ${STATUS_WORD[agent.status]}`;
     if (look.mark) {
       const mark = h("span", { class: "mark" });
       mark.style.setProperty("--mark", `url("${look.mark}")`);
       el.append(mark);
-    } else el.append(ico("terminal"));
-    if (agent.status !== "idle") el.append(h("span", { class: `badge ${agent.status}` }));
-  } else el.append(ico("terminal"));
+    } else el.append(h("span", { class: "glyph" }, look.name.slice(0, 2)));
+  } else el.append(h("span", { class: "glyph" }, ">_"));
   return el;
 }
 
@@ -786,8 +982,9 @@ interface MenuItem {
   run: () => void;
 }
 
-/** A trailing ⋯ button with a small menu that drops from it. */
-function menuButton(items: MenuItem[]) {
+/** A trailing ⋯ button with a small menu that drops from it. Items can be
+ * given as a function, to be read afresh each time it opens. */
+function menuButton(items: MenuItem[] | (() => MenuItem[]), cls = "nav-icon") {
   const wrap = h("div", { class: "menu-wrap" });
   const list = h("div", { class: "menu", role: "menu", hidden: true });
   const outside = (e: Event) => {
@@ -797,8 +994,10 @@ function menuButton(items: MenuItem[]) {
     list.hidden = true;
     document.removeEventListener("pointerdown", outside, true);
   };
-  for (const item of items)
-    list.append(
+  const fill = () => {
+    list.replaceChildren();
+    for (const item of typeof items === "function" ? items() : items)
+      list.append(
       h(
         "button",
         {
@@ -809,13 +1008,15 @@ function menuButton(items: MenuItem[]) {
             item.run();
           },
         },
-        h("span", {}, item.label),
-        ico(item.icon),
-      ),
-    );
-  const button = h("button", { class: "nav-icon", ariaLabel: "More" }, ico("more"));
+          h("span", {}, item.label),
+          ico(item.icon),
+        ),
+      );
+  };
+  const button = h("button", { class: cls, ariaLabel: "More" }, ico("more"));
   button.onclick = () => {
     if (!list.hidden) return close();
+    fill();
     list.hidden = false;
     document.addEventListener("pointerdown", outside, true);
   };
@@ -827,8 +1028,9 @@ function menuButton(items: MenuItem[]) {
 // A terminal. The pane keeps the size its desktop window gave it — the phone
 // watches rather than attaches — so the font shrinks to fit the width.
 
-// The desktop's Light and Dark presets (src/ui/presets.rs), so a pane reads
-// the same on the phone as in the window it lives in.
+// The desktop's Light and Dark ANSI palettes (src/ui/presets.rs), so a pane
+// reads the same on the phone as in the window it lives in, on the app's own
+// neutral surface.
 const ANSI = {
   light: ["#24292e", "#d1242f", "#1a7f37", "#9a6700", "#0969da", "#8250df", "#1b7c83", "#6e7781", "#57606a", "#cf222e", "#1f883d", "#bf8700", "#218bff", "#a475f9", "#3192aa", "#8c959f"],
   dark: ["#616161", "#ff8272", "#b4fa72", "#fefdc2", "#a5d5fe", "#ff8ffd", "#d0d1fe", "#f1f1f1", "#8e8e8e", "#ffc4bd", "#d6fcb9", "#fefdd5", "#c1e3fe", "#ffb1fe", "#e5e6fe", "#feffff"],
@@ -841,8 +1043,8 @@ function terminalTheme(): ITheme {
   const dark = darkScheme.matches;
   const ansi = dark ? ANSI.dark : ANSI.light;
   const theme: Record<string, string> = dark
-    ? { background: "#191b20", foreground: "#e2e5eb", cursor: "#78a8f5", cursorAccent: "#191b20", selectionBackground: "#78a8f555" }
-    : { background: "#ffffff", foreground: "#0f1419", cursor: "#1f6bf0", cursorAccent: "#ffffff", selectionBackground: "#1f6bf033" };
+    ? { background: "#1e1e20", foreground: "#ececed", cursor: "#ececed", cursorAccent: "#1e1e20", selectionBackground: "#ffffff2e" }
+    : { background: "#fcfcfb", foreground: "#1c1c1e", cursor: "#1c1c1e", cursorAccent: "#fcfcfb", selectionBackground: "#0000001f" };
   // xterm's scrollbar, drawn to match the system indicator WebKit gives the
   // pan (style.css shapes it).
   const bar = dark ? "#ffffff" : "#000000";
@@ -857,7 +1059,8 @@ function terminalTheme(): ITheme {
 }
 
 /** A key on the bar: a sequence to send, the ctrl latch, or the clipboard.
- * `text` is what it shows when that is not its label. */
+ * `text` is what it shows when that is not its label; `flex` its share of
+ * the row. */
 type Key = {
   label: string;
   seq: string;
@@ -865,35 +1068,47 @@ type Key = {
   icon?: keyof typeof icon;
   latch?: boolean;
   paste?: boolean;
+  flex?: number;
 };
 
-const KEYS: Key[] = [
-  { label: "esc", seq: "\x1b" },
-  // Enter on its own, without opening the keyboard: confirming an agent's
-  // highlighted choice, or a prompt's default.
-  { label: "Enter", seq: "\r", icon: "enter" },
-  { label: "tab", seq: "\t" },
-  // Claude Code's mode switch, among others.
-  { label: "Shift Tab", text: "⇧tab", seq: "\x1b[Z" },
-  { label: "ctrl", seq: "", latch: true },
-  { label: "^C", seq: "\x03" },
-  { label: "Left", seq: "\x1b[D", icon: "left" },
-  { label: "Right", seq: "\x1b[C", icon: "right" },
-  { label: "Up", seq: "\x1b[A", icon: "up" },
-  { label: "Down", seq: "\x1b[B", icon: "down" },
-  // Quick answers: an agent's numbered choices (Claude Code takes the digit
-  // alone) and y/n prompts. Each is just the keystroke; ⏎ is there for the
-  // prompts that also want Enter.
-  { label: "1", seq: "1" },
-  { label: "2", seq: "2" },
-  { label: "3", seq: "3" },
-  { label: "y", seq: "y" },
-  { label: "n", seq: "n" },
-  { label: "Paste", seq: "", icon: "paste", paste: true },
-  { label: "|", seq: "|" },
-  { label: "/", seq: "/" },
-  { label: "~", seq: "~" },
-  { label: "-", seq: "-" },
+/** The key row, a page at a time: what an agent and a shell need most first,
+ * a swipe away the rest. */
+const KEY_PAGES: Key[][] = [
+  [
+    { label: "esc", seq: "\x1b", flex: 1.2 },
+    { label: "tab", seq: "\t", flex: 1.2 },
+    // Claude Code's mode switch, among others.
+    { label: "Shift Tab", text: "⇧tab", seq: "\x1b[Z", flex: 1.4 },
+    { label: "ctrl", seq: "", latch: true, flex: 1.3 },
+    { label: "^C", seq: "\x03" },
+    { label: "Up", seq: "\x1b[A", icon: "up", flex: 0.9 },
+    { label: "Down", seq: "\x1b[B", icon: "down", flex: 0.9 },
+    // Enter on its own, without opening the keyboard: confirming an agent's
+    // highlighted choice, or a prompt's default.
+    { label: "Enter", seq: "\r", icon: "enter" },
+  ],
+  [
+    { label: "Left", seq: "\x1b[D", icon: "left" },
+    { label: "Right", seq: "\x1b[C", icon: "right" },
+    // Quick answers: an agent's numbered choices (Claude Code takes the digit
+    // alone) and y/n prompts. Each is just the keystroke; ⏎ is there for the
+    // prompts that also want Enter.
+    { label: "1", seq: "1" },
+    { label: "2", seq: "2" },
+    { label: "3", seq: "3" },
+    { label: "y", seq: "y" },
+    { label: "n", seq: "n" },
+    { label: "Paste", seq: "", icon: "paste", paste: true, flex: 1.2 },
+  ],
+  [
+    { label: "|", seq: "|" },
+    { label: "/", seq: "/" },
+    { label: "~", seq: "~" },
+    { label: "-", seq: "-" },
+    { label: "_", seq: "_" },
+    { label: "Home", seq: "\x1b[H", flex: 1.4 },
+    { label: "End", seq: "\x1b[F", flex: 1.4 },
+  ],
 ];
 
 /** Hack's advance width, in ems — what the fit divides by. */
@@ -905,7 +1120,9 @@ const READABLE_PX = 11;
  * across leaving the pane, and across a send that did not get through. */
 const drafts = new Map<string, string>();
 
-function terminalScreen(host: Host, place: Place, pane: PaneView, title: string) {
+/** `run` is typed into the pane, then Enter, once it is first live: the
+ * agent a new tab was opened for. */
+function terminalScreen(host: Host, place: Place, pane: PaneView, title: string, run?: string) {
   go("push", () => {
     // What the pane is doing and whether keystrokes will land, in words: the
     // one line under the title.
@@ -916,25 +1133,34 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       place && path ? `${place.name}:${shortPath(path)}` : shortPath(path);
     const cwd = h("span", { class: "term-cwd" }, where(pane.cwd));
     const sub = h("span", { class: "term-sub" }, state, cwd);
-    const zoom = h("button", { class: "nav-icon", ariaLabel: "Fit the whole width" }, ico("fit"));
-    const select = h("button", { class: "nav-icon", ariaLabel: "Select text" }, ico("copy"));
-    const take = h("button", { class: "nav-icon", ariaLabel: "Use this phone's screen size" }, ico("phone"));
-    let head = avatar(pane.agent, "avatar small");
+    // Copying, the fit and the phone's size live in the ⋯ menu; the bar keeps
+    // only the way back and what this is.
+    const menu = menuButton(
+      () => [
+        { label: "Select text", icon: "copy", run: () => selecting(copyView.hidden) },
+        ...(cramped && !leased
+          ? [
+              {
+                label: readable ? "Fit the whole width" : "Make the text readable",
+                icon: readable ? ("fit" as const) : ("zoom" as const),
+                run: toggleZoom,
+              },
+            ]
+          : []),
+        {
+          label: wanted ? "Give back the desktop's size" : "Use this phone's size",
+          icon: "phone" as const,
+          run: toggleTake,
+        },
+      ],
+      "round",
+    );
     const bar = h(
       "header",
-      { class: "nav term-nav" },
-      h(
-        "div",
-        { class: "nav-lead" },
-        h("button", { class: "nav-back", ariaLabel: `Back to ${host.name}`, onclick: () => hostScreen(host) }, ico("back")),
-      ),
-      h(
-        "div",
-        { class: "term-head" },
-        head,
-        h("div", { class: "term-titles" }, h("span", { class: "term-title" }, title), sub),
-      ),
-      h("div", { class: "nav-trail" }, select, take, zoom),
+      { class: "term-nav" },
+      h("button", { class: "round", ariaLabel: `Back to ${host.name}`, onclick: () => hostScreen(host) }, ico("back")),
+      h("div", { class: "term-titles" }, h("span", { class: "term-title" }, title), sub),
+      menu,
     );
     const screenEl = h("div", { class: "term" });
     const banner = h("div", { class: "term-banner-slot" });
@@ -949,12 +1175,10 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       h("div", { class: "term-copy-bar" }, h("span", {}, "Select text to copy"), copyDone),
       copyText,
     );
-    const keys = h("div", { class: "keys" });
-    const keyboard = h("button", { class: "key key-kbd", ariaLabel: "Show or hide the keyboard" }, ico("keyboard"));
-    const composeKey = h("button", { class: "key key-kbd", ariaLabel: "Write a message" }, ico("compose"));
-    const keybar = h("div", { class: "keybar" }, keys, composeKey, keyboard);
+    const pages = h("div", { class: "key-pages" });
+    const dots = h("div", { class: "key-dots", ariaHidden: "true" });
 
-    // The compose box: a real text field, so the phone's own keyboard works
+    // The message box: a real text field, so the phone's own keyboard works
     // in full — autocorrect, dictation, an IME's candidates, moving the
     // caret — and what is written goes in whole, then Enter.
     const draftKey = `${host.id}/${place?.key ?? ""}/${pane.id}`;
@@ -962,20 +1186,22 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       class: "compose-input",
       rows: 1,
       value: drafts.get(draftKey) ?? "",
-      placeholder: pane.agent ? `Reply to ${agentLook(pane.agent.kind).name}` : "Type a command",
+      placeholder: pane.agent ? `Message ${agentLook(pane.agent.kind).name}…` : "Type a command…",
       enterKeyHint: "send",
       ariaLabel: "Message",
     });
-    const sendKey = h("button", { class: "compose-send", ariaLabel: "Send" }, ico("send"));
-    const compose = h("div", { class: "compose", hidden: true }, field, sendKey);
+    const sendKey = h("button", { class: "round send", ariaLabel: "Send" }, ico("send"));
+    // Typing straight into the terminal, key by key, for what a message box
+    // cannot do: a full-screen program, a password prompt.
+    const keyboard = h("button", { class: "round", ariaLabel: "Type into the terminal" }, ico("keyboard"));
+    const compose = h("div", { class: "compose" }, field, sendKey, keyboard);
 
     const view = h(
       "div",
       { class: "screen term-screen" },
       bar,
       h("div", { class: "term-wrap" }, screenEl, copyView, banner),
-      compose,
-      keybar,
+      h("div", { class: "term-dock" }, pages, dots, compose),
     );
 
     const term = new Terminal({
@@ -995,7 +1221,8 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     let ctrl = false;
     let cols = 80;
     let alive = true;
-    let composing = false;
+    // Whether the pane is wider than the phone can show legibly.
+    let cramped = false;
     // The pane exited: nothing to reconnect to.
     let ended = false;
     // The phone's size: `wanted` is what the user asked for, `leased` what
@@ -1052,29 +1279,40 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         return; // Declined at the system's paste prompt.
       }
       if (!text) return;
-      if (composing) {
+      if (document.activeElement === field) {
         field.setRangeText(text, field.selectionStart, field.selectionEnd, "end");
         edited();
       } else term.paste(text);
     };
 
-    for (const k of KEYS) {
-      if (k.paste && !canPaste) continue;
-      const key = h("button", { class: "key", ariaLabel: k.label }, k.icon ? ico(k.icon) : (k.text ?? k.label));
-      if (k.latch) ctrlKey = key;
-      // Keep focus where it is — the terminal or the compose box — so the
-      // soft keyboard stays up.
-      key.onpointerdown = (e) => e.preventDefault();
-      key.onclick = () => {
-        if (k.latch) {
-          ctrl = !ctrl;
-          key.classList.toggle("on", ctrl);
-        } else if (k.paste) void paste();
-        else send(k.seq);
-        if (!composing) term.focus();
-      };
-      keys.append(key);
+    for (const page of KEY_PAGES) {
+      const row = h("div", { class: "key-page" });
+      for (const k of page) {
+        if (k.paste && !canPaste) continue;
+        const key = h("button", { class: "key", ariaLabel: k.label }, k.icon ? ico(k.icon) : (k.text ?? k.label));
+        key.style.flex = String(k.flex ?? 1);
+        if (k.latch) ctrlKey = key;
+        // Keep focus where it is — the terminal, the message box or neither —
+        // so the soft keyboard stays as it is.
+        key.onpointerdown = (e) => e.preventDefault();
+        key.onclick = () => {
+          if (k.latch) {
+            ctrl = !ctrl;
+            key.classList.toggle("on", ctrl);
+          } else if (k.paste) void paste();
+          else send(k.seq);
+        };
+        row.append(key);
+      }
+      pages.append(row);
+      dots.append(h("span", {}));
     }
+    const showPage = () => {
+      const at = Math.round(pages.scrollLeft / Math.max(1, pages.clientWidth));
+      [...dots.children].forEach((dot, i) => dot.classList.toggle("on", i === at));
+    };
+    pages.addEventListener("scroll", showPage, { passive: true });
+    showPage();
 
     const grow = () => {
       // Off the page it measures nothing; the first fit comes once it is on.
@@ -1085,6 +1323,9 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     const edited = () => {
       if (field.value) drafts.set(draftKey, field.value);
       else drafts.delete(draftKey);
+      // Written, the round button sends; empty, it is the keyboard's.
+      sendKey.hidden = !field.value;
+      keyboard.hidden = !!field.value;
       grow();
     };
     field.addEventListener("input", edited);
@@ -1110,29 +1351,9 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     sendKey.onpointerdown = (e) => e.preventDefault();
     sendKey.onclick = () => void submit();
 
-    const setComposing = (on: boolean, focus: boolean) => {
-      composing = on;
-      compose.hidden = !on;
-      composeKey.classList.toggle("on", on);
-      composeKey.ariaLabel = on ? "Type into the terminal" : "Write a message";
-      if (!on) {
-        field.blur();
-        if (focus) term.focus();
-        return;
-      }
-      grow();
-      if (focus) field.focus();
-    };
-    composeKey.onpointerdown = (e) => e.preventDefault();
-    composeKey.onclick = () => setComposing(!composing, true);
-    // An agent's pane opens on the box, keyboard down: read first, then reply.
-    if (pane.agent) setComposing(true, false);
     keyboard.onpointerdown = (e) => e.preventDefault();
     keyboard.onclick = () => {
-      const active = document.activeElement;
-      if (screenEl.contains(active)) term.blur();
-      else if (active === field) field.blur();
-      else if (composing) field.focus();
+      if (screenEl.contains(document.activeElement)) term.blur();
       else term.focus();
     };
 
@@ -1149,18 +1370,15 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       // Taken over, the pane is exactly the phone's width at the readable
       // size: nothing to shrink, nothing to pan.
       if (leased) {
-        zoom.hidden = true;
+        cramped = false;
         term.options.fontSize = READABLE_PX;
         screenEl.classList.remove("panning");
         return;
       }
       const fitted = fittedSize();
-      const cramped = fitted < READABLE_PX;
-      zoom.hidden = !cramped;
+      cramped = fitted < READABLE_PX;
       term.options.fontSize = cramped && readable ? READABLE_PX : Math.max(4, fitted);
       screenEl.classList.toggle("panning", cramped && readable);
-      zoom.replaceChildren(ico(readable ? "fit" : "zoom"));
-      zoom.ariaLabel = readable ? "Fit the whole width" : "Make the text readable";
       follow();
       // The new font size is laid out on the next frame.
       requestAnimationFrame(pinScrollbar);
@@ -1189,7 +1407,7 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       if (x < screenEl.scrollLeft + cell * 4 || x > screenEl.scrollLeft + view - cell * 4)
         screenEl.scrollLeft = Math.max(0, x - view / 2);
     };
-    zoom.onclick = () => {
+    const toggleZoom = () => {
       readable = !readable;
       fit();
     };
@@ -1221,13 +1439,10 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       sent = key;
       api.paneLease(handle, grid).catch(() => {});
     };
-    const showTake = () => {
-      take.classList.toggle("on", wanted);
-      take.ariaLabel = wanted ? "Give the pane back to the desktop's size" : "Use this phone's screen size";
-    };
-    take.onclick = () => {
+    // Taken over is said under the title, beside Live.
+    const liveLabel = () => (leased ? "Live · phone size" : "Live");
+    const toggleTake = () => {
       wanted = !wanted;
-      showTake();
       if (wanted) {
         sent = "";
         askLease();
@@ -1263,12 +1478,12 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
             label: "Take over again",
             run: () => {
               banner.replaceChildren();
-              take.click();
+              toggleTake();
             },
           });
         }
-        showTake();
       }
+      if (live) setState("live", liveLabel());
       fit();
     };
     term.onCursorMove(follow);
@@ -1290,7 +1505,6 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
     };
     const selecting = (on: boolean) => {
       copyView.hidden = !on;
-      select.classList.toggle("on", on);
       if (!on) {
         getSelection()?.removeAllRanges();
         copyText.textContent = "";
@@ -1301,7 +1515,6 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       copyText.textContent = bufferText();
       copyText.scrollTop = copyText.scrollHeight;
     };
-    select.onclick = () => selecting(copyView.hidden);
     copyDone.onclick = () => selecting(false);
 
     const retheme = () => {
@@ -1361,12 +1574,11 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
                 term.resize(event.cols, event.rows);
                 fit();
                 break;
-              case "agent": {
-                const next = avatar(event.agent, "avatar small");
-                head.replaceWith(next);
-                head = next;
+              case "agent":
+                field.placeholder = event.agent
+                  ? `Message ${agentLook(event.agent.kind).name}…`
+                  : "Type a command…";
                 break;
-              }
               case "cwd":
                 cwd.textContent = where(event.path);
                 break;
@@ -1402,8 +1614,13 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
         askLease();
         retry.reset();
         banner.replaceChildren();
-        setState("live", "Live");
-        if (!composing) term.focus();
+        setState("live", liveLabel());
+        // A new tab's agent, started once: not again on a reconnect.
+        if (run) {
+          const command = run;
+          run = undefined;
+          void input(`${command}\r`);
+        }
       } catch (e) {
         if (current()) offline(errorText(e));
       }
@@ -1439,8 +1656,11 @@ function terminalScreen(host: Host, place: Place, pane: PaneView, title: string)
       document.fonts.load("12px Hack").finally(() => {
         if (!alive) return;
         term.open(screenEl);
+        // The keyboard button shows when the terminal has the keyboard.
+        term.textarea?.addEventListener("focus", () => keyboard.classList.add("on"));
+        term.textarea?.addEventListener("blur", () => keyboard.classList.remove("on"));
         fit();
-        grow();
+        edited();
         open();
       });
     });
