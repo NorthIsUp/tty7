@@ -446,6 +446,24 @@ pub struct Config {
     /// next, so they do not all cold-start and hit the API at once.
     #[serde(default = "default_continue_stagger_ms")]
     pub continue_stagger_ms: u64,
+    /// New Tab opens the new tab page — pick an agent or a terminal and a
+    /// directory — instead of a shell in the current tab's directory.
+    #[serde(default = "default_true")]
+    pub new_tab_page: bool,
+    /// Directories whose children the new tab page offers (`~` expands).
+    #[serde(default = "default_dir_roots")]
+    pub dir_roots: Vec<String>,
+    /// How often and how recently each directory was launched into from the
+    /// new tab page, keyed by its absolute path.
+    #[serde(default)]
+    pub dir_frecency: HashMap<String, ProfileUsage>,
+    /// Sidebar group colour overrides, by group name: `"clawmux": "#ffd7d7"`.
+    #[serde(default)]
+    pub group_colors: HashMap<String, String>,
+    /// Niceness every pane's shell starts at, so typing stays responsive while
+    /// agents build; 0 leaves it alone. Unix only.
+    #[serde(default = "default_nice")]
+    pub nice: i32,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -831,6 +849,11 @@ impl Default for Config {
             restore_asleep: true,
             continue_prompt: default_continue_prompt(),
             continue_stagger_ms: default_continue_stagger_ms(),
+            new_tab_page: true,
+            dir_roots: default_dir_roots(),
+            dir_frecency: HashMap::new(),
+            group_colors: HashMap::new(),
+            nice: default_nice(),
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
@@ -1500,6 +1523,14 @@ fn default_continue_prompt() -> String {
 
 fn default_continue_stagger_ms() -> u64 {
     3000
+}
+
+fn default_dir_roots() -> Vec<String> {
+    ["~/src", "~/code", "~/projects"].map(String::from).to_vec()
+}
+
+fn default_nice() -> i32 {
+    5
 }
 
 fn default_true() -> bool {
