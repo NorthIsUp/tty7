@@ -1554,7 +1554,7 @@ impl Tty7App {
                 },
                 ..Default::default()
             },
-            github: Default::default(),
+            github: crate::ui::github_session::panel_state(cx.global::<Config>()),
             diff_probes_inflight: Default::default(),
             diff_probes_restale: Default::default(),
             file_tree,

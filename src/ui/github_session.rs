@@ -19,8 +19,9 @@ use tty7_core::core::github::{Item, Kind, RepoSlug};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
 
+use crate::core::config::{Config, GitHubPanelList};
 use crate::ui::app::{CONTENT_INSET, Tty7App};
-use crate::ui::github::STALE_AFTER;
+use crate::ui::github::{GitHubPanelState, STALE_AFTER};
 use crate::ui::host_ops::{HostOps, SharedHost};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::right_panel::{META, TEXT_INSET};
@@ -63,6 +64,23 @@ pub(crate) fn intersect(items: &[Item], m: &Mentions) -> (Vec<Item>, Vec<u64>) {
         .filter(|n| !shown.iter().any(|i| i.number == *n))
         .collect();
     (shown, more)
+}
+
+/// The remote to prefer: the user's pick, else `origin` (the fork) when
+/// `prefer_origin`, else upstream's own order in `default_remote`.
+pub(crate) fn remote_pick(pick: Option<&str>, prefer_origin: bool) -> Option<&str> {
+    pick.or(prefer_origin.then_some("origin"))
+}
+
+/// The panel's state at launch: the list `github_panel_default_list` names.
+pub(crate) fn panel_state(config: &Config) -> GitHubPanelState {
+    GitHubPanelState {
+        kind: match config.github_panel_default_list {
+            GitHubPanelList::Issues => Kind::Issues,
+            GitHubPanelList::PullRequests => Kind::Pulls,
+        },
+        ..Default::default()
+    }
 }
 
 impl Tty7App {
@@ -290,6 +308,43 @@ mod tests {
             updated_at: 0,
             html_url: String::new(),
         }
+    }
+
+    #[test]
+    fn the_panel_opens_on_the_configured_list() {
+        let mut config = Config::default();
+        assert_eq!(panel_state(&config).kind, Kind::Issues);
+        config.github_panel_default_list = GitHubPanelList::PullRequests;
+        assert_eq!(panel_state(&config).kind, Kind::Pulls);
+    }
+
+    #[test]
+    fn the_fork_is_shown_until_a_remote_is_picked() {
+        use tty7_core::core::github::remote::{GitHubRemote, default_remote};
+        let remote = |name: &str, owner: &str| GitHubRemote {
+            remote: name.into(),
+            slug: RepoSlug {
+                owner: owner.into(),
+                name: "tty7".into(),
+            },
+        };
+        let remotes = [remote("origin", "me"), remote("upstream", "acme")];
+        let shown = |pick, prefer| {
+            default_remote(&remotes, remote_pick(pick, prefer))
+                .unwrap()
+                .remote
+                .clone()
+        };
+        assert_eq!(shown(None, true), "origin");
+        assert_eq!(shown(None, false), "upstream");
+        assert_eq!(shown(Some("upstream"), true), "upstream");
+        let only_upstream = [remote("upstream", "acme")];
+        assert_eq!(
+            default_remote(&only_upstream, remote_pick(None, true))
+                .unwrap()
+                .remote,
+            "upstream"
+        );
     }
 
     #[test]
