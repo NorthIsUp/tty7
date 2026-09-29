@@ -411,6 +411,12 @@ impl Tty7App {
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }
 
+    fn new_tab_page_query_is_empty(&self, cx: &App) -> bool {
+        self.new_tab_page
+            .as_ref()
+            .is_none_or(|page| page.query.read(cx).value().is_empty())
+    }
+
     /// Tab arrives as an action: a key listener never sees it (see keymap.rs).
     fn step_new_tab_page_kind(&mut self, forward: bool, cx: &mut Context<Self>) {
         let Some(page) = self.new_tab_page.as_mut() else {
@@ -438,7 +444,10 @@ impl Tty7App {
         match key {
             "escape" => self.close_new_tab_page(window, cx),
             "enter" => self.commit_new_tab_page(window, cx),
-            "left" | "right" if !chord => self.step_new_tab_page_kind(key == "right", cx),
+            // With a query typed, the arrows are the caret's.
+            "left" | "right" if !chord && self.new_tab_page_query_is_empty(cx) => {
+                self.step_new_tab_page_kind(key == "right", cx)
+            }
             "[" | "{" | "]" | "}" if mods.platform && mods.shift => {
                 self.step_new_tab_page_kind(matches!(key, "]" | "}"), cx)
             }
