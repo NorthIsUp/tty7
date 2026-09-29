@@ -10,6 +10,15 @@ if [ -n "$running" ] && [ "$(cat "$stamp" 2>/dev/null || true)" != "$running $(s
   echo "reload: rerun with --server to do it anyway." >&2
   exit 1
 fi
+# Any window but the installed bundle's (an old target/ build, the upstream
+# app) shares the server, and a bundle window replacing it replaces the server
+# too — the same cost --server accepts.
+others=$(pgrep -fl 'tty7-app$' | awk '{print $2}' | grep -v "^$app/Contents/MacOS/tty7-app$" || true)
+if [ -n "$others" ] && [ "${usage_server:-false}" != true ]; then
+  echo "reload: tty7 is running from $others, not $app; switching replaces the server." >&2
+  echo "reload: rerun with --server to do it anyway." >&2
+  exit 1
+fi
 "$MISE_PROJECT_ROOT/mise-tasks/install-app"
 # Only the window: its path ends in tty7-app, the server's in its flags.
 for pid in $(pgrep -f "$app/Contents/MacOS/tty7-app$" || true); do

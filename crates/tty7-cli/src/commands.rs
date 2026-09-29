@@ -3818,6 +3818,7 @@ mod tests {
             name: name.into(),
             depth,
             foreground,
+            ..Default::default()
         }
     }
 
