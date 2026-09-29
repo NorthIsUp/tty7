@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#MISE description="Bundle the fast build as tty7-niu-dev.app, sign it with a stable identity and swap it into ~/Applications"
+set -euo pipefail
+. "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
+cd "$MISE_PROJECT_ROOT"
+"$MISE_PROJECT_ROOT/mise-tasks/build-fast"
+cargo build --locked --profile fast --features updater --bin tty7-updater
+
+# TCC keys a grant on the signature's designated requirement. Ad-hoc signing
+# mints a new one every build, so macOS asks for Photos & co. again; one
+# keychain identity keeps it. Developer ID first: its requirement names the
+# team, not the certificate, so it survives renewal too.
+identity="${TTY7_SIGN_ID:-}"
+if [ -z "$identity" ]; then
+  identities=$(security find-identity -v -p codesigning)
+  identity=$({ grep '"Developer ID Application:' <<<"$identities" || grep '"Apple Development:' <<<"$identities" || true; } | awk 'NR == 1 { print $2 }')
+fi
+if [ -z "$identity" ]; then
+  echo "install-app: no Developer ID Application or Apple Development identity in the keychain; set TTY7_SIGN_ID to one (security find-identity -v -p codesigning)" >&2
+  exit 1
+fi
+
+build_id="$(date -u +%Y%m%d%H%M%S)-$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- || echo -dirty)"
+TTY7_APP_NAME="$app_name" TTY7_BUNDLE_ID=com.northisup.tty7-niu-dev \
+  TTY7_BIN_DIR=target/fast TTY7_DIST=target/fast/bundle TTY7_BUNDLE_ONLY=1 \
+  TTY7_LOCAL_BUILD_ID="$build_id" APPLE_SIGNING_IDENTITY="$identity" APPLE_CERTIFICATE= ASC_KEY_P8= APPLE_ID= \
+  bash .github/scripts/bundle-macos.sh "" "$(uname -m)"
+
+# Swapped by rename, never copied over: rewriting a running binary's file in
+# place gets the process killed for an invalid code signature, while a rename
+# leaves the running window and server on the old inodes.
+mkdir -p "$(dirname "$app")"
+tmp=$(mktemp -d "$(dirname "$app")/.$app_name.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+ditto "target/fast/bundle/$app_name.app" "$tmp/$app_name.app"
+if [ -e "$app" ]; then mv "$app" "$tmp/previous.app"; fi
+mv "$tmp/$app_name.app" "$app"
+echo "installed $app ($build_id, signed by $identity)"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Start the fast build detached, on your real config (TTY7_CONFIG_DIR is passed through)"
-#MISE depends=["build-fast"]
+#MISE description="Install the fast build (install-app) and start it detached, on your real config (TTY7_CONFIG_DIR is passed through)"
+#MISE depends=["install-app"]
 set -euo pipefail
 . "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
 # The server keeps the environment of whoever started it and hands it to every
@@ -11,7 +11,7 @@ env -i \
   HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" SHELL="${SHELL:-/bin/zsh}" \
   LANG="${LANG:-en_US.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
   PATH=/usr/bin:/bin:/usr/sbin:/sbin ${TTY7_CONFIG_DIR:+TTY7_CONFIG_DIR="$TTY7_CONFIG_DIR"} \
-  nohup "$MISE_PROJECT_ROOT/target/fast/tty7-app" >/dev/null 2>&1 &
+  nohup "$app/Contents/MacOS/tty7-app" >/dev/null 2>&1 &
 for _ in $(seq 20); do
   pid=$(server_pid) && [ -n "$pid" ] && break
   sleep 0.5
