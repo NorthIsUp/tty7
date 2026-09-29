@@ -82,11 +82,18 @@ The header itself sits on a faint wash of that colour, and can carry an
 outline too. **Settings → General → Tabs** has both, or set them in
 `config.json`: `group_background` (on by default) and `group_outline` (off),
 each with a `_color` of `"hashed"` (the group's colour) or `"theme"` (a
-neutral from the theme).
+neutral from the theme). Set `group_background_scope` to `"group"` and the wash
+and outline cover the header and its tabs as one block instead; a folded group
+is just its header either way.
+
+Folding a group slides its tabs open or shut and turns the chevron with them.
+Turn that off with `animations: false` (or **Animate folding** in Settings).
 
 The branch beside a repo group's name is the repo's default branch
 (`origin/HEAD`, else `init.defaultBranch`), not whichever branch a tab has
 checked out — a group's tabs are often worktrees on different branches.
+`origin/HEAD` is set when the repo is cloned and git never refreshes it, so if
+the remote's default has changed since, run `git remote set-head origin --auto`.
 
 ## What a row tells you
 

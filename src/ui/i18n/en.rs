@@ -1928,6 +1928,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsGroupColorTheme => "Theme",
         L10nKey::SettingsGroupColorHashed => "Group colour",
+        L10nKey::SettingsGroupBackgroundScope => "Background covers",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "The header alone, or the header and its tabs as one block."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Header",
+        L10nKey::SettingsGroupScopeGroup => "Whole group",
+        L10nKey::SettingsGroupAnimations => "Animate folding",
+        L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"
