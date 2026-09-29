@@ -1843,6 +1843,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNoAgentSeenHere => {
             "此工作区还没有运行过编码 agent——手动启动一次后，这里就会列出它"
         }
+        L10nKey::NewTabPageTitle => "新标签页",
+        L10nKey::NewTabPageTerminal => "终端",
+        L10nKey::NewTabPagePlaceholder => "目录…",
+        L10nKey::NewTabPageHint => "Enter 打开 · Tab 切换类型 · Esc 取消",
         L10nKey::AppAgentLaunchSaved => "{name} 以后将以此命令启动：{command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} 未报告其启动参数",
         L10nKey::AppCmdShellTitle => "Shell：{title}",
