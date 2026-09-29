@@ -14,6 +14,7 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
 
+use crate::core::actions::{NewTabPageNextKind, NewTabPagePrevKind};
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
@@ -127,10 +128,13 @@ pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<
     let mut scored: Vec<(i32, &PathBuf)> = dirs
         .iter()
         .filter_map(|d| {
-            Some((
-                fuzzy_score(query, &abbreviate_home(&d.to_string_lossy(), home))?,
-                d,
-            ))
+            // A bare word names the directory itself; matched against the whole
+            // path, any long parent spells out most queries by accident.
+            let text = match query.contains('/') {
+                true => abbreviate_home(&d.to_string_lossy(), home).to_string(),
+                false => d.file_name()?.to_string_lossy().into_owned(),
+            };
+            Some((fuzzy_score(query, &text)?, d))
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
@@ -268,7 +272,20 @@ impl Tty7App {
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }
 
-    /// Structural keys are taken here, ahead of the query input's own
+    /// Tab arrives as an action: a key listener never sees it (see keymap.rs).
+    fn step_new_tab_page_kind(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(page) = self.new_tab_page.as_mut() else {
+            return;
+        };
+        let kinds = page.kinds.len();
+        page.kind = match forward {
+            true => (page.kind + 1) % kinds,
+            false => (page.kind + kinds - 1) % kinds,
+        };
+        cx.notify();
+    }
+
+    /// Structural keys are taken in the capture phase, ahead of the query input's own
     /// bindings, so the caret never has to leave the box.
     fn on_new_tab_page_key(
         &mut self,
@@ -280,17 +297,14 @@ impl Tty7App {
         match key {
             "escape" => self.close_new_tab_page(window, cx),
             "enter" => self.commit_new_tab_page(window, cx),
-            "up" | "down" | "tab" => {
+            "up" | "down" => {
                 let Some(page) = self.new_tab_page.as_mut() else {
                     return;
                 };
-                let (rows, kinds) = (page.rows.len(), page.kinds.len());
-                match key {
-                    "up" => page.selected = page.selected.saturating_sub(1),
-                    "down" => page.selected = (page.selected + 1).min(rows.saturating_sub(1)),
-                    _ if mods.shift => page.kind = (page.kind + kinds - 1) % kinds,
-                    _ => page.kind = (page.kind + 1) % kinds,
-                }
+                page.selected = match key {
+                    "up" => page.selected.saturating_sub(1),
+                    _ => (page.selected + 1).min(page.rows.len().saturating_sub(1)),
+                };
                 page.scroll.scroll_to_item(page.selected);
             }
             _ => match key.parse::<usize>() {
@@ -457,7 +471,13 @@ impl Tty7App {
                 .pt(px(CARD_TOP))
                 .bg(scrim)
                 .key_context("NewTabPage")
-                .on_key_down(cx.listener(Self::on_new_tab_page_key))
+                .on_action(cx.listener(|this, _: &NewTabPageNextKind, _, cx| {
+                    this.step_new_tab_page_kind(true, cx)
+                }))
+                .on_action(cx.listener(|this, _: &NewTabPagePrevKind, _, cx| {
+                    this.step_new_tab_page_kind(false, cx)
+                }))
+                .capture_key_down(cx.listener(Self::on_new_tab_page_key))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseDownEvent, window, cx| {
@@ -580,6 +600,13 @@ mod tests {
         );
         // Scored against the `~` form: the home prefix itself matches nothing.
         assert_eq!(filter("Users", &dirs, Some(home)), Vec::<PathBuf>::new());
+        // A long parent must not spell the query: "beta" is in "f14681bd…t…a".
+        let deep = vec![
+            PathBuf::from("/tmp/f14681bd-scratch/src/alpha"),
+            PathBuf::from("/tmp/f14681bd-scratch/src/beta-repo"),
+        ];
+        assert_eq!(filter("beta", &deep, None), vec![deep[1].clone()]);
+        assert_eq!(filter("src/al", &deep, None), vec![deep[0].clone()]);
     }
 
     #[test]
