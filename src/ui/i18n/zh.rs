@@ -1604,6 +1604,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "将此 agent 会话 fork 到新标签页",
         L10nKey::CmdMarkTabAsUnread => "将标签页标记为未读",
         L10nKey::CmdHibernateTab => "休眠标签页",
+        L10nKey::CmdSearchText => "在文件中搜索文本…",
+        L10nKey::SearchTabText => "文本",
+        L10nKey::SearchPlaceholderText => "搜索文件内容…",
+        L10nKey::SearchTextTooShort => "输入至少 3 个字符以搜索文件内容。",
         L10nKey::CmdContinueAllAgents => "继续所有 Agent",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
