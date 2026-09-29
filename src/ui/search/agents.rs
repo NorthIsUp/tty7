@@ -174,4 +174,21 @@ mod tests {
             );
         });
     }
+
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn cmd_k_opens_the_agents_tab_and_closes_it_again(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = crate::ui::app::test_window::harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, window, cx| app.focus_active(window, cx));
+        vcx.simulate_keystrokes("cmd-k");
+        vcx.run_until_parked();
+        let view = app.read_with(&vcx, |app, _| {
+            app.search.clone().expect("⌘K opens the search")
+        });
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab(), SearchTab::Agents));
+
+        vcx.simulate_keystrokes("cmd-k");
+        vcx.run_until_parked();
+        assert!(app.read_with(&vcx, |app, _| app.search.is_none()));
+    }
 }
