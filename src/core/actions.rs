@@ -157,6 +157,8 @@ actions!(
         SendTab,
         SendBackTab,
         SwitcherAcross,
+        NewTabPageNextKind,
+        NewTabPagePrevKind,
         SwitcherAcrossBack,
         SearchNextTab,
         SearchPrevTab,

@@ -46,8 +46,9 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch` |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
 | `src/ui/mod.rs` | module list | `agent_resume`, `group_color`, `new_tab_page` |
-| `src/core/actions.rs` | actions list | `ContinueAllAgents` |
+| `src/core/actions.rs` | actions list | `ContinueAllAgents`; `NewTabPageNextKind`, `NewTabPagePrevKind` (Tab on the new tab page) |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents` |
+| `src/ui/keymap.rs` | `fixed_bindings` | Tab / ⇧Tab bound in the `NewTabPage` context, since Root's focus walker otherwise takes Tab |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents` in Search Everywhere |
 | `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
