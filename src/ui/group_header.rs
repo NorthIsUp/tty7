@@ -17,14 +17,14 @@ use crate::core::config::{Config, GroupBackgroundScope, GroupColorSource};
 use crate::core::group_key::GroupKey;
 use crate::terminal::git_status::GitStatusCache;
 use crate::ui::app::Tty7App;
-use crate::ui::group_color::{active_ansi16, group_color};
+use crate::ui::group_color::{dark_rail, group_color};
 use crate::ui::host_ops::{HostId, HostOps};
 use crate::ui::host_registry::HostRegistry;
 use crate::ui::i18n::{L10nKey, t};
 
 /// A hashed fill's alpha: a pastel over a light rail, a wash over a dark one,
 /// and the muted name stays readable on both.
-const FILL_ALPHA: f32 = 0.14;
+pub(crate) const FILL_ALPHA: f32 = 0.14;
 /// A hashed outline's alpha. At full strength a 1px ring of every hue in the
 /// palette is the loudest thing in the column.
 const OUTLINE_ALPHA: f32 = 0.6;
@@ -46,21 +46,24 @@ pub(crate) struct HeaderStyle {
 pub(crate) fn source_color(
     source: GroupColorSource,
     name: &str,
+    slot: Option<usize>,
     overrides: &HashMap<String, String>,
-    ansi16: &[(u8, u8, u8); 16],
+    dark: bool,
     theme: Hsla,
 ) -> Hsla {
     match source {
         GroupColorSource::Theme => theme,
-        GroupColorSource::Hashed => group_color(name, overrides, ansi16),
+        GroupColorSource::Hashed => group_color(name, slot, overrides, dark),
     }
 }
 
-pub(crate) fn header_style(name: &str, rail: Hsla, cx: &App) -> HeaderStyle {
+/// `slot` is the group's place in the sidebar, `None` for Ungrouped.
+pub(crate) fn header_style(name: &str, slot: Option<usize>, rail: Hsla, cx: &App) -> HeaderStyle {
     let cfg = cx.global::<Config>();
-    let ansi16 = active_ansi16(cx);
+    let dark = dark_rail(cx);
     let theme = cx.theme();
-    let color = |source, neutral| source_color(source, name, &cfg.group_colors, &ansi16, neutral);
+    let color =
+        |source, neutral| source_color(source, name, slot, &cfg.group_colors, dark, neutral);
     let fill = cfg
         .group_background
         .then(|| color(cfg.group_background_color, theme.muted_foreground).opacity(FILL_ALPHA));
@@ -97,8 +100,14 @@ pub(crate) fn decorate<E: Styled>(el: E, style: &HeaderStyle) -> E {
 
 /// The group block's fill and outline, when they cover the whole group. A
 /// section without a header (Ungrouped with nothing above it) gets neither.
-pub(crate) fn decorate_block<E: Styled>(el: E, name: Option<&str>, rail: Hsla, cx: &App) -> E {
-    match name.map(|n| header_style(n, rail, cx)) {
+pub(crate) fn decorate_block<E: Styled>(
+    el: E,
+    name: Option<&str>,
+    slot: Option<usize>,
+    rail: Hsla,
+    cx: &App,
+) -> E {
+    match name.map(|n| header_style(n, slot, rail, cx)) {
         Some(style) if wears(style.scope, true) => paint(el, &style),
         _ => el,
     }
@@ -371,23 +380,42 @@ impl Tty7App {
 mod tests {
     use super::*;
 
-    const ANSI16: [(u8, u8, u8); 16] = [(10, 20, 30); 16];
-
     #[test]
     fn theme_ignores_the_group_and_hashed_is_its_colour_with_the_override_winning() {
         let theme: Hsla = gpui::rgb(0x123456).into();
         let none = HashMap::new();
         let over = HashMap::from([("tty7".to_string(), "#ff8800".to_string())]);
         assert_eq!(
-            source_color(GroupColorSource::Theme, "tty7", &over, &ANSI16, theme),
+            source_color(
+                GroupColorSource::Theme,
+                "tty7",
+                Some(1),
+                &over,
+                false,
+                theme
+            ),
             theme
         );
         assert_eq!(
-            source_color(GroupColorSource::Hashed, "tty7", &none, &ANSI16, theme),
-            group_color("tty7", &none, &ANSI16)
+            source_color(
+                GroupColorSource::Hashed,
+                "tty7",
+                Some(1),
+                &none,
+                false,
+                theme
+            ),
+            group_color("tty7", Some(1), &none, false)
         );
         assert_eq!(
-            source_color(GroupColorSource::Hashed, "tty7", &over, &ANSI16, theme),
+            source_color(
+                GroupColorSource::Hashed,
+                "tty7",
+                Some(1),
+                &over,
+                false,
+                theme
+            ),
             Hsla::from(gpui::rgb(0xff8800))
         );
     }
