@@ -134,7 +134,10 @@ pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<
         })
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    let typed = expand(query, home).filter(|p| p.is_absolute() && p.is_dir());
+    // Rebuilt from components so `~/x/` and `~/x` land on one frecency key.
+    let typed = expand(query, home)
+        .filter(|p| p.is_absolute() && p.is_dir())
+        .map(|p| p.components().collect::<PathBuf>());
     let typed_real = typed.as_ref().and_then(|p| p.canonicalize().ok());
     let is_typed = |d: &Path| typed_real.is_some() && d.canonicalize().ok() == typed_real;
     typed
@@ -147,6 +150,16 @@ pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<
                 .map(|(_, d)| d.clone()),
         )
         .collect()
+}
+
+/// The kind the page starts on, as an index into Terminal-then-`offered`:
+/// the agent launched last, or Terminal when none has been. `most_recent`
+/// alone would fall back to the first agent on `PATH`.
+fn initial_kind(offered: &[CLIAgent], usage: &HashMap<String, ProfileUsage>) -> usize {
+    most_recent(offered, usage)
+        .filter(|agent| usage.get(agent.slug()).is_some_and(|u| u.last_used > 0))
+        .and_then(|agent| offered.iter().position(|&o| o == agent))
+        .map_or(0, |at| at + 1)
 }
 
 /// Only [`Tty7App::commit_new_tab_page`] calls this: a cancelled page is
@@ -189,9 +202,7 @@ impl Tty7App {
         let offered = self.offered_agents(cx);
         let home = local_home();
         let cfg = cx.global::<Config>();
-        let kind = most_recent(&offered, &cfg.agent_frecency)
-            .and_then(|agent| offered.iter().position(|&o| o == agent))
-            .map_or(0, |at| at + 1);
+        let kind = initial_kind(&offered, &cfg.agent_frecency);
         let dirs = candidates(
             active.as_deref(),
             &tab_cwds,
@@ -588,6 +599,30 @@ mod tests {
         assert_eq!(
             filter("~/src/notes.txt", &dirs, Some(&home)),
             Vec::<PathBuf>::new()
+        );
+    }
+
+    #[test]
+    fn the_page_starts_on_the_agent_launched_last_or_on_terminal_when_none_was() {
+        let offered = [CLIAgent::ALL[0], CLIAgent::ALL[1]];
+        assert_eq!(initial_kind(&offered, &HashMap::new()), 0);
+        let usage = HashMap::from([(
+            offered[1].slug().to_string(),
+            ProfileUsage {
+                count: 1,
+                last_used: NOW,
+            },
+        )]);
+        assert_eq!(initial_kind(&offered, &usage), 2);
+    }
+
+    #[test]
+    fn a_typed_directory_with_a_trailing_slash_is_offered_without_it() {
+        let (_tmp, home) = tree();
+        // PathBuf equality ignores a trailing slash; the stored key does not.
+        assert_eq!(
+            filter("~/src/", &[], Some(&home))[0].to_string_lossy(),
+            home.join("src").to_string_lossy()
         );
     }
 

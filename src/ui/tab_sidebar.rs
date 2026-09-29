@@ -2481,7 +2481,7 @@ impl Tty7App {
         };
         match folder {
             Some(folder) => self.new_tab_at(folder, window, cx),
-            None => self.new_tab(window, cx),
+            None => self.new_tab_with_shell(None, window, cx),
         }
         if self.tabs.len() == before {
             return;
