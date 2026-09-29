@@ -35,6 +35,9 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`, `new_tab_page` |
 | `src/ui/app.rs` | `adopt_workspace` | run a `--continue` that arrived before the tabs did |
 | `src/ui/app.rs` | `new_tab` | open the new tab page when `new_tab_page` is on |
+| `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
+| `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
+| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
 | `src/ui/app.rs` | `render` | `render_new_tab_page` child; `on_action` for `ContinueAllAgents` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents` |
 | `src/ui/app.rs` | `wake_tab` → `wake_tab_with` | wake with a prompt for the resumed agent |

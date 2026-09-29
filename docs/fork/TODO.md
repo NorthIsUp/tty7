@@ -20,3 +20,10 @@
 - **What:** GitHub does not run workflows on a fork until someone clicks "enable workflows" in the UI; no API does it.
 - **Why:** it needs a human click.
 - **Fix:** click it; `ci.yml` then runs on PRs. Leave `nightly.yml` and `release.yml` disabled, since they publish upstream's artifacts.
+
+## 2026-09-28 — Claude resume falls back with `||`
+
+- **Where:** src/ui/app.rs `agent_resume_command`, crates/tty7-core/src/core/cli_agent.rs `start_command`
+- **What:** a Claude resume is typed as `claude --resume <id> || claude --session-id <id>`, so a conversation that was never saved starts fresh instead of stopping at "No conversation found".
+- **Why:** telling "never saved" from "saved" needs a look at `~/.claude/projects`, and the GUI may not touch the disk on the UI thread. The shell's exit status is free.
+- **Fix:** resolve it off-thread through `agent_history` before typing, and pick one command. The `||` also fires when a resumed session later exits non-zero; the fresh start then fails fast on the id already in use.

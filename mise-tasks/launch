@@ -2,4 +2,12 @@
 #MISE description="Start the release build detached, on your real config"
 #MISE depends=["release"]
 set -euo pipefail
-nohup target/release/tty7-app >/dev/null 2>&1 &
+# The server keeps the environment of whoever started it and hands it to every
+# pane, so a launch from inside another tool (an agent's shell, a CI job) would
+# leak NO_COLOR, CLAUDECODE and the like into all of them. Start from what
+# launchd gives a Dock launch; the panes' login shells build the rest.
+exec env -i \
+  HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" SHELL="${SHELL:-/bin/zsh}" \
+  LANG="${LANG:-en_US.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  nohup "$MISE_PROJECT_ROOT/target/release/tty7-app" >/dev/null 2>&1 &
