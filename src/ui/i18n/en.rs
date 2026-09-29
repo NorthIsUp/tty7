@@ -1991,7 +1991,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
-        L10nKey::NewTabPageHint => "Enter opens · Tab switches kind · Esc cancels",
+        L10nKey::NewTabPageHint => "Enter opens · ←/→ or ^1–^9 picks the kind · Esc cancels",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"

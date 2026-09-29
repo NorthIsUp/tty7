@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    AnyElement, App, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, ScrollHandle,
-    SharedString, Subscription, Window, div, prelude::*, px, rems,
+    AnyElement, App, Context, Entity, FontWeight, HighlightStyle, KeyDownEvent, MouseButton,
+    MouseDownEvent, ScrollHandle, SharedString, StyledText, Subscription, Window, div, prelude::*,
+    px, rems,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
@@ -20,10 +21,13 @@ use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
 use crate::ui::app::Tty7App;
 use crate::ui::home::display_path;
+use crate::ui::host_ops::HostOps;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::path_display::{abbreviate_home, local_home};
 use crate::ui::search::fuzzy_score;
 use crate::ui::switcher::CARD_TOP;
+use tty7_core::host::Host;
+use tty7_core::host::local::LocalHost;
 
 const CARD_W: f32 = 560.0;
 const CARD_RADIUS: f32 = 12.0;
@@ -49,9 +53,12 @@ pub(crate) struct NewTabPage {
     query: Entity<InputState>,
     kinds: Vec<Kind>,
     kind: usize,
-    /// Every candidate, in [`candidates`] order; `rows` is what the query
-    /// leaves of them.
-    dirs: Vec<PathBuf>,
+    /// Every candidate with its canonical form, in [`candidates`] order;
+    /// `rows` is what the query leaves of them.
+    dirs: Vec<Dir>,
+    /// The query itself, when it names a directory: resolved off the UI
+    /// thread, and only for the query it was asked for.
+    typed: Option<(String, Dir)>,
     rows: Vec<PathBuf>,
     selected: usize,
     home: Option<PathBuf>,
@@ -59,10 +66,18 @@ pub(crate) struct NewTabPage {
     _subs: Vec<Subscription>,
 }
 
+/// A directory as shown, and as resolved for deduplication.
+pub(crate) type Dir = (PathBuf, PathBuf);
+
 impl NewTabPage {
     fn refilter(&mut self, cx: &App) {
         let query = self.query.read(cx).value();
-        self.rows = filter(query.as_ref(), &self.dirs, self.home.as_deref());
+        let typed = self
+            .typed
+            .as_ref()
+            .filter(|(asked, _)| asked.as_str() == query.trim())
+            .map(|(_, dir)| dir);
+        self.rows = filter(query.as_ref(), &self.dirs, self.home.as_deref(), typed);
         self.selected = 0;
     }
 }
@@ -83,28 +98,31 @@ fn expand(path: &str, home: Option<&Path>) -> Option<PathBuf> {
 /// it is a directory, so a frecency entry for a deleted checkout drops out
 /// by itself.
 pub(crate) fn candidates(
+    host: &dyn Host,
     active: Option<&Path>,
     tab_cwds: &[PathBuf],
     frecency: &HashMap<String, ProfileUsage>,
     roots: &[String],
     home: Option<&Path>,
     now: u64,
-) -> Vec<PathBuf> {
+) -> Vec<Dir> {
     let mut used: Vec<(&String, f64)> = frecency.iter().map(|(p, u)| (p, u.score(now))).collect();
     // The key breaks ties so the order does not follow the map's hashing.
     used.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-    let children = roots
-        .iter()
-        .filter_map(|root| std::fs::read_dir(expand(root, home)?).ok())
-        .flat_map(|entries| {
-            let mut kids: Vec<PathBuf> = entries
-                .flatten()
-                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                .map(|e| e.path())
-                .collect();
-            kids.sort();
-            kids
-        });
+    let children = roots.iter().flat_map(|root| {
+        let Some(root) = expand(root, home) else {
+            return Vec::new();
+        };
+        let mut kids: Vec<PathBuf> = host
+            .read_dir(&root, None)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| !e.name.starts_with('.'))
+            .map(|e| host.join(&root, &e.name))
+            .collect();
+        kids.sort();
+        kids
+    });
     let mut seen = HashSet::new();
     active
         .map(Path::to_path_buf)
@@ -112,47 +130,125 @@ pub(crate) fn candidates(
         .chain(tab_cwds.iter().cloned())
         .chain(used.into_iter().map(|(p, _)| PathBuf::from(p)))
         .chain(children)
-        .filter(|p| p.is_dir())
-        .filter(|p| p.canonicalize().is_ok_and(|c| seen.insert(c)))
+        .filter(|p| host.stat(p).is_ok_and(|m| m.is_dir))
+        .filter_map(|p| {
+            let real = host.canonicalize(&p).ok()?;
+            seen.insert(real.clone()).then_some((p, real))
+        })
         .collect()
+}
+
+/// The query as a directory, when it is one: `~/x/` and `~/x` rebuilt from
+/// components so both land on one frecency key.
+pub(crate) fn resolve_typed(host: &dyn Host, query: &str, home: Option<&Path>) -> Option<Dir> {
+    let typed = expand(query.trim(), home)
+        .filter(|p| host.is_absolute(p) && host.stat(p).is_ok_and(|m| m.is_dir))?
+        .components()
+        .collect::<PathBuf>();
+    let real = host.canonicalize(&typed).ok()?;
+    Some((typed, real))
+}
+
+/// What a row's text is matched against: the directory's own name for a
+/// bare word — matched against the whole path, any long parent spells out
+/// most queries by accident — and the `~` form once the query has a `/`.
+fn match_text(query: &str, dir: &Path, home: Option<&Path>) -> Option<String> {
+    match query.contains('/') {
+        true => Some(abbreviate_home(&dir.to_string_lossy(), home).to_string()),
+        false => Some(dir.file_name()?.to_string_lossy().into_owned()),
+    }
+}
+
+/// Byte ranges of `text` to highlight for `query`: a contiguous match when
+/// there is one, else the letters taken left to right, the way the scorer
+/// accepts them. Case-insensitive; empty when nothing matches.
+pub(crate) fn match_ranges(query: &str, text: &str) -> Vec<std::ops::Range<usize>> {
+    let needle: Vec<char> = query
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let lower: Vec<(usize, char)> = text
+        .char_indices()
+        .map(|(i, c)| (i, c.to_lowercase().next().unwrap_or(c)))
+        .collect();
+    let end_of = |at: usize| lower.get(at + 1).map_or(text.len(), |(i, _)| *i);
+    if let Some(start) = (0..lower.len()).find(|&s| {
+        needle.len() <= lower.len() - s
+            && needle.iter().enumerate().all(|(k, c)| lower[s + k].1 == *c)
+    }) {
+        return vec![lower[start].0..end_of(start + needle.len() - 1)];
+    }
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut want = needle.iter().peekable();
+    for (at, (i, c)) in lower.iter().enumerate() {
+        if want.peek() == Some(&c) {
+            want.next();
+            match ranges.last_mut() {
+                Some(last) if last.end == *i => last.end = end_of(at),
+                _ => ranges.push(*i..end_of(at)),
+            }
+        }
+    }
+    match want.peek() {
+        None => ranges,
+        Some(_) => Vec::new(),
+    }
 }
 
 /// `dirs` narrowed to the query and best match first, scored against the
 /// `~` form the row shows so the home prefix never matches. A query that is
 /// itself a directory leads, so a path nobody has visited is one Enter away.
-pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf> {
+pub(crate) fn filter(
+    query: &str,
+    dirs: &[Dir],
+    home: Option<&Path>,
+    typed: Option<&Dir>,
+) -> Vec<PathBuf> {
     let query = query.trim();
     if query.is_empty() {
-        return dirs.to_vec();
+        return dirs.iter().map(|(d, _)| d.clone()).collect();
     }
-    let mut scored: Vec<(i32, &PathBuf)> = dirs
+    let mut scored: Vec<(i32, &Dir)> = dirs
         .iter()
-        .filter_map(|d| {
-            // A bare word names the directory itself; matched against the whole
-            // path, any long parent spells out most queries by accident.
-            let text = match query.contains('/') {
-                true => abbreviate_home(&d.to_string_lossy(), home).to_string(),
-                false => d.file_name()?.to_string_lossy().into_owned(),
-            };
-            Some((fuzzy_score(query, &text)?, d))
-        })
+        .filter_map(|dir| Some((fuzzy_score(query, &match_text(query, &dir.0, home)?)?, dir)))
         .collect();
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    // Rebuilt from components so `~/x/` and `~/x` land on one frecency key.
-    let typed = expand(query, home)
-        .filter(|p| p.is_absolute() && p.is_dir())
-        .map(|p| p.components().collect::<PathBuf>());
-    let typed_real = typed.as_ref().and_then(|p| p.canonicalize().ok());
-    let is_typed = |d: &Path| typed_real.is_some() && d.canonicalize().ok() == typed_real;
     typed
-        .clone()
+        .map(|(d, _)| d.clone())
         .into_iter()
         .chain(
             scored
                 .into_iter()
-                .filter(|(_, d)| !is_typed(d))
-                .map(|(_, d)| d.clone()),
+                .filter(|(_, (_, real))| typed.is_none_or(|(_, t)| t != real))
+                .map(|(_, (d, _))| d.clone()),
         )
+        .collect()
+}
+
+/// Where `query` matched in a row's `shown` text: against the directory's
+/// name at the end of it for a bare word, against the whole of it otherwise,
+/// mirroring [`match_text`].
+fn row_highlights(query: &str, dir: &Path, shown: &str) -> Vec<std::ops::Range<usize>> {
+    if query.is_empty() || query.contains('/') {
+        return match_ranges(query, shown);
+    }
+    let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return Vec::new();
+    };
+    let Some(offset) = shown
+        .len()
+        .checked_sub(name.len())
+        .filter(|_| shown.ends_with(&name))
+    else {
+        return Vec::new();
+    };
+    match_ranges(query, &name)
+        .into_iter()
+        .map(|r| r.start + offset..r.end + offset)
         .collect()
 }
 
@@ -207,13 +303,39 @@ impl Tty7App {
         let home = local_home();
         let cfg = cx.global::<Config>();
         let kind = initial_kind(&offered, &cfg.agent_frecency);
-        let dirs = candidates(
-            active.as_deref(),
-            &tab_cwds,
-            &cfg.dir_frecency,
-            &cfg.dir_roots,
-            home.as_deref(),
-            unix_now(),
+        // The open tabs are directories already, so they show at once; the
+        // listing that has to touch the disk lands a moment later.
+        let mut seen = HashSet::new();
+        let dirs: Vec<Dir> = active
+            .iter()
+            .chain(&tab_cwds)
+            .filter(|d| seen.insert((*d).clone()))
+            .map(|d| (d.clone(), d.clone()))
+            .collect();
+        let (frecency, roots, now) = (cfg.dir_frecency.clone(), cfg.dir_roots.clone(), unix_now());
+        let listing_home = home.clone();
+        // The page only opens on a local workspace, so this machine is the host.
+        HostOps::run(
+            LocalHost::shared(),
+            cx,
+            move |host| {
+                candidates(
+                    host,
+                    active.as_deref(),
+                    &tab_cwds,
+                    &frecency,
+                    &roots,
+                    listing_home.as_deref(),
+                    now,
+                )
+            },
+            |this: &mut Self, dirs, cx| {
+                if let Some(page) = this.new_tab_page.as_mut() {
+                    page.dirs = dirs;
+                    page.refilter(cx);
+                    cx.notify();
+                }
+            },
         );
         let kinds = std::iter::once(Kind::Terminal)
             .chain(offered.into_iter().map(Kind::Agent))
@@ -225,20 +347,37 @@ impl Tty7App {
             &query,
             window,
             |this, _input, ev: &InputEvent, _window, cx| {
-                if matches!(ev, InputEvent::Change) {
-                    if let Some(page) = this.new_tab_page.as_mut() {
-                        page.refilter(cx);
-                    }
-                    cx.notify();
+                if !matches!(ev, InputEvent::Change) {
+                    return;
                 }
+                let Some(page) = this.new_tab_page.as_mut() else {
+                    return;
+                };
+                page.refilter(cx);
+                let asked = page.query.read(cx).value().trim().to_string();
+                let home = page.home.clone();
+                HostOps::run(
+                    LocalHost::shared(),
+                    cx,
+                    move |host| (resolve_typed(host, &asked, home.as_deref()), asked),
+                    |this: &mut Self, (typed, asked), cx| {
+                        if let Some(page) = this.new_tab_page.as_mut() {
+                            page.typed = typed.map(|dir| (asked, dir));
+                            page.refilter(cx);
+                            cx.notify();
+                        }
+                    },
+                );
+                cx.notify();
             },
         )];
         self.new_tab_page = Some(NewTabPage {
             query,
             kinds,
             kind,
-            rows: dirs.clone(),
+            rows: dirs.iter().map(|(d, _)| d.clone()).collect(),
             dirs,
+            typed: None,
             selected: 0,
             home,
             scroll: ScrollHandle::new(),
@@ -285,8 +424,9 @@ impl Tty7App {
         cx.notify();
     }
 
-    /// Structural keys are taken in the capture phase, ahead of the query input's own
-    /// bindings, so the caret never has to leave the box.
+    /// The page is modal: every key is taken here, in the capture phase and so
+    /// ahead of the app's own bindings, except plain typing and the editing
+    /// chords the query box needs.
     fn on_new_tab_page_key(
         &mut self,
         ev: &KeyDownEvent,
@@ -294,9 +434,14 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) {
         let (key, mods) = (ev.keystroke.key.as_str(), ev.keystroke.modifiers);
+        let chord = mods.platform || mods.control || mods.alt;
         match key {
             "escape" => self.close_new_tab_page(window, cx),
             "enter" => self.commit_new_tab_page(window, cx),
+            "left" | "right" if !chord => self.step_new_tab_page_kind(key == "right", cx),
+            "[" | "{" | "]" | "}" if mods.platform && mods.shift => {
+                self.step_new_tab_page_kind(matches!(key, "]" | "}"), cx)
+            }
             "up" | "down" => {
                 let Some(page) = self.new_tab_page.as_mut() else {
                     return;
@@ -315,6 +460,9 @@ impl Tty7App {
                         page.kind = n - 1;
                     }
                 }
+                // The box's own editing chords; any other chord is swallowed.
+                _ if mods.platform && matches!(key, "a" | "c" | "v" | "x" | "z") => return,
+                _ if chord => {}
                 _ => return,
             },
         }
@@ -331,6 +479,12 @@ impl Tty7App {
         let theme = cx.theme();
         let (fg, muted, border) = (theme.foreground, theme.muted_foreground, theme.border);
         let (primary, primary_fg) = (theme.primary, theme.primary_foreground);
+        let hit = HighlightStyle {
+            color: Some(theme.primary),
+            font_weight: Some(FontWeight::BOLD),
+            ..Default::default()
+        };
+        let query = page.query.read(cx).value().trim().to_string();
         let (hover, picked) = {
             let sf = &cx.global::<crate::ui::presets::Surfaces>().popover;
             (gpui::rgb(sf.hover), gpui::rgb(sf.selected))
@@ -360,6 +514,9 @@ impl Tty7App {
                                 .text_color(fg)
                                 .hover(|chip| chip.bg(hover))
                         })
+                        .when(at < 9, |chip| {
+                            chip.child(div().mr(px(5.)).opacity(0.6).child(format!("^{}", at + 1)))
+                        })
                         .child(kind.label())
                         .on_click(cx.listener(move |this, _, _window, cx| {
                             if let Some(page) = this.new_tab_page.as_mut() {
@@ -381,12 +538,11 @@ impl Tty7App {
                 .text_color(fg)
                 .when(at == page.selected, |row| row.bg(picked))
                 .when(at != page.selected, |row| row.hover(|row| row.bg(hover)))
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(display_path(dir, page.home.as_deref())),
-                )
+                .child(div().min_w_0().truncate().child({
+                    let shown = display_path(dir, page.home.as_deref()).to_string();
+                    let ranges = row_highlights(&query, dir, &shown);
+                    StyledText::new(shown).with_highlights(ranges.into_iter().map(|r| (r, hit)))
+                }))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     if let Some(page) = this.new_tab_page.as_mut() {
                         page.selected = at;
@@ -521,6 +677,24 @@ mod tests {
         (tmp, home)
     }
 
+    fn host() -> tty7_core::host::SharedHost {
+        LocalHost::new()
+    }
+
+    fn shown(dirs: Vec<Dir>) -> Vec<PathBuf> {
+        dirs.into_iter().map(|(d, _)| d).collect()
+    }
+
+    fn as_dirs(paths: &[PathBuf]) -> Vec<Dir> {
+        paths.iter().map(|p| (p.clone(), p.clone())).collect()
+    }
+
+    /// [`filter`] the way the page runs it: the typed row resolved first.
+    fn run(query: &str, paths: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf> {
+        let typed = resolve_typed(&*host(), query, home);
+        filter(query, &as_dirs(paths), home, typed.as_ref())
+    }
+
     fn used(pairs: &[(&Path, u32, u64)]) -> HashMap<String, ProfileUsage> {
         pairs
             .iter()
@@ -544,14 +718,15 @@ mod tests {
             (&home.join("hot"), 9, NOW),
             (&home.join("gone"), 50, NOW),
         ]);
-        let got = candidates(
+        let got = shown(candidates(
+            &*host(),
             Some(&home.join("work")),
             &[home.join("src/beta"), home.join("work")],
             &frecency,
             &["~/src".into(), "~/missing".into(), "~/src/notes.txt".into()],
             Some(&home),
             NOW,
-        );
+        ));
         assert_eq!(
             got,
             vec![
@@ -569,21 +744,22 @@ mod tests {
     #[test]
     fn the_same_directory_spelled_twice_is_offered_once() {
         let (_tmp, home) = tree();
-        let got = candidates(
+        let got = shown(candidates(
+            &*host(),
             Some(&home.join("src/alpha")),
             &[home.join("src/../src/alpha")],
             &HashMap::new(),
             &[home.join("src").to_string_lossy().into_owned()],
             None,
             NOW,
-        );
+        ));
         assert_eq!(got, vec![home.join("src/alpha"), home.join("src/beta")]);
     }
 
     #[test]
     fn an_empty_query_keeps_the_candidate_order() {
         let dirs = vec![PathBuf::from("/b"), PathBuf::from("/a")];
-        assert_eq!(filter("  ", &dirs, None), dirs);
+        assert_eq!(filter("  ", &as_dirs(&dirs), None, None), dirs);
     }
 
     #[test]
@@ -595,18 +771,18 @@ mod tests {
             home.join("code/web"),
         ];
         assert_eq!(
-            filter("tty7", &dirs, Some(home)),
+            run("tty7", &dirs, Some(home)),
             vec![home.join("src/tty7"), home.join("src/tty7-resume")]
         );
         // Scored against the `~` form: the home prefix itself matches nothing.
-        assert_eq!(filter("Users", &dirs, Some(home)), Vec::<PathBuf>::new());
+        assert_eq!(run("Users", &dirs, Some(home)), Vec::<PathBuf>::new());
         // A long parent must not spell the query: "beta" is in "f14681bd…t…a".
         let deep = vec![
             PathBuf::from("/tmp/f14681bd-scratch/src/alpha"),
             PathBuf::from("/tmp/f14681bd-scratch/src/beta-repo"),
         ];
-        assert_eq!(filter("beta", &deep, None), vec![deep[1].clone()]);
-        assert_eq!(filter("src/al", &deep, None), vec![deep[0].clone()]);
+        assert_eq!(run("beta", &deep, None), vec![deep[1].clone()]);
+        assert_eq!(run("src/al", &deep, None), vec![deep[0].clone()]);
     }
 
     #[test]
@@ -614,17 +790,14 @@ mod tests {
         let (_tmp, home) = tree();
         let dirs = vec![home.join("src/alpha"), home.join("work")];
         assert_eq!(
-            filter("~/src", &dirs, Some(&home)),
+            run("~/src", &dirs, Some(&home)),
             vec![home.join("src"), home.join("src/alpha")]
         );
         // Already a candidate: moved to the front, not listed twice.
-        assert_eq!(
-            filter("~/work", &dirs, Some(&home)),
-            vec![home.join("work")]
-        );
+        assert_eq!(run("~/work", &dirs, Some(&home)), vec![home.join("work")]);
         // Not a directory: only fuzzy matches.
         assert_eq!(
-            filter("~/src/notes.txt", &dirs, Some(&home)),
+            run("~/src/notes.txt", &dirs, Some(&home)),
             Vec::<PathBuf>::new()
         );
     }
@@ -648,9 +821,31 @@ mod tests {
         let (_tmp, home) = tree();
         // PathBuf equality ignores a trailing slash; the stored key does not.
         assert_eq!(
-            filter("~/src/", &[], Some(&home))[0].to_string_lossy(),
+            run("~/src/", &[], Some(&home))[0].to_string_lossy(),
             home.join("src").to_string_lossy()
         );
+    }
+
+    #[test]
+    fn a_match_highlights_the_run_it_found_or_the_letters_in_order() {
+        assert_eq!(match_ranges("stu", "claude-stuff"), vec![7..10]);
+        assert_eq!(match_ranges("STU", "claude-stuff"), vec![7..10], "any case");
+        assert_eq!(
+            match_ranges("csl", "cc-statusline"),
+            vec![0..1, 3..4, 9..10],
+            "no run: the letters left to right"
+        );
+        assert!(match_ranges("zz", "cc-statusline").is_empty());
+        assert!(match_ranges("", "x").is_empty());
+    }
+
+    #[test]
+    fn a_bare_word_highlights_in_the_directory_name_of_the_shown_row() {
+        let dir = Path::new("/Users/me/src/claude-stuff");
+        let shown = "~/src/claude-stuff";
+        assert_eq!(row_highlights("stu", dir, shown), vec![13..16]);
+        // A `/` query matches the whole shown path, as the filter does.
+        assert_eq!(row_highlights("src/cl", dir, shown), vec![2..8]);
     }
 
     #[test]
