@@ -4198,7 +4198,7 @@ impl Tty7App {
             })
             .flatten();
         if let Some(cmd) = resume {
-            view.update(cx, |view, _| view.run_at_prompt(cmd));
+            view.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -10808,7 +10808,7 @@ fn session_to_pane(
                         prompt,
                         cx,
                     ) {
-                        terminal.update(cx, |view, _| view.run_at_prompt(cmd));
+                        terminal.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
                     }
                 }
                 PaneSlot::Ready(_) => {}

@@ -377,6 +377,12 @@ impl Host for LocalHost {
         )
     }
 
+    fn claude_background_job(&self, session_id: &str) -> Option<String> {
+        guard_off_ui();
+        let dir = crate::core::claude_background::sessions_dir()?;
+        crate::core::claude_background::job_for_session(&dir, session_id)
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         guard_off_ui();
         local_watch(dirs, Arc::clone(&self.gitignore))
