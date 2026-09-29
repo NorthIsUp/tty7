@@ -19,6 +19,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory) |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; the debounce and query plumbing History shares |
+| `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached by path and mtime |
 | `src/ui/group_color.rs` | a group's colour (override, else hashed into the theme) and its swatch |
@@ -47,8 +48,9 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
 | `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
 | `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
-| `src/ui/app.rs` | `render` | `render_new_tab_page` child; `on_action` for `ContinueAllAgents` |
-| `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents` |
+| `src/ui/app.rs` | `render` | `render_new_tab_page` child; `on_action` for `ContinueAllAgents`, `SearchAgents` |
+| `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
+| `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
 | `src/ui/app.rs` | `wake_tab` → `wake_tab_with` | wake with a prompt for the resumed agent |
 | `src/ui/app.rs` | `agent_resume_command`, `session_to_pane`, `land_pane`, `reopen_closed_tab` | thread `prompt` through to the resume command line |
 | `src/ui/app.rs` | `tabs_from_session` | restore a tab with no live pane asleep (`restore_asleep`) |
@@ -66,22 +68,23 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
 | `src/ui/mod.rs` | module list | `agent_resume`, `group_color`, `group_header`, `new_tab_page` |
-| `src/core/actions.rs` | actions list | `ContinueAllAgents`; `NewTabPageNextKind`, `NewTabPagePrevKind` (Tab on the new tab page) |
-| `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents` |
+| `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents`; `NewTabPageNextKind`, `NewTabPagePrevKind` (Tab on the new tab page) |
+| `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
 | `src/ui/keymap.rs` | `fixed_bindings` | Tab / ⇧Tab bound in the `NewTabPage` context, since Root's focus walker otherwise takes Tab |
-| `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents` in Search Everywhere |
+| `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents`, `SearchAgents` in Search Everywhere |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `SearchText` (Search Text in Files…) |
-| `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions |
-| `src/ui/search/sources.rs` | `Catalog` fields, `new`, `source`, `all` | `text`, `text_query`, `history`, `history_query`; `all` leaves Text and History out |
+| `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `Agents` tab, off the row |
+| `src/ui/search/sources.rs` | `Catalog` fields, `new`, `source`, `all` | `text`, `text_query`, `history`, `history_query`, `open_agent_sessions`; `all` leaves Text and History out; `rank`, `by_section` are `pub(super)` for Agents |
 | `src/ui/search/view.rs` | `perform_search`, `set_tab`, `render_empty`, `update_catalog` and `match_range` visibility, `text_rows` (test) | ask the window for text and history hits; the too-short and remote hints |
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.text_query = palette_text_query(..)`, `catalog.history_query = palette_history_query(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
-| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*` |
+| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
 | `docs/reference/configuration.mdx` | config table | the fork's config fields |
 | `docs/window/sidebar.mdx` | Group colours | `group_colors`, header outline/fill, default branch |
-| `docs/window/search-everywhere.mdx` | Tabs table | the Text and History tabs |
+| `docs/window/search-everywhere.mdx` | Tabs table | the Text, History and Agents tabs |
+| `docs/reference/keyboard-shortcuts.mdx` | Search Everywhere, Clear Scrollback rows | ⌘K is Agents; Clear Scrollback moved to ⌘⇧K |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page` |
 | `.github/workflows/ci.yml` | `changes` job; `needs`/`if` on `build` steps and the server jobs; `build` env; the three `Swatinem/rust-cache` steps | skip the Rust jobs on docs-only PRs while required checks still report; save caches from main and manual runs only, keep them on failure, build tests with `line-tables-only` debug so the cache is smaller |
