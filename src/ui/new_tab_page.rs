@@ -1,22 +1,21 @@
-//! The fork's new tab page: New Tab asks what to open and where before it
-//! opens anything — a terminal or an agent, in a directory picked from the
-//! open tabs, the ones used most, and the children of `dir_roots`. Kept out of
-//! `app.rs` so rebasing on upstream touches as little of it as possible;
-//! `new_tab_page: false` gives upstream New Tab back unchanged.
+//! The fork's new tab page, the palette's New Tab tab (⌘T): New Tab asks what
+//! to open and where before it opens anything — a terminal or an agent, in a
+//! directory picked from the open tabs, the ones used most, and the children
+//! of `dir_roots`. The palette (`SearchView`) draws it in place of its list;
+//! its keys come from `palette`'s interceptor. `new_tab_page: false` gives
+//! upstream New Tab back unchanged.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use gpui::ClickEvent;
 use gpui::{
-    AnyElement, App, Context, Entity, FontWeight, HighlightStyle, KeyDownEvent, MouseButton,
-    MouseDownEvent, ScrollHandle, SharedString, StyledText, Subscription, Window, div, prelude::*,
-    px, rems,
+    App, Context, Entity, FontWeight, HighlightStyle, Keystroke, ScrollHandle, SharedString,
+    StyledText, Subscription, WeakEntity, Window, div, prelude::*, px, rems,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
 
-use crate::core::actions::{NewTabPageNextKind, NewTabPagePrevKind};
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
@@ -25,12 +24,13 @@ use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::path_display::{abbreviate_home, local_home};
-use crate::ui::search::fuzzy_score;
+use crate::ui::search::{SearchTab, fuzzy_score};
 use crate::ui::switcher::CARD_TOP;
 use tty7_core::host::Host;
 use tty7_core::host::local::LocalHost;
 
-const CARD_W: f32 = 560.0;
+/// The palette's card width, so switching tabs does not move the card.
+const CARD_MAX_W: f32 = 620.0;
 const CARD_RADIUS: f32 = 12.0;
 const LIST_H: f32 = 336.0;
 const ROW_H: f32 = 28.0;
@@ -51,6 +51,7 @@ impl Kind {
 }
 
 pub(crate) struct NewTabPage {
+    app: WeakEntity<Tty7App>,
     query: Entity<InputState>,
     kinds: Vec<Kind>,
     kind: usize,
@@ -69,19 +70,6 @@ pub(crate) struct NewTabPage {
 
 /// A directory as shown, and as resolved for deduplication.
 pub(crate) type Dir = (PathBuf, PathBuf);
-
-impl NewTabPage {
-    fn refilter(&mut self, cx: &App) {
-        let query = self.query.read(cx).value();
-        let typed = self
-            .typed
-            .as_ref()
-            .filter(|(asked, _)| asked.as_str() == query.trim())
-            .map(|(_, dir)| dir);
-        self.rows = filter(query.as_ref(), &self.dirs, self.home.as_deref(), typed);
-        self.selected = 0;
-    }
-}
 
 /// `~` and `~/rest` against `home`; anything else as written. `~user` is
 /// not expanded: there is no portable way to ask for another user's home.
@@ -271,7 +259,7 @@ fn initial_kind(offered: &[CLIAgent], usage: &HashMap<String, ProfileUsage>) -> 
         .map_or(0, |at| at + 1)
 }
 
-/// Only [`Tty7App::commit_new_tab_page`] calls this: a cancelled page is
+/// Only [`Tty7App::open_from_new_tab_page`] calls this: a cancelled page is
 /// not a use.
 fn bump_frecency(cfg: &mut Config, dir: &Path, now: u64) {
     let used = cfg
@@ -282,10 +270,306 @@ fn bump_frecency(cfg: &mut Config, dir: &Path, now: u64) {
     used.last_used = now;
 }
 
+impl NewTabPage {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        app: WeakEntity<Tty7App>,
+        dirs: Vec<Dir>,
+        listing: impl FnOnce(&dyn Host) -> Vec<Dir> + Send + 'static,
+        kinds: Vec<Kind>,
+        kind: usize,
+        home: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        // The page only opens on a local workspace, so this machine is the host.
+        HostOps::run(
+            LocalHost::shared(),
+            cx,
+            listing,
+            |this: &mut Self, dirs, cx| {
+                this.dirs = dirs;
+                this.refilter(cx);
+                cx.notify();
+            },
+        );
+        let query =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t(L10nKey::NewTabPagePlaceholder)));
+        let subs = vec![cx.subscribe_in(
+            &query,
+            window,
+            |this, _input, ev: &InputEvent, _window, cx| {
+                if !matches!(ev, InputEvent::Change) {
+                    return;
+                }
+                this.refilter(cx);
+                let asked = this.query.read(cx).value().trim().to_string();
+                let home = this.home.clone();
+                HostOps::run(
+                    LocalHost::shared(),
+                    cx,
+                    move |host| (resolve_typed(host, &asked, home.as_deref()), asked),
+                    |this: &mut Self, (typed, asked), cx| {
+                        this.typed = typed.map(|dir| (asked, dir));
+                        this.refilter(cx);
+                        cx.notify();
+                    },
+                );
+                cx.notify();
+            },
+        )];
+        Self {
+            app,
+            query,
+            kinds,
+            kind,
+            rows: dirs.iter().map(|(d, _)| d.clone()).collect(),
+            dirs,
+            typed: None,
+            selected: 0,
+            home,
+            scroll: ScrollHandle::new(),
+            _subs: subs,
+        }
+    }
+
+    fn refilter(&mut self, cx: &App) {
+        let query = self.query.read(cx).value();
+        let typed = self
+            .typed
+            .as_ref()
+            .filter(|(asked, _)| asked.as_str() == query.trim())
+            .map(|(_, dir)| dir);
+        self.rows = filter(query.as_ref(), &self.dirs, self.home.as_deref(), typed);
+        self.selected = 0;
+    }
+
+    pub(crate) fn focus(page: &Entity<Self>, window: &mut Window, cx: &mut App) {
+        let query = page.read(cx).query.clone();
+        query.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    fn step_kind(&mut self, forward: bool) {
+        let kinds = self.kinds.len();
+        self.kind = match forward {
+            true => (self.kind + 1) % kinds,
+            false => (self.kind + kinds - 1) % kinds,
+        };
+    }
+
+    /// Deferred: a key or click reaches the page while it is being updated,
+    /// and opening closes the palette that holds it.
+    fn open(&self, background: bool, window: &mut Window, cx: &mut App) {
+        // No row: nothing to open, and the page stays for another query.
+        let Some(dir) = self.rows.get(self.selected).cloned() else {
+            return;
+        };
+        let kind = self.kinds[self.kind];
+        let app = self.app.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = app.update(cx, |app, cx| {
+                app.open_from_new_tab_page(kind, dir, background, window, cx)
+            });
+        });
+    }
+
+    fn close(&self, window: &mut Window, cx: &mut App) {
+        let app = self.app.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = app.update(cx, |app, cx| app.close_search(window, cx));
+        });
+    }
+
+    /// The page's own keys, taken ahead of every binding (`palette`). False
+    /// leaves the key to the query box, or to the palette's modal rule.
+    pub(crate) fn on_key(
+        &mut self,
+        ks: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let (key, mods) = (ks.key.as_str(), ks.modifiers);
+        let chord = mods.platform || mods.control || mods.alt;
+        match key {
+            "escape" => self.close(window, cx),
+            "enter" => self.open(mods.shift, window, cx),
+            "tab" if !chord => self.step_kind(!mods.shift),
+            // With a query typed, the arrows are the caret's.
+            "left" | "right" if !chord && self.query.read(cx).value().is_empty() => {
+                self.step_kind(key == "right")
+            }
+            "[" | "{" | "]" | "}" if mods.platform && mods.shift => {
+                self.step_kind(matches!(key, "]" | "}"))
+            }
+            "up" | "down" if !chord => {
+                self.selected = match key {
+                    "up" => self.selected.saturating_sub(1),
+                    _ => (self.selected + 1).min(self.rows.len().saturating_sub(1)),
+                };
+                self.scroll.scroll_to_item(self.selected);
+            }
+            // ⌘1–9 on macOS, Ctrl+1–9 elsewhere, the way tabs are picked.
+            _ => match key.parse::<usize>() {
+                Ok(n @ 1..=9) if mods.secondary() && n <= self.kinds.len() => self.kind = n - 1,
+                _ => return false,
+            },
+        }
+        cx.notify();
+        true
+    }
+}
+
+impl Render for NewTabPage {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let (fg, muted, border) = (theme.foreground, theme.muted_foreground, theme.border);
+        let (primary, primary_fg) = (theme.primary, theme.primary_foreground);
+        let hit = HighlightStyle {
+            color: Some(theme.primary),
+            font_weight: Some(FontWeight::BOLD),
+            ..Default::default()
+        };
+        let query = self.query.read(cx).value().trim().to_string();
+        let (hover, picked) = {
+            let sf = &cx.global::<crate::ui::presets::Surfaces>().popover;
+            (gpui::rgb(sf.hover), gpui::rgb(sf.selected))
+        };
+
+        // The palette's scope row, where a tab off the row shows its name.
+        let scope = h_flex()
+            .px(px(12.))
+            .py(px(6.))
+            .gap(px(6.))
+            .flex_wrap()
+            .items_center()
+            .border_b_1()
+            .border_color(border)
+            .child(
+                div()
+                    .h(px(24.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .bg(picked)
+                    .text_size(rems(12. / 16.))
+                    .text_color(fg)
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(SearchTab::NewTab.title()),
+            )
+            .children(self.kinds.iter().enumerate().map(|(at, &kind)| {
+                let on = at == self.kind;
+                div()
+                    .id(("new-tab-kind", at))
+                    .h(px(24.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .text_size(rems(12. / 16.))
+                    .cursor_pointer()
+                    .when(on, |chip| chip.bg(primary).text_color(primary_fg))
+                    .when(!on, |chip| {
+                        chip.border_1()
+                            .border_color(border)
+                            .text_color(fg)
+                            .hover(|chip| chip.bg(hover))
+                    })
+                    .when(at < 9, |chip| {
+                        chip.child(div().mr(px(5.)).opacity(0.6).child(digit_chord(at + 1)))
+                    })
+                    .child(kind.label())
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.kind = at;
+                        cx.notify();
+                    }))
+            }));
+
+        let rows = self.rows.iter().enumerate().map(|(at, dir)| {
+            h_flex()
+                .id(("new-tab-dir", at))
+                .flex_shrink_0()
+                .h(px(ROW_H))
+                .px(px(10.))
+                .items_center()
+                .rounded(crate::ui::rounding::ROW_RADIUS)
+                .cursor_pointer()
+                .text_color(fg)
+                .when(at == self.selected, |row| row.bg(picked))
+                .when(at != self.selected, |row| row.hover(|row| row.bg(hover)))
+                .child(div().min_w_0().truncate().child({
+                    let shown = display_path(dir, self.home.as_deref()).to_string();
+                    let ranges = row_highlights(&query, dir, &shown);
+                    StyledText::new(shown).with_highlights(ranges.into_iter().map(|r| (r, hit)))
+                }))
+                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                    this.selected = at;
+                    this.open(ev.modifiers().shift, window, cx);
+                }))
+        });
+
+        let viewport = window.viewport_size();
+        let card_w = (viewport.width.as_f32() - 32.).clamp(0., CARD_MAX_W);
+        let list_h = LIST_H
+            .min(viewport.height.as_f32() - CARD_TOP - 160.)
+            .max(3. * ROW_H);
+        let list = v_flex()
+            .id("new-tab-dirs")
+            .track_scroll(&self.scroll)
+            .max_h(px(list_h))
+            .overflow_y_scroll()
+            .p(px(6.))
+            .gap(px(1.))
+            .children(rows)
+            .when(self.rows.is_empty(), |list| {
+                list.child(
+                    div()
+                        .px(px(10.))
+                        .py(px(10.))
+                        .text_color(muted)
+                        .child(t(L10nKey::SwitcherNoMatch)),
+                )
+            });
+
+        v_flex()
+            .w(px(card_w))
+            .map(|card| crate::ui::theme::floating_surface(card, cx))
+            .rounded(px(CARD_RADIUS))
+            .overflow_hidden()
+            .child(
+                div()
+                    .h(px(44.))
+                    .px(px(14.))
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(Input::new(&self.query).appearance(false).pl_0()),
+            )
+            .child(scope)
+            .child(list)
+            .child(
+                div()
+                    .px(px(14.))
+                    .py(px(8.))
+                    .border_t_1()
+                    .border_color(border)
+                    .text_size(rems(11. / 16.))
+                    .text_color(muted)
+                    .child(format!(
+                        "{} · {}",
+                        t_fmt(L10nKey::NewTabPageHint, &[("first", &digit_chord(1))]),
+                        t(L10nKey::NewTabPageHintBackground)
+                    )),
+            )
+    }
+}
+
 impl Tty7App {
-    /// New Tab's first stop. False leaves New Tab to upstream: the page is
-    /// off, or the workspace is remote, where neither the directories nor
-    /// the agents on `PATH` are this machine's to list.
+    /// New Tab's first stop: the palette, on its New Tab tab. False leaves New
+    /// Tab to upstream: the page is off, or the workspace is remote, where
+    /// neither the directories nor the agents on `PATH` are this machine's to
+    /// list.
     pub(crate) fn open_new_tab_page(
         &mut self,
         window: &mut Window,
@@ -294,8 +578,11 @@ impl Tty7App {
         if !cx.global::<Config>().new_tab_page || !self.can_spawn_locally(cx) {
             return false;
         }
-        if self.new_tab_page.is_some() {
-            return true;
+        if let Some(search) = &self.search {
+            if search.read(cx).tab() == SearchTab::NewTab {
+                return true;
+            }
+            self.close_search(window, cx);
         }
         let cwds: Vec<Option<PathBuf>> = self
             .tabs
@@ -323,358 +610,45 @@ impl Tty7App {
             .collect();
         let (frecency, roots, now) = (cfg.dir_frecency.clone(), cfg.dir_roots.clone(), unix_now());
         let listing_home = home.clone();
-        // The page only opens on a local workspace, so this machine is the host.
-        HostOps::run(
-            LocalHost::shared(),
-            cx,
-            move |host| {
-                candidates(
-                    host,
-                    active.as_deref(),
-                    &tab_cwds,
-                    &frecency,
-                    &roots,
-                    listing_home.as_deref(),
-                    now,
-                )
-            },
-            |this: &mut Self, dirs, cx| {
-                if let Some(page) = this.new_tab_page.as_mut() {
-                    page.dirs = dirs;
-                    page.refilter(cx);
-                    cx.notify();
-                }
-            },
-        );
+        let listing = move |host: &dyn Host| {
+            candidates(
+                host,
+                active.as_deref(),
+                &tab_cwds,
+                &frecency,
+                &roots,
+                listing_home.as_deref(),
+                now,
+            )
+        };
         let kinds = std::iter::once(Kind::Terminal)
             .chain(offered.into_iter().map(Kind::Agent))
             .collect();
-        let query =
-            cx.new(|cx| InputState::new(window, cx).placeholder(t(L10nKey::NewTabPagePlaceholder)));
-        query.update(cx, |state, cx| state.focus(window, cx));
-        let subs = vec![cx.subscribe_in(
-            &query,
-            window,
-            |this, _input, ev: &InputEvent, _window, cx| {
-                if !matches!(ev, InputEvent::Change) {
-                    return;
-                }
-                let Some(page) = this.new_tab_page.as_mut() else {
-                    return;
-                };
-                page.refilter(cx);
-                let asked = page.query.read(cx).value().trim().to_string();
-                let home = page.home.clone();
-                HostOps::run(
-                    LocalHost::shared(),
-                    cx,
-                    move |host| (resolve_typed(host, &asked, home.as_deref()), asked),
-                    |this: &mut Self, (typed, asked), cx| {
-                        if let Some(page) = this.new_tab_page.as_mut() {
-                            page.typed = typed.map(|dir| (asked, dir));
-                            page.refilter(cx);
-                            cx.notify();
-                        }
-                    },
-                );
-                cx.notify();
-            },
-        )];
-        self.new_tab_page = Some(NewTabPage {
-            query,
-            kinds,
-            kind,
-            rows: dirs.iter().map(|(d, _)| d.clone()).collect(),
-            dirs,
-            typed: None,
-            selected: 0,
-            home,
-            scroll: ScrollHandle::new(),
-            _subs: subs,
-        });
-        cx.notify();
+        let app = cx.entity().downgrade();
+        let page = cx.new(|cx| NewTabPage::new(app, dirs, listing, kinds, kind, home, window, cx));
+        self.open_search(SearchTab::NewTab, "", window, cx);
+        if let Some(search) = &self.search {
+            search.update(cx, |search, cx| {
+                search.set_new_tab(page.clone(), window, cx)
+            });
+        }
         true
     }
 
-    fn close_new_tab_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.new_tab_page.take().is_some() {
-            self.focus_active(window, cx);
-            cx.notify();
-        }
-    }
-
-    /// `background` (⇧) opens the tab behind the one the page was over.
-    fn commit_new_tab_page(
+    fn open_from_new_tab_page(
         &mut self,
+        kind: Kind,
+        dir: PathBuf,
         background: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(page) = self.new_tab_page.as_ref() else {
-            return;
-        };
-        // No row: nothing to open, and the page stays for another query.
-        let Some(dir) = page.rows.get(page.selected).cloned() else {
-            return;
-        };
-        let kind = page.kinds[page.kind];
-        self.close_new_tab_page(window, cx);
+        self.close_search(window, cx);
         self.in_background(background, |this| match kind {
             Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
             Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
         });
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
-    }
-
-    fn new_tab_page_query_is_empty(&self, cx: &App) -> bool {
-        self.new_tab_page
-            .as_ref()
-            .is_none_or(|page| page.query.read(cx).value().is_empty())
-    }
-
-    /// Tab arrives as an action: a key listener never sees it (see keymap.rs).
-    fn step_new_tab_page_kind(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let Some(page) = self.new_tab_page.as_mut() else {
-            return;
-        };
-        let kinds = page.kinds.len();
-        page.kind = match forward {
-            true => (page.kind + 1) % kinds,
-            false => (page.kind + kinds - 1) % kinds,
-        };
-        cx.notify();
-    }
-
-    /// The page is modal: every key is taken here, in the capture phase and so
-    /// ahead of the app's own bindings, except plain typing and the editing
-    /// chords the query box needs.
-    fn on_new_tab_page_key(
-        &mut self,
-        ev: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let (key, mods) = (ev.keystroke.key.as_str(), ev.keystroke.modifiers);
-        let chord = mods.platform || mods.control || mods.alt;
-        match key {
-            "escape" => self.close_new_tab_page(window, cx),
-            "enter" => self.commit_new_tab_page(mods.shift, window, cx),
-            // With a query typed, the arrows are the caret's.
-            "left" | "right" if !chord && self.new_tab_page_query_is_empty(cx) => {
-                self.step_new_tab_page_kind(key == "right", cx)
-            }
-            "[" | "{" | "]" | "}" if mods.platform && mods.shift => {
-                self.step_new_tab_page_kind(matches!(key, "]" | "}"), cx)
-            }
-            "up" | "down" => {
-                let Some(page) = self.new_tab_page.as_mut() else {
-                    return;
-                };
-                page.selected = match key {
-                    "up" => page.selected.saturating_sub(1),
-                    _ => (page.selected + 1).min(page.rows.len().saturating_sub(1)),
-                };
-                page.scroll.scroll_to_item(page.selected);
-            }
-            _ => match key.parse::<usize>() {
-                // ⌘1–9 on macOS, Ctrl+1–9 elsewhere, the way tabs are picked.
-                Ok(n @ 1..=9) if mods.secondary() => {
-                    if let Some(page) = self.new_tab_page.as_mut()
-                        && n <= page.kinds.len()
-                    {
-                        page.kind = n - 1;
-                    }
-                }
-                // The box's own editing chords; any other chord is swallowed.
-                _ if mods.platform && matches!(key, "a" | "c" | "v" | "x" | "z") => return,
-                _ if chord => {}
-                _ => return,
-            },
-        }
-        cx.stop_propagation();
-        cx.notify();
-    }
-
-    pub(crate) fn render_new_tab_page(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let page = self.new_tab_page.as_ref()?;
-        let theme = cx.theme();
-        let (fg, muted, border) = (theme.foreground, theme.muted_foreground, theme.border);
-        let (primary, primary_fg) = (theme.primary, theme.primary_foreground);
-        let hit = HighlightStyle {
-            color: Some(theme.primary),
-            font_weight: Some(FontWeight::BOLD),
-            ..Default::default()
-        };
-        let query = page.query.read(cx).value().trim().to_string();
-        let (hover, picked) = {
-            let sf = &cx.global::<crate::ui::presets::Surfaces>().popover;
-            (gpui::rgb(sf.hover), gpui::rgb(sf.selected))
-        };
-        let scrim = crate::ui::presets::scrim_fill(cx);
-
-        let chips =
-            h_flex()
-                .flex_1()
-                .flex_wrap()
-                .gap(px(6.))
-                .children(page.kinds.iter().enumerate().map(|(at, &kind)| {
-                    let on = at == page.kind;
-                    div()
-                        .id(("new-tab-kind", at))
-                        .h(px(24.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .text_size(rems(12. / 16.))
-                        .cursor_pointer()
-                        .when(on, |chip| chip.bg(primary).text_color(primary_fg))
-                        .when(!on, |chip| {
-                            chip.border_1()
-                                .border_color(border)
-                                .text_color(fg)
-                                .hover(|chip| chip.bg(hover))
-                        })
-                        .when(at < 9, |chip| {
-                            chip.child(div().mr(px(5.)).opacity(0.6).child(digit_chord(at + 1)))
-                        })
-                        .child(kind.label())
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            if let Some(page) = this.new_tab_page.as_mut() {
-                                page.kind = at;
-                            }
-                            cx.notify();
-                        }))
-                }));
-
-        let rows = page.rows.iter().enumerate().map(|(at, dir)| {
-            h_flex()
-                .id(("new-tab-dir", at))
-                .flex_shrink_0()
-                .h(px(ROW_H))
-                .px(px(10.))
-                .items_center()
-                .rounded(crate::ui::rounding::ROW_RADIUS)
-                .cursor_pointer()
-                .text_color(fg)
-                .when(at == page.selected, |row| row.bg(picked))
-                .when(at != page.selected, |row| row.hover(|row| row.bg(hover)))
-                .child(div().min_w_0().truncate().child({
-                    let shown = display_path(dir, page.home.as_deref()).to_string();
-                    let ranges = row_highlights(&query, dir, &shown);
-                    StyledText::new(shown).with_highlights(ranges.into_iter().map(|r| (r, hit)))
-                }))
-                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                    if let Some(page) = this.new_tab_page.as_mut() {
-                        page.selected = at;
-                    }
-                    this.commit_new_tab_page(ev.modifiers().shift, window, cx);
-                }))
-        });
-
-        let viewport = window.viewport_size();
-        let card_w = CARD_W.min(viewport.width.as_f32() - 48.).max(320.);
-        let list_h = LIST_H
-            .min(viewport.height.as_f32() - CARD_TOP - 160.)
-            .max(3. * ROW_H);
-        let list = v_flex()
-            .id("new-tab-dirs")
-            .track_scroll(&page.scroll)
-            .max_h(px(list_h))
-            .overflow_y_scroll()
-            .p(px(6.))
-            .gap(px(1.))
-            .children(rows)
-            .when(page.rows.is_empty(), |list| {
-                list.child(
-                    div()
-                        .px(px(10.))
-                        .py(px(10.))
-                        .text_color(muted)
-                        .child(t(L10nKey::SwitcherNoMatch)),
-                )
-            });
-
-        let card = v_flex()
-            .w(px(card_w))
-            .map(|card| crate::ui::theme::floating_surface(card, cx))
-            .rounded(px(CARD_RADIUS))
-            .overflow_hidden()
-            .child(
-                h_flex()
-                    .px(px(14.))
-                    .pt(px(12.))
-                    .pb(px(10.))
-                    .gap(px(12.))
-                    .items_center()
-                    .child(
-                        div()
-                            .text_size(rems(13. / 16.))
-                            .text_color(muted)
-                            .child(t(L10nKey::NewTabPageTitle)),
-                    )
-                    .child(chips),
-            )
-            .child(
-                div()
-                    .h(px(40.))
-                    .px(px(14.))
-                    .flex()
-                    .items_center()
-                    .border_t_1()
-                    .border_b_1()
-                    .border_color(border)
-                    .child(Input::new(&page.query).appearance(false).pl_0()),
-            )
-            .child(list)
-            .child(
-                div()
-                    .px(px(14.))
-                    .py(px(8.))
-                    .border_t_1()
-                    .border_color(border)
-                    .text_size(rems(11. / 16.))
-                    .text_color(muted)
-                    .child(format!(
-                        "{} · {}",
-                        t_fmt(L10nKey::NewTabPageHint, &[("first", &digit_chord(1))]),
-                        t(L10nKey::NewTabPageHintBackground)
-                    )),
-            );
-
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_start()
-                .justify_center()
-                .pt(px(CARD_TOP))
-                .bg(scrim)
-                .key_context("NewTabPage")
-                .on_action(cx.listener(|this, _: &NewTabPageNextKind, _, cx| {
-                    this.step_new_tab_page_kind(true, cx)
-                }))
-                .on_action(cx.listener(|this, _: &NewTabPagePrevKind, _, cx| {
-                    this.step_new_tab_page_kind(false, cx)
-                }))
-                .capture_key_down(cx.listener(Self::on_new_tab_page_key))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                        // Spent on the dismissal, as the switcher's scrim is:
-                        // the click must not also land on whatever is beneath.
-                        cx.stop_propagation();
-                        this.close_new_tab_page(window, cx);
-                    }),
-                )
-                .child(div().id("new-tab-card").occlude().child(card))
-                .into_any_element(),
-        )
     }
 }
 
@@ -951,12 +925,16 @@ mod tests {
         });
         assert!(opened);
         vcx.run_until_parked();
-        assert!(app.update(&mut vcx, |app, _| app.new_tab_page.is_some()));
+        assert!(app.update(&mut vcx, |app, cx| {
+            app.search
+                .as_ref()
+                .is_some_and(|s| s.read(cx).new_tab_page().is_some())
+        }));
 
         vcx.simulate_keystrokes("escape");
         vcx.run_until_parked();
         app.update(&mut vcx, |app, cx| {
-            assert!(app.new_tab_page.is_none(), "Esc closes the page");
+            assert!(app.search.is_none(), "Esc closes the page");
             assert_eq!(app.tabs.len(), tabs, "Esc opens nothing");
             assert!(
                 cx.global::<Config>().dir_frecency.is_empty(),

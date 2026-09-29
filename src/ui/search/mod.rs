@@ -48,6 +48,9 @@ pub(crate) enum SearchTab {
     /// Open tabs, then the agent sessions not open in one (`agents`, ⌘K).
     /// Off the row: Terminals and Sessions already are its halves.
     Agents,
+    /// What to open and where (`new_tab_page`, ⌘T): the page draws itself in
+    /// place of the list. Off the row.
+    NewTab,
 }
 
 impl SearchTab {
@@ -93,6 +96,7 @@ impl SearchTab {
             SearchTab::Text => L10nKey::SearchTabText,
             SearchTab::History => L10nKey::SearchTabHistory,
             SearchTab::Agents => L10nKey::SearchTabAgents,
+            SearchTab::NewTab => L10nKey::NewTabPageTitle,
         })
     }
 
@@ -117,6 +121,7 @@ impl SearchTab {
             SearchTab::Text => L10nKey::SearchPlaceholderText,
             SearchTab::History => L10nKey::SearchPlaceholderHistory,
             SearchTab::Agents => L10nKey::SearchPlaceholderAgents,
+            SearchTab::NewTab => L10nKey::NewTabPagePlaceholder,
         })
     }
 

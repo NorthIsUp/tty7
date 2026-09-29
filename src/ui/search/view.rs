@@ -18,6 +18,7 @@ use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::new_tab_page::NewTabPage;
 
 /// What the list is showing: one of the tabs, or a list a row opens — the
 /// theme picker one of the Actions rows opens, or what can be done with a
@@ -460,6 +461,8 @@ pub struct SearchView {
     /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
     /// less what cannot answer), set by whoever opened an editor tab.
     editor_tabs: Vec<SearchTab>,
+    /// The New Tab tab's page, drawn in place of the list.
+    new_tab: Option<Entity<NewTabPage>>,
     _sub: Subscription,
 }
 
@@ -495,13 +498,35 @@ impl SearchView {
             symbol_moved: false,
             heading: None,
             editor_tabs: Vec::new(),
+            new_tab: None,
             _sub,
         }
     }
 
+    pub(crate) fn set_new_tab(
+        &mut self,
+        page: Entity<NewTabPage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        NewTabPage::focus(&page, window, cx);
+        self.new_tab = Some(page);
+        cx.notify();
+    }
+
+    /// The page, while the New Tab tab is showing.
+    pub(crate) fn new_tab_page(&self) -> Option<Entity<NewTabPage>> {
+        self.new_tab
+            .clone()
+            .filter(|_| self.tab == SearchTab::NewTab)
+    }
+
     /// Puts the keyboard back in the search field (`palette`).
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-        self.list.update(cx, |state, cx| state.focus(window, cx));
+        match self.new_tab_page() {
+            Some(page) => NewTabPage::focus(&page, window, cx),
+            None => self.list.update(cx, |state, cx| state.focus(window, cx)),
+        }
     }
 
     /// Whether a row's list is showing rather than a tab.
@@ -1229,6 +1254,10 @@ impl Render for SearchView {
                 )
             })
             .child(self.render_footer(cx));
+        let card = match self.new_tab_page() {
+            Some(page) => page.into_any_element(),
+            None => card.into_any_element(),
+        };
 
         div()
             .absolute()
