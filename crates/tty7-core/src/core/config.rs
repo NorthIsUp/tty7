@@ -446,6 +446,11 @@ pub struct Config {
     /// next, so they do not all cold-start and hit the API at once.
     #[serde(default = "default_continue_stagger_ms")]
     pub continue_stagger_ms: u64,
+    /// Wake every sleeping tab with an agent session at launch, staggered
+    /// like Continue All Agents but with no prompt; shell-only tabs stay
+    /// asleep.
+    #[serde(default = "default_true")]
+    pub resume_agents_on_launch: bool,
     /// New Tab opens the new tab page — pick an agent or a terminal and a
     /// directory — instead of a shell in the current tab's directory.
     #[serde(default = "default_true")]
@@ -859,6 +864,7 @@ impl Default for Config {
             restore_asleep: true,
             continue_prompt: default_continue_prompt(),
             continue_stagger_ms: default_continue_stagger_ms(),
+            resume_agents_on_launch: true,
             new_tab_page: true,
             dir_roots: default_dir_roots(),
             dir_frecency: HashMap::new(),
