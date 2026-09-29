@@ -310,6 +310,18 @@ impl CLIAgent {
         }
     }
 
+    /// A fresh start under `session_id`, for when [`Self::resume_command`]
+    /// finds nothing: Claude saves no conversation for a session that never
+    /// took a turn (or ran with transcript saving off), and resuming one
+    /// fails at once. `None` for agents that cannot name a new session.
+    pub fn start_command(self, session_id: &str, launch_argv: Option<&[String]>) -> Option<String> {
+        if self != CLIAgent::Claude || uuid::Uuid::parse_str(session_id).is_err() {
+            return None;
+        }
+        let flags = self.session_command_flags(session_id, launch_argv)?;
+        Some(format!("claude{flags} --session-id {session_id}"))
+    }
+
     fn session_command_flags(
         self,
         session_id: &str,
@@ -1162,6 +1174,20 @@ pub fn parse_agent_event(payload: &[u8]) -> Option<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_starts_fresh_under_the_same_id_with_its_flags() {
+        const ID: &str = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let launched = argv(&["claude", "--model", "opus", "--session-id", ID]);
+        assert_eq!(
+            CLIAgent::Claude
+                .start_command(ID, Some(&launched))
+                .as_deref(),
+            Some(format!("claude --model opus --session-id {ID}").as_str())
+        );
+        assert_eq!(CLIAgent::Claude.start_command("not-a-uuid", None), None);
+        assert_eq!(CLIAgent::Codex.start_command(ID, None), None);
+    }
 
     fn argv(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()

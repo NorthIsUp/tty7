@@ -9824,7 +9824,11 @@ fn agent_resume_command(
         );
         return None;
     };
-    agent.resume_command(session_id, launch_argv)
+    let resume = agent.resume_command(session_id, launch_argv)?;
+    Some(match agent.start_command(session_id, launch_argv) {
+        Some(fresh) => format!("{resume} || {fresh}"),
+        None => resume,
+    })
 }
 
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
