@@ -1,29 +1,30 @@
 //! The fork's sidebar group colours, kept out of `tab_sidebar.rs` so rebasing
-//! on upstream touches as little of it as possible. A group's colour is
-//! derived from its name, so the same group looks the same in every window
-//! and across restarts without anything being stored.
+//! on upstream touches as little of it as possible. A group's colour comes
+//! from its place in the sidebar, so neighbours never share a hue — which
+//! hashing a name into a theme's handful of ANSI slots could not promise.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use gpui::{App, Hsla, IntoElement, Rgba, Styled, div, px};
+use gpui_component::ActiveTheme as _;
 
 use crate::core::config::Config;
-use crate::terminal::palette::ActivePalette;
-use crate::ui::{presets, theme};
+use crate::ui::presets::surface_is_dark;
 
 /// The swatch's side, and the room the header gives it before the name.
 pub(crate) const SWATCH: f32 = 8.;
 
-/// The theme's six hues in both halves, skipping black, white and the greys
-/// (0, 7, 8, 15): a grey swatch reads as no colour at all.
-const PALETTE: [usize; 12] = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14];
+/// Each group turns the hue wheel this far past the one above it, so no two
+/// neighbours are within 85° and the first 17 stay at least 10° apart.
+const GOLDEN_ANGLE: f32 = 137.507_77;
+/// The first group's hue: a blue, which no theme reads as an alarm.
+const FIRST_HUE: f32 = 250.;
 
-pub(crate) fn fnv1a(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
-        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
-    })
-}
+/// OKLCH lightness and chroma per rail: one lightness is equally bright at
+/// every hue, which HSL and a theme's ANSI slots are not.
+const LIGHT_RAIL: (f32, f32) = (0.60, 0.14);
+const DARK_RAIL: (f32, f32) = (0.74, 0.12);
 
 /// `#rrggbb` or `rrggbb`, in any case — the form a theme file writes.
 pub(crate) fn parse_hex(s: &str) -> Option<Rgba> {
@@ -34,12 +35,39 @@ pub(crate) fn parse_hex(s: &str) -> Option<Rgba> {
     u32::from_str_radix(digits, 16).ok().map(gpui::rgb)
 }
 
-/// The override when it parses, else the hue the name hashes to. A bad
+/// The hue of the group drawn `slot`th in the sidebar.
+pub(crate) fn slot_hue(slot: usize) -> f32 {
+    (FIRST_HUE + slot as f32 * GOLDEN_ANGLE) % 360.
+}
+
+fn oklch(l: f32, c: f32, hue: f32) -> Rgba {
+    let (a, b) = (c * hue.to_radians().cos(), c * hue.to_radians().sin());
+    let l_ = (l + 0.396_337_78 * a + 0.215_803_76 * b).powi(3);
+    let m_ = (l - 0.105_561_35 * a - 0.063_854_17 * b).powi(3);
+    let s_ = (l - 0.089_484_18 * a - 1.291_485_5 * b).powi(3);
+    let gamma = |x: f32| {
+        let x = x.clamp(0., 1.);
+        match x <= 0.003_130_8 {
+            true => 12.92 * x,
+            false => 1.055 * x.powf(1. / 2.4) - 0.055,
+        }
+    };
+    Rgba {
+        r: gamma(4.076_741_7 * l_ - 3.307_711_6 * m_ + 0.230_969_93 * s_),
+        g: gamma(-1.268_438 * l_ + 2.609_757_4 * m_ - 0.341_319_4 * s_),
+        b: gamma(-0.004_196_086 * l_ - 0.703_418_6 * m_ + 1.707_614_7 * s_),
+        a: 1.,
+    }
+}
+
+/// The override when it parses, else the hue of the group's place in the
+/// sidebar (`slot`); Ungrouped (`None`) is a grey at the same lightness. A bad
 /// override is logged once per group: this runs on every sidebar paint.
 pub(crate) fn group_color(
     name: &str,
+    slot: Option<usize>,
     overrides: &HashMap<String, String>,
-    ansi16: &[(u8, u8, u8); 16],
+    dark: bool,
 ) -> Hsla {
     if let Some(value) = overrides.get(name) {
         match parse_hex(value) {
@@ -53,25 +81,25 @@ pub(crate) fn group_color(
             }
         }
     }
-    let (r, g, b) = ansi16[PALETTE[(fnv1a(name) % PALETTE.len() as u64) as usize]];
-    gpui::rgb(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b)).into()
+    let (l, c) = if dark { DARK_RAIL } else { LIGHT_RAIL };
+    match slot {
+        Some(slot) => oklch(l, c, slot_hue(slot)),
+        None => oklch(l, 0., 0.),
+    }
+    .into()
 }
 
-/// The terminal palette the theme applied, which the sidebar has no handle
-/// on otherwise; before the first apply, the configured preset's own.
-pub(crate) fn active_ansi16(cx: &App) -> [(u8, u8, u8); 16] {
-    match cx.try_global::<ActivePalette>() {
-        Some(p) => p.ansi16.map(|c| (c.r, c.g, c.b)),
-        None => presets::by_id(cx, &theme::effective_preset_id(cx)).ansi16,
-    }
+pub(crate) fn dark_rail(cx: &App) -> bool {
+    surface_is_dark(cx.theme().background)
 }
 
 /// The dot before a group header's name.
-pub(crate) fn swatch(name: &str, cx: &App) -> impl IntoElement {
+pub(crate) fn swatch(name: &str, slot: Option<usize>, cx: &App) -> impl IntoElement {
     let color = group_color(
         name,
+        slot,
         &cx.global::<Config>().group_colors,
-        &active_ansi16(cx),
+        dark_rail(cx),
     );
     div()
         .flex_shrink_0()
@@ -83,24 +111,27 @@ pub(crate) fn swatch(name: &str, cx: &App) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::presets::{contrast, mix};
 
-    const ANSI16: [(u8, u8, u8); 16] = [
-        (0, 0, 0),
-        (16, 0, 0),
-        (32, 0, 0),
-        (48, 0, 0),
-        (64, 0, 0),
-        (80, 0, 0),
-        (96, 0, 0),
-        (112, 0, 0),
-        (128, 0, 0),
-        (144, 0, 0),
-        (160, 0, 0),
-        (176, 0, 0),
-        (192, 0, 0),
-        (208, 0, 0),
-        (224, 0, 0),
-        (240, 0, 0),
+    /// The sidebar that asked for this: ten of these were one red.
+    const GROUPS: [&str; 17] = [
+        "Adv360-Pro-ZMK",
+        "pixkidz",
+        "infrastructure",
+        "tsmux",
+        "cc-statusline",
+        "homelab-gitops",
+        "skillz",
+        "Clara_V1",
+        "clawmux",
+        "fnox.git",
+        "tty7",
+        "dotfiles",
+        "clara",
+        "supports-hyperlinks",
+        "tty7-resume",
+        "notes",
+        "ssh: prod",
     ];
 
     fn hex(c: Hsla) -> u32 {
@@ -109,59 +140,90 @@ mod tests {
         byte(c.r) << 16 | byte(c.g) << 8 | byte(c.b)
     }
 
-    #[test]
-    fn the_same_name_gets_the_same_colour() {
-        let none = HashMap::new();
-        assert_eq!(
-            hex(group_color("tty7", &none, &ANSI16)),
-            hex(group_color("tty7", &none, &ANSI16))
-        );
-        assert_eq!(fnv1a(""), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(fnv1a("a"), 0xaf63_dc4c_8601_ec8c);
+    fn apart(a: f32, b: f32) -> f32 {
+        let d = (a - b).rem_euclid(360.);
+        d.min(360. - d)
     }
 
     #[test]
-    fn different_names_spread_over_at_least_six_colours() {
+    fn seventeen_groups_get_seventeen_hues_ten_degrees_apart_and_neighbours_far_apart() {
         let none = HashMap::new();
-        let names = [
-            "tty7",
-            "clawmux",
-            "dotfiles",
-            "clara",
-            "infra",
-            "web",
-            "api",
-            "docs",
-            "scratch",
-            "notes",
-            "ssh: prod",
-            "Ungrouped",
-        ];
-        let colours: HashSet<u32> = names
-            .iter()
-            .map(|n| hex(group_color(n, &none, &ANSI16)))
-            .collect();
-        assert!(colours.len() >= 6, "only {} colours", colours.len());
-        let greys: HashSet<u32> = [0, 7, 8, 15].iter().map(|&i| (i * 16) << 16).collect();
-        assert!(colours.is_disjoint(&greys), "a group landed on a grey");
+        for (i, a) in GROUPS.iter().enumerate() {
+            for (j, b) in GROUPS.iter().enumerate().skip(i + 1) {
+                let gap = apart(slot_hue(i), slot_hue(j));
+                assert!(gap >= 10., "{a} and {b}: {gap}°");
+            }
+            if i > 0 {
+                assert!(apart(slot_hue(i), slot_hue(i - 1)) >= 120., "{a}");
+            }
+        }
+        for dark in [false, true] {
+            let colours: HashSet<u32> = GROUPS
+                .iter()
+                .enumerate()
+                .map(|(i, n)| hex(group_color(n, Some(i), &none, dark)))
+                .collect();
+            assert_eq!(colours.len(), GROUPS.len(), "dark={dark}");
+        }
+    }
+
+    #[test]
+    fn a_slot_is_the_same_colour_every_time() {
+        let none = HashMap::new();
+        assert_eq!(slot_hue(0), FIRST_HUE);
+        assert_eq!(
+            hex(group_color("tty7", Some(3), &none, false)),
+            hex(group_color("other", Some(3), &none, false))
+        );
+    }
+
+    #[test]
+    fn ungrouped_is_a_grey() {
+        for dark in [false, true] {
+            let c = hex(group_color("Ungrouped", None, &HashMap::new(), dark));
+            let (r, g, b) = (c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff);
+            assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1, "{c:06x}");
+        }
+    }
+
+    /// The header's text keeps 4:1, and three quarters of what it has on the bare
+    /// rail, on the wash every hue lays under it, on Solarized light and dark.
+    #[test]
+    fn header_text_stays_readable_on_every_fill() {
+        let none = HashMap::new();
+        for (dark, rail, text) in [(false, 0xfdf6e3, 0x586e75), (true, 0x002b36, 0x93a1a1)] {
+            for slot in (0..GROUPS.len()).map(Some).chain([None]) {
+                let c = hex(group_color("g", slot, &none, dark));
+                let fill = mix(rail, c, crate::ui::group_header::FILL_ALPHA);
+                let ratio = contrast(text, fill);
+                assert!(
+                    ratio >= 4. && ratio >= 0.75 * contrast(text, rail),
+                    "dark={dark} slot={slot:?}: {ratio}"
+                );
+                // The swatch reads as a dot against the rail.
+                assert!(contrast(c, rail) >= 2., "dark={dark} slot={slot:?}");
+            }
+        }
     }
 
     #[test]
     fn a_valid_override_wins_and_a_bad_one_falls_back() {
-        let derived = hex(group_color("tty7", &HashMap::new(), &ANSI16));
-        for (value, want) in [
-            ("#ff8800", 0xff8800),
-            ("00AAff", 0x00aaff),
-            ("#12345", derived),
-            ("#gg0000", derived),
-            ("", derived),
-        ] {
-            let overrides = HashMap::from([("tty7".to_string(), value.to_string())]);
-            assert_eq!(
-                hex(group_color("tty7", &overrides, &ANSI16)),
-                want,
-                "{value:?}"
-            );
+        for slot in [Some(2), None] {
+            let derived = hex(group_color("tty7", slot, &HashMap::new(), false));
+            for (value, want) in [
+                ("#ff8800", 0xff8800),
+                ("00AAff", 0x00aaff),
+                ("#12345", derived),
+                ("#gg0000", derived),
+                ("", derived),
+            ] {
+                let overrides = HashMap::from([("tty7".to_string(), value.to_string())]);
+                assert_eq!(
+                    hex(group_color("tty7", slot, &overrides, false)),
+                    want,
+                    "{value:?}"
+                );
+            }
         }
     }
 
