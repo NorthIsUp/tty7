@@ -13,7 +13,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | file | what it holds |
 |---|---|
 | `FORK.md` | this page |
-| `mise.toml` | build, test and `sync-upstream` tasks |
+| `mise.toml`, `mise-tasks/` | tool pin; build, test, release, launch and `sync-upstream` file tasks |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
