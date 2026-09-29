@@ -68,3 +68,4 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `docs/window/sidebar.mdx` | Group colours | `group_colors` |
 | `docs/window/search-everywhere.mdx` | Tabs table | the Text tab |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page` |
+| `.github/workflows/ci.yml` | `changes` job; `needs`/`if` on `build` steps and the server jobs; `build` env; the three `Swatinem/rust-cache` steps | skip the Rust jobs on docs-only PRs while required checks still report; save caches from main and manual runs only, keep them on failure, build tests with `line-tables-only` debug so the cache is smaller |
