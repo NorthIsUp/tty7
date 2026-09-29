@@ -14,6 +14,7 @@ pub mod file_copy;
 pub mod file_tree;
 pub mod forwards;
 pub mod github;
+pub mod github_session;
 pub mod group_color;
 pub mod group_header;
 pub mod hints;

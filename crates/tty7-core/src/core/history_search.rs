@@ -2,6 +2,9 @@
 //! the user's prompts and the agent's replies, never tool calls or their
 //! output. Claude Code (and Qoder, which copied its layout) and Codex.
 //!
+//! [`session_mentions`] reads one session the same way, tool output
+//! included, for the pull requests it names.
+//!
 //! Every file is read whole, line by line, newest first, and what it says is
 //! kept in memory by path, size and modification time, so a second query
 //! reads only the sessions that moved since.
@@ -13,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use regex::Regex;
 use serde::Deserialize;
 use serde::de::{Deserializer, IgnoredAny, SeqAccess, Visitor};
 
@@ -20,6 +24,7 @@ use crate::core::agent_history::{
     Found, Roots, claude_files, codex_files, codex_not_the_users, strip_injected, unix,
 };
 use crate::core::cli_agent::CLIAgent;
+use crate::core::github::RepoSlug;
 
 /// ponytail: a query stops after this long and shows what it found; the
 /// next one starts where the cache is warm. A persistent index if a cold
@@ -86,6 +91,95 @@ pub fn search(roots: &Roots, query: &str) -> Vec<HistoryHit> {
         out.extend(hit.flatten());
     }
     rank(&mut out);
+    out
+}
+
+/// ponytail: the newest this many of each kind; older mentions drop off.
+const MAX_MENTIONS: usize = 200;
+
+/// The issue and pull request numbers of one repository a session names.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Mentions {
+    /// `#N`, `owner/repo#N` and `…/pull/N` links, the latest mention first.
+    pub refs: Vec<u64>,
+    /// `…/issues/N` links not also in `refs`: a pull request only if a list
+    /// says so.
+    pub issue_links: Vec<u64>,
+}
+
+/// What `agent`'s session `id` says about `repo`: its prompts, replies and
+/// tool output (`gh pr create` prints the link there).
+pub fn session_mentions(roots: &Roots, agent: CLIAgent, id: &str, repo: &RepoSlug) -> Mentions {
+    session_file(roots, agent, id)
+        .and_then(|path| read_as::<Texts>(&path, agent))
+        .map(|t| mentions_in(t.messages.iter().map(|m| m.text.as_str()), repo))
+        .unwrap_or_default()
+}
+
+fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
+    let files = match agent {
+        CLIAgent::Claude => claude_files(&roots.claude.join("projects"), agent),
+        CLIAgent::QoderCLI => claude_files(&roots.qoder.join("projects"), agent),
+        CLIAgent::QoderCLICn => claude_files(&roots.qoder_cn.join("projects"), agent),
+        CLIAgent::Codex => codex_files(&roots.codex),
+        _ => return None,
+    };
+    let rollout = format!("-{id}");
+    files
+        .into_iter()
+        .find(|f| {
+            f.path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| match agent {
+                    CLIAgent::Codex => s.ends_with(&rollout),
+                    _ => s == id,
+                })
+        })
+        .map(|f| f.path)
+}
+
+static MENTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)github\.com/([\w.-]+)/([\w.-]+)/(pull|issues)/(\d+)|(?:^|[^\w/.#&-])(?:([\w.-]+)/([\w.-]+))?#(\d+)\b",
+    )
+    .expect("the mention pattern compiles")
+});
+
+fn mentions_in<'a>(texts: impl Iterator<Item = &'a str>, repo: &RepoSlug) -> Mentions {
+    let ours = |owner: Option<regex::Match>, name: Option<regex::Match>| match (owner, name) {
+        (Some(o), Some(n)) => {
+            o.as_str().eq_ignore_ascii_case(&repo.owner)
+                && n.as_str().eq_ignore_ascii_case(&repo.name)
+        }
+        _ => true,
+    };
+    let mut seen: Vec<(u64, bool)> = Vec::new();
+    for text in texts {
+        for c in MENTION.captures_iter(text) {
+            let (number, issue_link) = match (c.get(4), c.get(7)) {
+                (Some(n), _) if ours(c.get(1), c.get(2)) => {
+                    (n, c[3].eq_ignore_ascii_case("issues"))
+                }
+                (None, Some(n)) if ours(c.get(5), c.get(6)) => (n, false),
+                _ => continue,
+            };
+            if let Ok(number) = number.as_str().parse() {
+                seen.push((number, issue_link));
+            }
+        }
+    }
+    let mut out = Mentions::default();
+    for &(number, issue_link) in seen.iter().rev() {
+        let list = match issue_link {
+            true => &mut out.issue_links,
+            false => &mut out.refs,
+        };
+        if list.len() < MAX_MENTIONS && !list.contains(&number) {
+            list.push(number);
+        }
+    }
+    out.issue_links.retain(|n| !out.refs.contains(n));
     out
 }
 
@@ -230,6 +324,14 @@ fn with_transcript<T>(file: &Found, f: impl FnOnce(&Transcript) -> T) -> Option<
 }
 
 fn read(path: &Path, agent: CLIAgent) -> Option<Transcript> {
+    read_as::<IgnoredAny>(path, agent)
+}
+
+/// `read`, with tool output read as `Tools`.
+fn read_as<Tools>(path: &Path, agent: CLIAgent) -> Option<Transcript>
+where
+    Tools: for<'a> Deserialize<'a> + ToolText,
+{
     let mut reader = BufReader::new(File::open(path).ok()?);
     let mut transcript = Transcript::default();
     if agent != CLIAgent::Codex {
@@ -238,9 +340,9 @@ fn read(path: &Path, agent: CLIAgent) -> Option<Transcript> {
     let mut line = Vec::new();
     while reader.read_until(b'\n', &mut line).ok()? > 0 {
         let keep = match agent {
-            CLIAgent::Codex => codex_line(&line, &mut transcript),
+            CLIAgent::Codex => codex_line::<Tools>(&line, &mut transcript),
             _ => {
-                claude_line(&line, &mut transcript);
+                claude_line::<Tools>(&line, &mut transcript);
                 true
             }
         };
@@ -254,9 +356,12 @@ fn read(path: &Path, agent: CLIAgent) -> Option<Transcript> {
 }
 
 /// A Claude Code record, with everything but what is searched skipped
-/// unparsed: tool output runs to megabytes a line.
+/// unparsed: tool output runs to megabytes a line. `Tools` is what a tool
+/// result's output is read as: `IgnoredAny` for search, [`Texts`] where it
+/// counts (see [`session_mentions`]).
 #[derive(Deserialize)]
-struct ClaudeRecord {
+#[serde(bound(deserialize = "Tools: Deserialize<'de> + ToolText"))]
+struct ClaudeRecord<Tools> {
     #[serde(rename = "type")]
     kind: Option<String>,
     cwd: Option<String>,
@@ -268,65 +373,104 @@ struct ClaudeRecord {
     is_compact_summary: bool,
     #[serde(rename = "isVisibleInTranscriptOnly", default)]
     transcript_only: bool,
-    message: Option<ClaudeMessage>,
+    message: Option<ClaudeMessage<Tools>>,
 }
 
 #[derive(Deserialize)]
-struct ClaudeMessage {
-    #[serde(default)]
-    content: Texts,
+#[serde(bound(deserialize = "Tools: Deserialize<'de> + ToolText"))]
+struct ClaudeMessage<Tools> {
+    #[serde(default = "Texts::empty")]
+    content: Texts<Tools>,
 }
 
 /// The text parts of a message's `content`: the string itself, or the
-/// `{"type": "text"}` parts of a list. Tool calls, their results and
-/// thinking are skipped.
-#[derive(Default)]
-struct Texts(Vec<String>);
+/// `{"type": "text"}` parts of a list, and in `tools` the output of its
+/// `tool_result` parts read as `Tools`. Tool calls and thinking are skipped.
+struct Texts<Tools = IgnoredAny> {
+    said: Vec<String>,
+    tools: Vec<String>,
+    kind: std::marker::PhantomData<Tools>,
+}
+
+impl<Tools> Texts<Tools> {
+    fn empty() -> Self {
+        Texts {
+            said: Vec::new(),
+            tools: Vec::new(),
+            kind: std::marker::PhantomData,
+        }
+    }
+}
+
+/// What a tool's output reads as: nothing, or its text.
+trait ToolText {
+    fn into_texts(self) -> Vec<String>;
+}
+
+impl ToolText for IgnoredAny {
+    fn into_texts(self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+impl ToolText for Texts {
+    fn into_texts(self) -> Vec<String> {
+        self.said
+    }
+}
 
 #[derive(Deserialize)]
-struct Part {
+struct Part<Tools> {
     #[serde(rename = "type")]
     kind: Option<String>,
     text: Option<String>,
+    content: Option<Tools>,
 }
 
-impl<'de> Deserialize<'de> for Texts {
+impl<'de, Tools: Deserialize<'de> + ToolText> Deserialize<'de> for Texts<Tools> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct V;
-        impl<'de> Visitor<'de> for V {
-            type Value = Texts;
+        struct V<Tools>(std::marker::PhantomData<Tools>);
+        impl<'de, Tools: Deserialize<'de> + ToolText> Visitor<'de> for V<Tools> {
+            type Value = Texts<Tools>;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str("a string or a list of parts")
             }
-            fn visit_str<E>(self, s: &str) -> Result<Texts, E> {
-                Ok(Texts(vec![s.to_owned()]))
+            fn visit_str<E>(self, s: &str) -> Result<Texts<Tools>, E> {
+                let mut out = Texts::empty();
+                out.said.push(s.to_owned());
+                Ok(out)
             }
-            fn visit_unit<E>(self) -> Result<Texts, E> {
-                Ok(Texts::default())
+            fn visit_unit<E>(self) -> Result<Texts<Tools>, E> {
+                Ok(Texts::empty())
             }
-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Texts, A::Error> {
-                let mut out = Vec::new();
-                while let Some(part) = seq.next_element::<Part>()? {
-                    if part.kind.as_deref() == Some("text") {
-                        out.extend(part.text);
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Texts<Tools>, A::Error> {
+                let mut out = Texts::empty();
+                while let Some(part) = seq.next_element::<Part<Tools>>()? {
+                    match part.kind.as_deref() {
+                        Some("text") => out.said.extend(part.text),
+                        Some("tool_result") => {
+                            out.tools
+                                .extend(part.content.into_iter().flat_map(ToolText::into_texts));
+                        }
+                        _ => {}
                     }
                 }
-                Ok(Texts(out))
+                Ok(out)
             }
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
-            ) -> Result<Texts, A::Error> {
+            ) -> Result<Texts<Tools>, A::Error> {
                 while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                Ok(Texts::default())
+                Ok(Texts::empty())
             }
         }
-        d.deserialize_any(V)
+        d.deserialize_any(V(std::marker::PhantomData))
     }
 }
 
-fn claude_line(line: &[u8], t: &mut Transcript) {
-    let Ok(r) = serde_json::from_slice::<ClaudeRecord>(line) else {
+fn claude_line<'a, Tools: Deserialize<'a> + ToolText>(line: &'a [u8], t: &mut Transcript) {
+    let Ok(r) = serde_json::from_slice::<ClaudeRecord<Tools>>(line) else {
         return;
     };
     if t.cwd.is_none() {
@@ -340,7 +484,13 @@ fn claude_line(line: &[u8], t: &mut Transcript) {
     if r.is_meta || r.is_sidechain || r.is_compact_summary || r.transcript_only {
         return;
     }
-    for text in r.message.map(|m| m.content.0).unwrap_or_default() {
+    let Some(content) = r.message.map(|m| m.content) else {
+        return;
+    };
+    for text in content.tools {
+        t.push(false, &text);
+    }
+    for text in content.said {
         let text = match from_user {
             // The harness's own injections (`<command-name>`, caveats) are
             // not what anyone said.
@@ -355,14 +505,14 @@ fn claude_line(line: &[u8], t: &mut Transcript) {
 }
 
 #[derive(Deserialize)]
-struct CodexRecord {
+struct CodexRecord<Tools> {
     #[serde(rename = "type")]
     kind: Option<String>,
-    payload: Option<CodexPayload>,
+    payload: Option<CodexPayload<Tools>>,
 }
 
 #[derive(Deserialize)]
-struct CodexPayload {
+struct CodexPayload<Tools> {
     #[serde(rename = "type")]
     kind: Option<String>,
     message: Option<String>,
@@ -370,11 +520,13 @@ struct CodexPayload {
     cwd: Option<String>,
     source: Option<serde_json::Value>,
     thread_source: Option<String>,
+    /// A `function_call_output`'s output, read as `Tools`.
+    output: Option<Tools>,
 }
 
 /// `false` once the rollout turns out to be one Codex ran for itself.
-fn codex_line(line: &[u8], t: &mut Transcript) -> bool {
-    let Ok(r) = serde_json::from_slice::<CodexRecord>(line) else {
+fn codex_line<'a, Tools: Deserialize<'a> + ToolText>(line: &'a [u8], t: &mut Transcript) -> bool {
+    let Ok(r) = serde_json::from_slice::<CodexRecord<Tools>>(line) else {
         return true;
     };
     let Some(p) = r.payload else { return true };
@@ -393,6 +545,11 @@ fn codex_line(line: &[u8], t: &mut Transcript) -> bool {
         (Some("event_msg"), Some(kind @ ("user_message" | "agent_message"))) => {
             if let Some(text) = p.message {
                 t.push(kind == "user_message", &text);
+            }
+        }
+        (Some("response_item"), Some("function_call_output")) => {
+            for text in p.output.into_iter().flat_map(ToolText::into_texts) {
+                t.push(false, &text);
             }
         }
         _ => {}
@@ -537,6 +694,75 @@ mod tests {
             ],
         );
         assert_eq!(search(&roots(home.path()), "bravo").len(), 1);
+    }
+
+    fn slug(owner: &str, name: &str) -> RepoSlug {
+        RepoSlug {
+            owner: owner.into(),
+            name: name.into(),
+        }
+    }
+
+    #[test]
+    fn mentions_are_this_repos_refs_and_links_latest_first() {
+        let repo = slug("acme", "widgets");
+        let texts = [
+            "see #12 and acme/other#99, then Acme/Widgets#13",
+            "https://github.com/acme/widgets/pull/14 and https://github.com/foo/bar/pull/15",
+            "https://github.com/acme/widgets/issues/16, https://github.com/acme/widgets/issues/12",
+            "#12 again (#17) but not a#18, x/y/z#19, &#20; or #21abc",
+        ];
+        let m = mentions_in(texts.into_iter(), &repo);
+        assert_eq!(m.refs, vec![17, 12, 14, 13]);
+        assert_eq!(m.issue_links, vec![16], "12 is already a ref");
+    }
+
+    #[test]
+    fn a_sessions_mentions_include_tool_output_and_other_sessions_stay_out() {
+        use serde_json::json;
+        let home = tempfile::tempdir().unwrap();
+        write(
+            &home.path().join(".claude/projects/-work-app/s1.jsonl"),
+            &[
+                json!({"type": "user", "message": {"content": "look at #3"}}),
+                json!({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "gh pr create"}}
+                ]}}),
+                json!({"type": "user", "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "t", "content": "https://github.com/acme/widgets/pull/4\n"},
+                    {"type": "tool_result", "tool_use_id": "u", "content": [{"type": "text", "text": "merged #5"}]}
+                ]}}),
+                json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "Opened #4."}]}}),
+            ],
+        );
+        write(
+            &home.path().join(".claude/projects/-work-app/s2.jsonl"),
+            &[json!({"type": "user", "message": {"content": "#77"}})],
+        );
+        let codex = home
+            .path()
+            .join(".codex/sessions/2026/01/02/rollout-2026-01-02T00-00-00-c1.jsonl");
+        write(
+            &codex,
+            &[
+                json!({"type": "session_meta", "payload": {"id": "c1", "source": "cli"}}),
+                json!({"type": "response_item", "payload": {"type": "function_call_output", "output": "acme/widgets#8"}}),
+            ],
+        );
+        let roots = roots(home.path());
+        let repo = slug("acme", "widgets");
+        let m = session_mentions(&roots, CLIAgent::Claude, "s1", &repo);
+        assert_eq!(m.refs, vec![4, 5, 3]);
+        assert_eq!(
+            session_mentions(&roots, CLIAgent::Codex, "c1", &repo).refs,
+            vec![8]
+        );
+        assert_eq!(
+            session_mentions(&roots, CLIAgent::Claude, "nope", &repo),
+            Mentions::default()
+        );
+        // Search still leaves tool output out.
+        assert!(search(&roots, "merged").is_empty());
     }
 
     fn message(from_user: bool, text: &str) -> Message {
