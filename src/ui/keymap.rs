@@ -66,17 +66,6 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         SwitcherAcrossBack,
         Some("Switcher"),
     ));
-    // The new tab page loses Tab to Root's focus walker the same way.
-    bindings.push(KeyBinding::new(
-        "tab",
-        NewTabPageNextKind,
-        Some("NewTabPage"),
-    ));
-    bindings.push(KeyBinding::new(
-        "shift-tab",
-        NewTabPagePrevKind,
-        Some("NewTabPage"),
-    ));
     // Tab walks the search's tabs. Bound on the search's own context for the
     // switcher's reason: Root's focus walker would otherwise take it out of
     // the modal, onto whichever chrome tile is behind it, ring and all.
@@ -108,6 +97,8 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         // drops a pending chord that ranks below a complete match, so this
         // too has to come after tty7's table. Code editor only: in any other
         // field ⌘K goes straight through, without waiting for a second key.
+        // On macOS `palette` takes ⌘K before any binding is matched, so the
+        // chord only answers where `SearchAgents` is on another key.
         bindings.push(KeyBinding::new(
             "secondary-k secondary-d",
             gpui_component::input::SkipOccurrence,
