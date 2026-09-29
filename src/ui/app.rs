@@ -1013,6 +1013,7 @@ pub struct Tty7App {
     window_title: std::cell::RefCell<String>,
     pub(crate) connect: Option<crate::ui::remote_workspace::ConnectFlow>,
     pub(crate) switcher: Option<crate::ui::switcher::Switcher>,
+    pub(crate) new_tab_page: Option<crate::ui::new_tab_page::NewTabPage>,
     pub(crate) host_snapshots: std::collections::HashMap<
         crate::ui::host_registry::HostId,
         crate::ui::switcher::HostSnapshot,
@@ -1597,6 +1598,7 @@ impl Tty7App {
             window_title: std::cell::RefCell::new(String::new()),
             connect: None,
             switcher: None,
+            new_tab_page: None,
             host_snapshots: std::collections::HashMap::new(),
             remote_host_errors: std::collections::HashMap::new(),
             parked_dismissed: std::collections::HashSet::new(),
@@ -3938,6 +3940,9 @@ impl Tty7App {
     }
 
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_new_tab_page(window, cx) {
+            return;
+        }
         self.new_tab_with_shell(None, window, cx);
     }
 
@@ -9673,6 +9678,7 @@ impl Render for Tty7App {
                     this.child(el)
                 })
                 .children(self.render_switcher(window, cx))
+                .children(self.render_new_tab_page(window, cx))
                 .when_some(self.search.clone(), |this, search| this.child(search))
                 .children(gpui_component::Root::render_notification_layer(window, cx));
         let root = Self::with_editor_text_commands(root, cx);
