@@ -1978,7 +1978,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
         L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または ^1–^9 で種類を選択 · Esc でキャンセル"
+            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
         }
         L10nKey::SettingsGroupOutline => "グループの枠線",
         L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
