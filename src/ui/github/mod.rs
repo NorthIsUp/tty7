@@ -288,7 +288,11 @@ impl Tty7App {
                 return GhTarget::Pending;
             }
         };
-        let pick = self.github.remote_pick.get(&repo).map(String::as_str);
+        let pick = crate::ui::github_session::remote_pick(
+            self.github.remote_pick.get(&repo).map(String::as_str),
+            cx.global::<crate::core::config::Config>()
+                .github_panel_prefer_origin,
+        );
         match tty7_core::core::github::remote::default_remote(&remotes, pick) {
             Some(chosen) => {
                 let chosen = chosen.clone();

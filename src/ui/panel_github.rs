@@ -931,6 +931,7 @@ mod gpui_tests {
     use tty7_core::core::config::RightPanelTab;
     use tty7_core::core::github::{ApiError, Kind, Reply, Transport};
 
+    use crate::core::config::Config;
     use crate::daemon::protocol::DaemonMsg;
     use crate::ui::app::{Tty7App, test_window};
     use crate::ui::github::Connection;
@@ -1046,13 +1047,14 @@ mod gpui_tests {
             }));
             app.right_panel_visible = true;
             app.right_panel_tab = RightPanelTab::GitHub;
+            cx.global_mut::<Config>().github_panel_prefer_origin = false;
             cx.notify();
         });
         DaemonMsg::Cwd(root.clone())
             .encode(&mut pane)
             .expect("the pane's socket takes the cwd");
 
-        // A fork setup: upstream wins over origin.
+        // A fork setup, the fork not preferred: upstream wins over origin.
         settle(&app, &mut vcx, "the issue list", |app| {
             app.github
                 .lists

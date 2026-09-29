@@ -499,6 +499,13 @@ pub struct Config {
     /// agent session mentions.
     #[serde(default = "default_true")]
     pub github_panel_session_filter: bool,
+    /// The GitHub panel shows `origin` (the fork) until a remote is picked,
+    /// instead of `upstream`.
+    #[serde(default = "default_true")]
+    pub github_panel_prefer_origin: bool,
+    /// Which list the GitHub panel opens on.
+    #[serde(default)]
+    pub github_panel_default_list: GitHubPanelList,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -899,6 +906,8 @@ impl Default for Config {
             animations: true,
             nice: default_nice(),
             github_panel_session_filter: true,
+            github_panel_prefer_origin: true,
+            github_panel_default_list: GitHubPanelList::Issues,
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
@@ -1639,6 +1648,15 @@ pub enum GroupBackgroundScope {
     Header,
     /// The header and its rows, as one block.
     Group,
+}
+
+/// The GitHub panel's list on open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitHubPanelList {
+    #[default]
+    Issues,
+    PullRequests,
 }
 
 /// What opens when a file link in the grid is clicked.
