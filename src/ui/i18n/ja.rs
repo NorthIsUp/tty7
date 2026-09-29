@@ -1846,6 +1846,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
         L10nKey::CmdHibernateTab => "タブを休止",
+        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
+        L10nKey::SearchTabText => "テキスト",
+        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
+        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"

@@ -6600,7 +6600,8 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let catalog = self.search_catalog(window, cx);
+        let mut catalog = self.search_catalog(window, cx);
+        catalog.text_query = Some(self.palette_text_query(window, cx));
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6947,6 +6948,7 @@ impl Tty7App {
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
             QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            SearchText => self.open_search(SearchTab::Text, "", window, cx),
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
