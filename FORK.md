@@ -30,7 +30,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | file | function / site | why |
 |---|---|---|
 | `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |
-| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `nice`; `GroupColorSource` |
+| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `nice`; `GroupColorSource` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
 | `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks |
@@ -38,9 +38,9 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `crates/tty7-core/src/core/mod.rs` | module list | `pub mod history_search` |
 | `crates/tty7-core/src/core/agent_history.rs` | `Found`, `claude_files`, `codex_files`, `codex_not_the_users`, `strip_injected`, `unix` made `pub(crate)` | `history_search` walks and filters the same files |
 | `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::search_agent_history` (default empty; the local host runs `history_search::search`) | History searches through `Host`, so the UI never reads files |
-| `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `--continue` runs `agent_resume::continue_in_launch_window` |
+| `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`, `new_tab_page` |
-| `src/ui/app.rs` | `adopt_workspace` | run a `--continue` that arrived before the tabs did |
+| `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open the new tab page when `new_tab_page` is on |
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
 | `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |

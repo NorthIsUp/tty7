@@ -1004,8 +1004,9 @@ pub struct Tty7App {
     /// the tab or pane captured when the question was raised, not on whatever
     /// the app happens to be pointing at by the time it is answered.
     close_prompt_open: bool,
-    /// `--continue` asked before this window's tabs arrived from the tree.
-    pub(crate) continue_when_tabs_land: bool,
+    /// A launch wake asked before this window's tabs arrived from the tree,
+    /// holding the prompt to send (`None`: resume without one).
+    pub(crate) continue_when_tabs_land: Option<Option<String>>,
     window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
@@ -1590,7 +1591,7 @@ impl Tty7App {
             settings_window: None,
             ssh_prompt: crate::ui::ssh_prompt::SshPromptState::new(cx),
             close_prompt_open: false,
-            continue_when_tabs_land: false,
+            continue_when_tabs_land: None,
             window_bounds: window_bounds_to_remember(window),
             workspace,
             workspace_rename: None,
@@ -1955,8 +1956,8 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
-        if std::mem::take(&mut self.continue_when_tabs_land) {
-            self.continue_all_agents(window, cx);
+        if let Some(prompt) = self.continue_when_tabs_land.take() {
+            self.wake_agent_tabs(prompt, window, cx);
         }
         cx.notify();
     }
