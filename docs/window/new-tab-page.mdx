@@ -3,8 +3,9 @@ title: "The new tab page"
 description: "New Tab asks what to open and where: a terminal or an agent, in a directory from your tabs, your most used, or your project roots."
 ---
 
-<kbd>⌘ T</kbd> opens a picker instead of a shell. The top row picks what to
-open — **Terminal**, or any coding agent on your `PATH`, starting on the one you
+<kbd>⌘ T</kbd> opens Search Everywhere on its **New Tab** tab instead of a
+shell, from wherever the keyboard is; <kbd>⌘ P</kbd> and <kbd>⌘ K</kbd> switch
+to its other tabs. The row under the query picks what to open — **Terminal**, or any coding agent on your `PATH`, starting on the one you
 launched last. The list below picks where.
 
 The directories come from the tab you are in, your other tabs, the directories
@@ -15,11 +16,11 @@ such as `~/src/new-thing`, is offered first.
 | Key | Does |
 | --- | --- |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move through the directories |
-| <kbd>Tab</kbd> / <kbd>⇧ Tab</kbd> | Next / previous kind |
-| <kbd>⌃ 1</kbd>…<kbd>⌃ 9</kbd> | Pick a kind by position |
+| <kbd>Tab</kbd> / <kbd>⇧ Tab</kbd>, <kbd>⌘ ⇧ ]</kbd> / <kbd>⌘ ⇧ [</kbd>, or <kbd>→</kbd> / <kbd>←</kbd> with nothing typed | Next / previous kind |
+| <kbd>⌘ 1</kbd>…<kbd>⌘ 9</kbd> (<kbd>Ctrl 1</kbd>… elsewhere) | Pick a kind by position |
 | <kbd>Enter</kbd> | Open it |
 | <kbd>⇧ Enter</kbd> or ⇧-click | Open it in the background: the tab starts, and you stay where you were |
-| <kbd>Esc</kbd> | Close without opening anything |
+| <kbd>Esc</kbd> or a click outside | Close without opening anything |
 
 Remote workspaces keep the plain New Tab. Set `"new_tab_page": false` in
 `config.json` to turn the page off everywhere.

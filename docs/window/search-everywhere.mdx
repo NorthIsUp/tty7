@@ -8,6 +8,12 @@ Everywhere. Type to filter, <kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>⏎</kbd
 run, <kbd>⇥</kbd> / <kbd>⇧ ⇥</kbd> to move between its tabs. Press the key again
 or <kbd>Esc</kbd> to close it.
 
+<kbd>⌘ T</kbd>, <kbd>⌘ P</kbd> and <kbd>⌘ K</kbd> open it on **New Tab**, **All**
+and **Agents** wherever the keyboard is — a pane, the side panel, a text field,
+Settings. With it open, another of the three switches tab and the same one
+closes it. It is modal: every other shortcut waits until it closes, and a
+click outside it closes it.
+
 ## Tabs
 
 | Tab | What it holds |
@@ -18,6 +24,7 @@ or <kbd>Esc</kbd> to close it.
 | **Sessions** | Past Claude Code and Codex sessions on this computer — the ones that ran in the focused tab's directory first, then the rest, newest first. <kbd>⏎</kbd> resumes one. |
 | **History** | What you and your agents said in past Claude Code and Codex sessions on this computer: one row per session, its best matching message with what you typed picked out, the agent and where it ran beside it. <kbd>⏎</kbd> resumes it there, as on **Sessions**. Tool calls and their output are not searched. Like **Text**, it searches once you have typed three characters and paused, and is never part of **All**; in a remote workspace it is empty, since the history is this computer's. |
 | **Agents** | <kbd>⌘ K</kbd>: every open tab, most recently used first, then every **Sessions** row not already open in one. <kbd>⏎</kbd> focuses a tab or resumes a session where it ran. Not on the tab row. |
+| **New Tab** | <kbd>⌘ T</kbd>: what to open and where — see [the new tab page](/window/new-tab-page). Not on the tab row. |
 | **Hosts** | Your saved SSH hosts, most used first — and whatever address you type. |
 | **Text** | Every line in the project's files that contains what you type, as `file:line`; <kbd>⏎</kbd> opens the file there. It searches once you have typed three characters and paused, on the machine the project is on, and is never part of **All**, since every query reads files. |
 

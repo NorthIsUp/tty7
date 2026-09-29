@@ -31,6 +31,7 @@ pub mod lsp;
 pub mod machine_mirror;
 pub mod new_tab_page;
 pub mod notice;
+pub mod palette;
 pub mod pane;
 pub mod pane_drag;
 pub mod panel_github;
