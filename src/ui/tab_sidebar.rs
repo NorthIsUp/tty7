@@ -112,8 +112,7 @@ mod row_metrics {
 
     /// What a group header can spend on its name and the branch beside it.
     /// The chevron, the pin and the folded row count come off at the call
-    /// site, which knows whether they are drawn — an open group draws no
-    /// chevron, and reserving one anyway elided its branch with 18px to spare.
+    /// site, which knows whether they are drawn.
     pub(super) const fn header_budget(width: f32) -> f32 {
         width - BORDER - 2. * LIST_PAD - HEADER_PAD
     }
@@ -583,6 +582,36 @@ impl Tty7App {
                     click: git_click(&self.tabs[first], window, cx),
                     rows: rows.clone(),
                 })
+            });
+            // Fork: the header names the repo's default branch, not whatever
+            // its rows' checkout is on (see `group_header`).
+            let header_git: Option<SharedGit> = section.name.as_ref().and_then(|_| {
+                let branch = visible_by_section[group_ix]
+                    .iter()
+                    .find_map(|&i| git_click(&self.tabs[i], window, cx))
+                    .and_then(|(host, cwd)| {
+                        crate::ui::group_header::default_branch(host, &cwd, cx)
+                    });
+                match (&shared_git, branch) {
+                    (Some(s), branch) => Some(SharedGit {
+                        status: crate::terminal::git_status::GitStatus {
+                            branch: branch.unwrap_or_default(),
+                            ..s.status.clone()
+                        },
+                        click: s.click.clone(),
+                        rows: s.rows.clone(),
+                    }),
+                    (None, Some(branch)) => Some(SharedGit {
+                        status: crate::terminal::git_status::GitStatus {
+                            branch,
+                            added: 0,
+                            removed: 0,
+                        },
+                        click: None,
+                        rows: Vec::new(),
+                    }),
+                    (None, None) => None,
+                }
             });
             for (slot, i) in visible.into_iter().enumerate() {
                 let badge_pos = badge_pos[i];
@@ -1228,9 +1257,7 @@ impl Tty7App {
                 // row already elides its own.
                 let ts = window.text_system();
                 let mut avail = row_metrics::header_budget(width);
-                if folded {
-                    avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
-                }
+                avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
                 if pinned {
                     avail -= PIN_MARK_SIZE + row_metrics::META_GAP;
                 }
@@ -1250,7 +1277,7 @@ impl Tty7App {
                 // counts, and the gaps the spacer between the name and the
                 // branch sits in.
                 let sep_w = measure_text(&ts, &font, header_size, META_SEP);
-                let git_want = shared_git.as_ref().map(|shared| {
+                let git_want = header_git.as_ref().map(|shared| {
                     let counts = counts_width(&ts, &font, header_size, &shared.status);
                     let sep = if counts > 0. { sep_w } else { 0. };
                     2. * row_metrics::META_GAP
@@ -1262,8 +1289,10 @@ impl Tty7App {
                 let label = elide_label(&ts, &header_font, header_size, &name, name_avail);
                 let name_w = measure_text(&ts, &header_font, header_size, &label);
                 let hover_group = SharedString::from(format!("sidebar-group-{group_ix}"));
+                let header_style = crate::ui::group_header::header_style(&name, rail_fill, cx);
                 let bar = h_flex()
                     .id(("sidebar-group", group_ix))
+                    .map(|bar| crate::ui::group_header::decorate(bar, &header_style))
                     .group(hover_group.clone())
                     .relative()
                     .w_full()
@@ -1312,16 +1341,11 @@ impl Tty7App {
                             }
                         })
                     })
-                    // The heading names the group; the chevron only says
-                    // something when there is something behind it. An open
-                    // group shows its rows, which is its own answer.
-                    .when(folded, |header| {
-                        header.child(
-                            div()
-                                .flex_shrink_0()
-                                .child(Icon::new(IconName::ChevronRight).xsmall()),
-                        )
-                    })
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .child(crate::ui::group_header::chevron(folded)),
+                    )
                     // Every kept group carries the mark; it is what sets them
                     // apart from the derived groups below. On a folder group it
                     // is also the way to stop keeping it — a click unpins, and
@@ -1394,7 +1418,7 @@ impl Tty7App {
                             })
                             .into_any_element(),
                     })
-                    .when_some(shared_git, |bar, shared| {
+                    .when_some(header_git, |bar, shared| {
                         let SharedGit {
                             status,
                             click,
@@ -1488,7 +1512,7 @@ impl Tty7App {
                         group_ix,
                         group_key.clone(),
                         hover_group,
-                        rail_fill,
+                        header_style.backing,
                         cx,
                     ));
                 // Renaming is offered on a menu rather than a double click:
