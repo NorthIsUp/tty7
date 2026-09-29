@@ -18,3 +18,7 @@ run = ["cargo fmt --check", "cargo build --locked", "cargo test --locked"]
 
 [tasks.run]
 run = "cargo run --locked --bin tty7-app"
+
+[tasks.sync-upstream]
+description = "Rebase the current branch onto upstream/main; FORK.md lists the hooks a conflict touches"
+run = 'git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/l0ng-ai/tty7.git; git fetch upstream main && git rebase upstream/main || { echo "conflict: resolve using the FORK.md hook table, then git rebase --continue"; exit 1; }'
