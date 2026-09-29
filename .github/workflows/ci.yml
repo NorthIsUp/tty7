@@ -7,7 +7,7 @@ name: CI
 # guards against regressing the original target.
 on:
   push:
-    branches: [main]
+    branches: [main-niu]
   pull_request:
   workflow_dispatch:
 
@@ -142,7 +142,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: needs.changes.outputs.code == 'true'
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
 
       # `--locked` on the build so a Cargo.lock that disagrees with Cargo.toml
@@ -281,7 +281,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
 
       # The crate split lands separately; until `tty7-server` exists as a
       # workspace member this job has nothing to build. Skip cleanly rather than
@@ -352,7 +352,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
 
       - name: Look for the tty7-server package
         id: probe
