@@ -35,6 +35,8 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `crates/tty7-core/src/daemon/mod.rs` | module list | `pub(crate) mod nice` |
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `--continue` runs `agent_resume::continue_in_launch_window` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`, `new_tab_page` |
+| `src/ui/app.rs` | `with_session_at`, `on_focus_lost` → `focus_active`; test mod `unfocused_shortcut_tests` | focus left on nothing, or on a handle no element draws, dispatches keys on the window root only, above every `tty7-root` listener, so ⌘P and the rest went dead |
+| `src/ui/sftp.rs` | test `cancelling_the_edit_form_hands_focus_back` | checks focus with no frame in between, since a frame now hands focus on an undrawn box back to the app |
 | `src/ui/app.rs` | `adopt_workspace` | run a `--continue` that arrived before the tabs did |
 | `src/ui/app.rs` | `new_tab` | open the new tab page when `new_tab_page` is on |
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
