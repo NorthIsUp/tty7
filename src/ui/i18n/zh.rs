@@ -1614,6 +1614,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryTooShort => "输入至少 3 个字符以搜索 agent 对话。",
         L10nKey::SearchHistoryRemote => "只能搜索这台电脑上的 agent 历史。",
         L10nKey::SearchHistoryHits => "{count} 处匹配",
+        L10nKey::CmdSearchAgents => "搜索标签页和 Agent 会话…",
+        L10nKey::SearchTabAgents => "Agent",
+        L10nKey::SearchPlaceholderAgents => "搜索打开的标签页和 Agent 会话…",
         L10nKey::CmdContinueAllAgents => "继续所有 Agent",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"

@@ -1743,6 +1743,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
         L10nKey::SearchHistoryHits => "{count} hits",
+        L10nKey::CmdSearchAgents => "Search Tabs and Agent Sessions…",
+        L10nKey::SearchTabAgents => "Agents",
+        L10nKey::SearchPlaceholderAgents => "Search open tabs and agent sessions…",
         L10nKey::CmdContinueAllAgents => "Continue All Agents",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
