@@ -13,6 +13,7 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
+use tty7_core::host::Host;
 
 use crate::core::actions::{NewTabPageNextKind, NewTabPagePrevKind};
 use crate::core::cli_agent::CLIAgent;
@@ -20,6 +21,8 @@ use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
 use crate::ui::app::Tty7App;
 use crate::ui::home::display_path;
+use crate::ui::host_ops::HostOps;
+use crate::ui::host_registry::HostRegistry;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::path_display::{abbreviate_home, local_home};
 use crate::ui::search::fuzzy_score;
@@ -55,15 +58,40 @@ pub(crate) struct NewTabPage {
     rows: Vec<PathBuf>,
     selected: usize,
     home: Option<PathBuf>,
+    /// Bumped by every refilter; a filter that lands under an older number
+    /// was for a query already typed over.
+    generation: u64,
     scroll: ScrollHandle,
     _subs: Vec<Subscription>,
 }
 
-impl NewTabPage {
-    fn refilter(&mut self, cx: &App) {
-        let query = self.query.read(cx).value();
-        self.rows = filter(query.as_ref(), &self.dirs, self.home.as_deref());
-        self.selected = 0;
+impl Tty7App {
+    /// Filters the page's directories for what is typed, off the UI thread:
+    /// a typed path is checked on disk, which goes through `Host`.
+    fn refilter_new_tab_page(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = self.new_tab_page.as_mut() else {
+            return;
+        };
+        page.generation += 1;
+        let generation = page.generation;
+        let query = page.query.read(cx).value().to_string();
+        let (dirs, home) = (page.dirs.clone(), page.home.clone());
+        HostOps::run(
+            HostRegistry::local(cx),
+            cx,
+            move |h| filter(h, &query, &dirs, home.as_deref()),
+            move |app, rows, cx| {
+                if let Some(page) = app
+                    .new_tab_page
+                    .as_mut()
+                    .filter(|p| p.generation == generation)
+                {
+                    page.rows = rows;
+                    page.selected = 0;
+                    cx.notify();
+                }
+            },
+        );
     }
 }
 
@@ -83,6 +111,7 @@ fn expand(path: &str, home: Option<&Path>) -> Option<PathBuf> {
 /// it is a directory, so a frecency entry for a deleted checkout drops out
 /// by itself.
 pub(crate) fn candidates(
+    host: &dyn Host,
     active: Option<&Path>,
     tab_cwds: &[PathBuf],
     frecency: &HashMap<String, ProfileUsage>,
@@ -95,12 +124,15 @@ pub(crate) fn candidates(
     used.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     let children = roots
         .iter()
-        .filter_map(|root| std::fs::read_dir(expand(root, home)?).ok())
-        .flat_map(|entries| {
+        .filter_map(|root| {
+            let root = expand(root, home)?;
+            Some((host.read_dir(&root, None).ok()?, root))
+        })
+        .flat_map(|(entries, root)| {
             let mut kids: Vec<PathBuf> = entries
-                .flatten()
-                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-                .map(|e| e.path())
+                .into_iter()
+                .filter(|e| !e.name.starts_with('.'))
+                .map(|e| host.join(&root, &e.name))
                 .collect();
             kids.sort();
             kids
@@ -112,15 +144,25 @@ pub(crate) fn candidates(
         .chain(tab_cwds.iter().cloned())
         .chain(used.into_iter().map(|(p, _)| PathBuf::from(p)))
         .chain(children)
-        .filter(|p| p.is_dir())
-        .filter(|p| p.canonicalize().is_ok_and(|c| seen.insert(c)))
+        .filter(|p| is_dir(host, p))
+        .filter(|p| host.canonicalize(p).is_ok_and(|c| seen.insert(c)))
         .collect()
 }
 
 /// `dirs` narrowed to the query and best match first, scored against the
 /// `~` form the row shows so the home prefix never matches. A query that is
 /// itself a directory leads, so a path nobody has visited is one Enter away.
-pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf> {
+/// Follows a symlink, as `Path::is_dir` does.
+fn is_dir(host: &dyn Host, p: &Path) -> bool {
+    host.stat(p).is_ok_and(|m| m.is_dir)
+}
+
+pub(crate) fn filter(
+    host: &dyn Host,
+    query: &str,
+    dirs: &[PathBuf],
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
     let query = query.trim();
     if query.is_empty() {
         return dirs.to_vec();
@@ -140,10 +182,10 @@ pub(crate) fn filter(query: &str, dirs: &[PathBuf], home: Option<&Path>) -> Vec<
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     // Rebuilt from components so `~/x/` and `~/x` land on one frecency key.
     let typed = expand(query, home)
-        .filter(|p| p.is_absolute() && p.is_dir())
+        .filter(|p| host.is_absolute(p) && is_dir(host, p))
         .map(|p| p.components().collect::<PathBuf>());
-    let typed_real = typed.as_ref().and_then(|p| p.canonicalize().ok());
-    let is_typed = |d: &Path| typed_real.is_some() && d.canonicalize().ok() == typed_real;
+    let typed_real = typed.as_ref().and_then(|p| host.canonicalize(p).ok());
+    let is_typed = |d: &Path| typed_real.is_some() && host.canonicalize(d).ok() == typed_real;
     typed
         .clone()
         .into_iter()
@@ -207,14 +249,7 @@ impl Tty7App {
         let home = local_home();
         let cfg = cx.global::<Config>();
         let kind = initial_kind(&offered, &cfg.agent_frecency);
-        let dirs = candidates(
-            active.as_deref(),
-            &tab_cwds,
-            &cfg.dir_frecency,
-            &cfg.dir_roots,
-            home.as_deref(),
-            unix_now(),
-        );
+        let (frecency, roots) = (cfg.dir_frecency.clone(), cfg.dir_roots.clone());
         let kinds = std::iter::once(Kind::Terminal)
             .chain(offered.into_iter().map(Kind::Agent))
             .collect();
@@ -226,10 +261,7 @@ impl Tty7App {
             window,
             |this, _input, ev: &InputEvent, _window, cx| {
                 if matches!(ev, InputEvent::Change) {
-                    if let Some(page) = this.new_tab_page.as_mut() {
-                        page.refilter(cx);
-                    }
-                    cx.notify();
+                    this.refilter_new_tab_page(cx);
                 }
             },
         )];
@@ -237,13 +269,37 @@ impl Tty7App {
             query,
             kinds,
             kind,
-            rows: dirs.clone(),
-            dirs,
+            rows: Vec::new(),
+            dirs: Vec::new(),
             selected: 0,
-            home,
+            home: home.clone(),
+            generation: 0,
             scroll: ScrollHandle::new(),
             _subs: subs,
         });
+        // The page opens at once and its directories land a moment later:
+        // each is checked on disk, which is `Host` work, off this thread.
+        HostOps::run(
+            HostRegistry::local(cx),
+            cx,
+            move |h| {
+                candidates(
+                    h,
+                    active.as_deref(),
+                    &tab_cwds,
+                    &frecency,
+                    &roots,
+                    home.as_deref(),
+                    unix_now(),
+                )
+            },
+            |app, dirs, cx| {
+                if let Some(page) = app.new_tab_page.as_mut() {
+                    page.dirs = dirs;
+                }
+                app.refilter_new_tab_page(cx);
+            },
+        );
         cx.notify();
         true
     }
@@ -500,6 +556,7 @@ mod tests {
     use super::*;
     use crate::core::session::Session;
     use crate::ui::windows::WindowRegistry;
+    use tty7_core::host::local::LocalHost;
 
     const NOW: u64 = 1_800_000_000;
     const DAY: u64 = 86_400;
@@ -545,6 +602,7 @@ mod tests {
             (&home.join("gone"), 50, NOW),
         ]);
         let got = candidates(
+            &*LocalHost::new(),
             Some(&home.join("work")),
             &[home.join("src/beta"), home.join("work")],
             &frecency,
@@ -570,6 +628,7 @@ mod tests {
     fn the_same_directory_spelled_twice_is_offered_once() {
         let (_tmp, home) = tree();
         let got = candidates(
+            &*LocalHost::new(),
             Some(&home.join("src/alpha")),
             &[home.join("src/../src/alpha")],
             &HashMap::new(),
@@ -583,7 +642,7 @@ mod tests {
     #[test]
     fn an_empty_query_keeps_the_candidate_order() {
         let dirs = vec![PathBuf::from("/b"), PathBuf::from("/a")];
-        assert_eq!(filter("  ", &dirs, None), dirs);
+        assert_eq!(filter(&*LocalHost::new(), "  ", &dirs, None), dirs);
     }
 
     #[test]
@@ -595,18 +654,27 @@ mod tests {
             home.join("code/web"),
         ];
         assert_eq!(
-            filter("tty7", &dirs, Some(home)),
+            filter(&*LocalHost::new(), "tty7", &dirs, Some(home)),
             vec![home.join("src/tty7"), home.join("src/tty7-resume")]
         );
         // Scored against the `~` form: the home prefix itself matches nothing.
-        assert_eq!(filter("Users", &dirs, Some(home)), Vec::<PathBuf>::new());
+        assert_eq!(
+            filter(&*LocalHost::new(), "Users", &dirs, Some(home)),
+            Vec::<PathBuf>::new()
+        );
         // A long parent must not spell the query: "beta" is in "f14681bd…t…a".
         let deep = vec![
             PathBuf::from("/tmp/f14681bd-scratch/src/alpha"),
             PathBuf::from("/tmp/f14681bd-scratch/src/beta-repo"),
         ];
-        assert_eq!(filter("beta", &deep, None), vec![deep[1].clone()]);
-        assert_eq!(filter("src/al", &deep, None), vec![deep[0].clone()]);
+        assert_eq!(
+            filter(&*LocalHost::new(), "beta", &deep, None),
+            vec![deep[1].clone()]
+        );
+        assert_eq!(
+            filter(&*LocalHost::new(), "src/al", &deep, None),
+            vec![deep[0].clone()]
+        );
     }
 
     #[test]
@@ -614,17 +682,17 @@ mod tests {
         let (_tmp, home) = tree();
         let dirs = vec![home.join("src/alpha"), home.join("work")];
         assert_eq!(
-            filter("~/src", &dirs, Some(&home)),
+            filter(&*LocalHost::new(), "~/src", &dirs, Some(&home)),
             vec![home.join("src"), home.join("src/alpha")]
         );
         // Already a candidate: moved to the front, not listed twice.
         assert_eq!(
-            filter("~/work", &dirs, Some(&home)),
+            filter(&*LocalHost::new(), "~/work", &dirs, Some(&home)),
             vec![home.join("work")]
         );
         // Not a directory: only fuzzy matches.
         assert_eq!(
-            filter("~/src/notes.txt", &dirs, Some(&home)),
+            filter(&*LocalHost::new(), "~/src/notes.txt", &dirs, Some(&home)),
             Vec::<PathBuf>::new()
         );
     }
@@ -648,7 +716,7 @@ mod tests {
         let (_tmp, home) = tree();
         // PathBuf equality ignores a trailing slash; the stored key does not.
         assert_eq!(
-            filter("~/src/", &[], Some(&home))[0].to_string_lossy(),
+            filter(&*LocalHost::new(), "~/src/", &[], Some(&home))[0].to_string_lossy(),
             home.join("src").to_string_lossy()
         );
     }
