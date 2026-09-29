@@ -8,12 +8,27 @@ listed below. `mise run sync-upstream` rebases onto `upstream/main`; when it
 stops on a conflict, the hook table says what each fork hunk in that file is
 for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 
+## The app
+
+`mise run install-app` builds the fast profile into
+`~/Applications/tty7-niu-dev.app` (`com.northisup.tty7-niu-dev`), signed with
+the keychain's Developer ID Application identity (or `TTY7_SIGN_ID`). The
+designated requirement names the bundle id and team, not the build, so macOS
+privacy grants survive every reinstall. The running app watches the bundle's
+`local-build-id` and offers a restart when a new build lands; it never checks
+GitHub. `mise run launch` and `reload` run that bundle.
+
+CI (`release.yml`, on a `v*` tag) ships `tty7-niu.app` (`com.northisup.tty7-niu`),
+notarized, and publishes the release here; its updater reads this repo's
+releases. The signing secrets come from `! mise run set-release-secrets`.
+
 ## Fork-owned files
 
 | file | what it holds |
 |---|---|
 | `FORK.md` | this page |
-| `mise.toml`, `mise-tasks/` | tool pin; build, test, release and `sync-upstream`; `build-fast`, `launch` (clean env) and `reload` (window only, refuses when the server's code changed) |
+| `mise.toml`, `mise-tasks/` | tool pin; build, test, release and `sync-upstream`; `build-fast`, `install-app` (the fast build as `~/Applications/tty7-niu-dev.app`, signed), `launch` (that bundle, clean env) and `reload` (window only, refuses when the server's code changed); `set-release-secrets` (human-run, release.yml's signing secrets) |
+| `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
@@ -33,6 +48,12 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | file | function / site | why |
 |---|---|---|
 | `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |
+| `src/core/update.rs` | `REPO`, `RELEASES_URL`, `NIGHTLY_RELEASE_URL` | `update_repo!()`, so checks and links read the fork's releases |
+| `src/core/update.rs` | `spawn_check`, `spawn_check_inner` | `fork_update::watch`; a local install skips the GitHub check |
+| `src/core/mod.rs` | module list | `pub mod fork_update` |
+| `src/bin/tty7-updater.rs` | `install_inner`, `extract_archive` → `unpacked_app` (+ test) | find the unpacked `.app` rather than name `tty7.app`, since the fork's is `tty7-niu.app` |
+| `.github/scripts/bundle-macos.sh` | top, Info.plist, signing, notarization, after the sweep | `TTY7_APP_NAME`, `TTY7_BUNDLE_ID`, `TTY7_BIN_DIR`, `TTY7_DIST`, `TTY7_LOCAL_BUILD_ID`, `TTY7_BUNDLE_ONLY`; sign with a keychain identity when no cert is imported (no timestamp); notarize with an ASC API key (`ASC_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`) |
+| `.github/workflows/release.yml` | `Bundle macOS DMG` env; `draft-release` last step | build `tty7-niu.app` (`com.northisup.tty7-niu`) with the ASC notarization key; publish the draft on NorthIsUp/tty7 |
 | `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`; `GroupColorSource`, `GroupBackgroundScope` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
