@@ -495,6 +495,10 @@ pub struct Config {
     /// agents build; 0 leaves it alone. Unix only.
     #[serde(default = "default_nice")]
     pub nice: i32,
+    /// The GitHub panel's pull requests show only those the focused pane's
+    /// agent session mentions.
+    #[serde(default = "default_true")]
+    pub github_panel_session_filter: bool,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -894,6 +898,7 @@ impl Default for Config {
             group_background_scope: GroupBackgroundScope::Header,
             animations: true,
             nice: default_nice(),
+            github_panel_session_filter: true,
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,

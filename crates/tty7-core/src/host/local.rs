@@ -363,6 +363,20 @@ impl Host for LocalHost {
         )
     }
 
+    fn agent_session_mentions(
+        &self,
+        agent: crate::core::cli_agent::CLIAgent,
+        id: &str,
+        repo: &crate::core::github::RepoSlug,
+    ) -> io::Result<crate::core::history_search::Mentions> {
+        guard_off_ui();
+        Ok(
+            crate::core::agent_history::Roots::local().map_or_else(Default::default, |roots| {
+                crate::core::history_search::session_mentions(&roots, agent, id, repo)
+            }),
+        )
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         guard_off_ui();
         local_watch(dirs, Arc::clone(&self.gitignore))
