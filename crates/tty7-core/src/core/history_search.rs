@@ -24,7 +24,9 @@ use crate::core::agent_history::{
     Found, Roots, claude_files, codex_files, codex_not_the_users, strip_injected, unix,
 };
 use crate::core::cli_agent::CLIAgent;
+use crate::core::git::git_output;
 use crate::core::github::RepoSlug;
+use crate::core::github::remote::github_remotes;
 
 /// ponytail: a query stops after this long and shows what it found; the
 /// next one starts where the cache is warm. A persistent index if a cold
@@ -108,12 +110,30 @@ pub struct Mentions {
 }
 
 /// What `agent`'s session `id` says about `repo`: its prompts, replies and
-/// tool output (`gh pr create` prints the link there).
+/// tool output (`gh pr create` prints the link there). A bare `#N` counts
+/// only when the session ran in a checkout of `repo`; elsewhere it names
+/// some other repository's issue.
 pub fn session_mentions(roots: &Roots, agent: CLIAgent, id: &str, repo: &RepoSlug) -> Mentions {
     session_file(roots, agent, id)
         .and_then(|path| read_as::<Texts>(&path, agent))
-        .map(|t| mentions_in(t.messages.iter().map(|m| m.text.as_str()), repo))
+        .map(|t| {
+            let bare = t.cwd.as_deref().is_some_and(|cwd| checkout_of(cwd, repo));
+            mentions_in(t.messages.iter().map(|m| m.text.as_str()), repo, bare)
+        })
         .unwrap_or_default()
+}
+
+/// Whether any of `cwd`'s GitHub remotes is `repo`.
+fn checkout_of(cwd: &Path, repo: &RepoSlug) -> bool {
+    let Ok(out) = git_output(cwd, &["remote", "-v"]) else {
+        return false;
+    };
+    github_remotes(&String::from_utf8_lossy(&out.stdout))
+        .iter()
+        .any(|r| {
+            r.slug.owner.eq_ignore_ascii_case(&repo.owner)
+                && r.slug.name.eq_ignore_ascii_case(&repo.name)
+        })
 }
 
 fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
@@ -146,13 +166,14 @@ static MENTION: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the mention pattern compiles")
 });
 
-fn mentions_in<'a>(texts: impl Iterator<Item = &'a str>, repo: &RepoSlug) -> Mentions {
+/// `bare`: whether a `#N` with no `owner/repo` is taken to be `repo`'s.
+fn mentions_in<'a>(texts: impl Iterator<Item = &'a str>, repo: &RepoSlug, bare: bool) -> Mentions {
     let ours = |owner: Option<regex::Match>, name: Option<regex::Match>| match (owner, name) {
         (Some(o), Some(n)) => {
             o.as_str().eq_ignore_ascii_case(&repo.owner)
                 && n.as_str().eq_ignore_ascii_case(&repo.name)
         }
-        _ => true,
+        _ => bare,
     };
     let mut seen: Vec<(u64, bool)> = Vec::new();
     for text in texts {
@@ -712,19 +733,39 @@ mod tests {
             "https://github.com/acme/widgets/issues/16, https://github.com/acme/widgets/issues/12",
             "#12 again (#17) but not a#18, x/y/z#19, &#20; or #21abc",
         ];
-        let m = mentions_in(texts.into_iter(), &repo);
+        let m = mentions_in(texts.into_iter(), &repo, true);
         assert_eq!(m.refs, vec![17, 12, 14, 13]);
         assert_eq!(m.issue_links, vec![16], "12 is already a ref");
+    }
+
+    #[test]
+    fn outside_the_repo_only_qualified_mentions_count() {
+        let repo = slug("acme", "widgets");
+        let texts = [
+            "fixed #12 and https://github.com/other/thing/pull/30",
+            "acme/widgets#13, https://github.com/Acme/Widgets/issues/14",
+        ];
+        let m = mentions_in(texts.into_iter(), &repo, false);
+        assert_eq!(m.refs, vec![13]);
+        assert_eq!(m.issue_links, vec![14]);
     }
 
     #[test]
     fn a_sessions_mentions_include_tool_output_and_other_sessions_stay_out() {
         use serde_json::json;
         let home = tempfile::tempdir().unwrap();
+        let checkout = home.path().join("widgets");
+        std::fs::create_dir(&checkout).unwrap();
+        for args in [
+            &["init", "--quiet"][..],
+            &["remote", "add", "origin", "git@github.com:acme/widgets.git"],
+        ] {
+            assert!(git_output(&checkout, args).unwrap().success());
+        }
         write(
             &home.path().join(".claude/projects/-work-app/s1.jsonl"),
             &[
-                json!({"type": "user", "message": {"content": "look at #3"}}),
+                json!({"type": "user", "cwd": checkout, "message": {"content": "look at #3"}}),
                 json!({"type": "assistant", "message": {"content": [
                     {"type": "tool_use", "name": "Bash", "input": {"command": "gh pr create"}}
                 ]}}),
@@ -738,6 +779,12 @@ mod tests {
         write(
             &home.path().join(".claude/projects/-work-app/s2.jsonl"),
             &[json!({"type": "user", "message": {"content": "#77"}})],
+        );
+        write(
+            &home.path().join(".claude/projects/-elsewhere/s3.jsonl"),
+            &[
+                json!({"type": "user", "cwd": home.path(), "message": {"content": "#78 and acme/widgets#79"}}),
+            ],
         );
         let codex = home
             .path()
@@ -760,6 +807,11 @@ mod tests {
         assert_eq!(
             session_mentions(&roots, CLIAgent::Claude, "nope", &repo),
             Mentions::default()
+        );
+        assert_eq!(
+            session_mentions(&roots, CLIAgent::Claude, "s3", &repo).refs,
+            vec![79],
+            "a bare #N outside a checkout of the repo is some other repo's"
         );
         // Search still leaves tool output out.
         assert!(search(&roots, "merged").is_empty());
