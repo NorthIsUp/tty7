@@ -43,6 +43,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 | `crates/tty7-core/src/daemon/procstat.rs` | per-process RSS, CPU time and start stamp for Info → Processes; `compact_bytes` |
 | `src/ui/proc_usage.rs` | CPU% from two samples, the Processes row's CPU / memory / pid cells and its Total line |
+| `crates/tty7-core/src/core/claude_background.rs` | Claude sessions running in the background: session ↔ job id from `sessions/<pid>.json`, and a resume line turned into `claude attach <job>` |
 
 ## Hooks in upstream files
 
@@ -58,7 +59,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`, `github_panel_session_filter`; `GroupColorSource`, `GroupBackgroundScope` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
-| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks |
+| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks; `claude attach <job>` maps back through `claude_background` |
 | `crates/tty7-core/src/daemon/mod.rs` | module list | `pub(crate) mod nice`, `pub mod procstat` |
 | `crates/tty7-core/Cargo.toml` | `windows-sys` features | `Win32_System_ProcessStatus` for `procstat`'s working set |
 | `crates/tty7-core/src/daemon/protocol.rs` | `ProcEntry` | `rss`, `cpu_ns`, `started` (serde default), `Default` derive |
@@ -67,12 +68,13 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-cli/src/output.rs` | `procs_tables` (+ test) | RSS column appended |
 | `src/ui/right_panel.rs` | `RightPanelState::cpu`, `procs_section`, `spawn_procs_query` | sample CPU on each poll; `proc_usage` cells per row and the Total line |
 | `src/ui/mod.rs`, `src/ui/i18n/{mod,en,zh,ja}.rs` | module list, `PanelProcessesTotal` | `proc_usage`; "Total" |
-| `crates/tty7-core/src/core/mod.rs` | module list | `pub mod history_search` |
+| `crates/tty7-core/src/core/mod.rs` | module list | `pub mod history_search`, `pub mod claude_background` |
 | `crates/tty7-core/src/core/agent_history.rs` | `Found`, `claude_files`, `codex_files`, `codex_not_the_users`, `strip_injected`, `unix` made `pub(crate)` | `history_search` walks and filters the same files |
 | `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::search_agent_history` (default empty; the local host runs `history_search::search`) | History searches through `Host`, so the UI never reads files |
 | `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::agent_session_mentions` (default empty; the local host runs `history_search::session_mentions`) | the "This session" filter reads the transcript through `Host` |
 | `src/ui/github/mod.rs` | `GitHubPanelState::session`, `github_refresh` | the filter's mentions cache; refresh marks it due |
 | `src/ui/panel_github.rs` | `render_panel_github` body, `github_switch_row` state group, `switch_cell` / `github_item_row` made `pub(crate)`, `host.clone()` into `github_branch_pull` | `github_session_body` before the plain list; the This session chip |
+| `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::claude_background_job` (default `None`; the local host reads `claude_background`) | the resume line checks for a background session off the UI thread |
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`, `new_tab_page` |
 | `src/ui/app.rs` | `with_session_at`, `on_focus_lost` → `focus_active`; test mod `unfocused_shortcut_tests` | focus left on nothing, or on a handle no element draws, dispatches keys on the window root only, above every `tty7-root` listener, so ⌘P and the rest went dead |
@@ -81,7 +83,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `new_tab` | open the new tab page when `new_tab_page` is on |
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
 | `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
-| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
+| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` (takes `cx`) + `queue_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead; a resume of a background Claude session becomes `claude attach` |
 | `src/ui/app.rs` | `render` | `render_new_tab_page` child; `on_action` for `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
