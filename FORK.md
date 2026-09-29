@@ -50,6 +50,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 
 | file | function / site | why |
 |---|---|---|
+| `crates/tty7-core/src/daemon/pane.rs` | `pane_environment` | `FORCE_HYPERLINK=1`: `supports-hyperlinks` (Claude Code's statusline, Node CLIs) strips OSC 8 for a TERM_PROGRAM it doesn't know |
 | `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |
 | `src/core/update.rs` | `REPO`, `RELEASES_URL`, `NIGHTLY_RELEASE_URL` | `update_repo!()`, so checks and links read the fork's releases |
 | `src/core/update.rs` | `spawn_check`, `spawn_check_inner` | `fork_update::watch`; a local install skips the GitHub check |
