@@ -32,6 +32,7 @@
             "group": "The window",
             "pages": [
               "window/tabs-and-splits",
+              "window/new-tab-page",
               "window/sidebar",
               "window/search-everywhere",
               "window/search",

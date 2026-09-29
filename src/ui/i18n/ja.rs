@@ -2024,6 +2024,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNoAgentSeenHere => {
             "このワークスペースではまだコーディングエージェントが実行されていません — 一度手動で起動すると、ここに表示されます"
         }
+        L10nKey::NewTabPageTitle => "新しいタブ",
+        L10nKey::NewTabPageTerminal => "ターミナル",
+        L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
+        L10nKey::NewTabPageHint => "Enter で開く · Tab で種類を切替 · Esc でキャンセル",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",
