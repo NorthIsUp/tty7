@@ -521,6 +521,14 @@ impl Tty7App {
             // never answer to Ungrouped's fold.
             let folded =
                 section.name.is_some() && folds_apply && groups.is_folded(group_key.as_ref());
+            // Fork: how open the group is drawn while it slides (see `group_header`).
+            let open = match section.name {
+                Some(_) => {
+                    crate::ui::group_header::openness(group_key.as_ref(), folded, window, cx)
+                }
+                None => 1.,
+            };
+            let mut rows_h = 0.;
             let mut rows: Vec<ContextMenu<Stateful<Div>>> = Vec::new();
             // The header keeps counting every row the group has; folding only
             // stops them being drawn. Nothing downstream then registers a
@@ -535,7 +543,7 @@ impl Tty7App {
             // behind the chevron: the pane area shows the fresh shell and the
             // header count goes up, but the row waits for the group to open.
             let row_count = visible_by_section[group_ix].len();
-            let visible: Vec<usize> = match folded {
+            let visible: Vec<usize> = match folded && open <= 0. {
                 true => Vec::new(),
                 false => visible_by_section[group_ix].clone(),
             };
@@ -862,6 +870,7 @@ impl Tty7App {
                     true => ROW_HEIGHT_TWO_LINE,
                     false => ROW_HEIGHT,
                 };
+                rows_h += row_h + ROW_GAP;
                 let label_region = match rename_input {
                     Some(input) => div()
                         .id(("sidebar-rename", i))
@@ -1344,7 +1353,7 @@ impl Tty7App {
                     .child(
                         div()
                             .flex_shrink_0()
-                            .child(crate::ui::group_header::chevron(folded)),
+                            .child(crate::ui::group_header::chevron(open)),
                     )
                     // Every kept group carries the mark; it is what sets them
                     // apart from the derived groups below. On a folder group it
@@ -1600,6 +1609,14 @@ impl Tty7App {
             let block = v_flex()
                 .w_full()
                 .gap(px(ROW_GAP))
+                .map(|b| {
+                    crate::ui::group_header::decorate_block(
+                        b,
+                        section.name.as_deref(),
+                        rail_fill,
+                        cx,
+                    )
+                })
                 .when(preview.is_some_and(|p| Some(p.from) == slot), |b| {
                     b.opacity(0.75)
                 })
@@ -1609,7 +1626,12 @@ impl Tty7App {
                     |b| b.rounded_md().bg(cx.theme().drag_border.opacity(0.15)),
                 )
                 .children(header)
-                .children(rows)
+                .children(crate::ui::group_header::clip_rows(
+                    rows,
+                    open,
+                    rows_h - ROW_GAP,
+                    ROW_GAP,
+                ))
                 .children(empty_row)
                 .child(
                     canvas(
@@ -3807,6 +3829,8 @@ mod fold_tests {
         let beta = AutoKey::Repo(PathBuf::from("/w/beta"));
 
         app.update(&mut vcx, |app, cx| {
+            // Fork: rows stay drawn through the fold's slide; this is about where it ends.
+            cx.global_mut::<Config>().animations = false;
             for (i, root) in [(0, &alpha), (1, &alpha), (2, &beta)] {
                 *app.tabs[i].auto_group.borrow_mut() = Some(root.clone());
             }

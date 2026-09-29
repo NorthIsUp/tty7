@@ -1735,6 +1735,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabText => "Text",
         L10nKey::SearchPlaceholderText => "Search file contents…",
         L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
+        L10nKey::SearchTabHistory => "History",
+        L10nKey::SearchPlaceholderHistory => "Search what you and your agents said…",
+        L10nKey::SearchHistoryTooShort => {
+            "Type at least 3 characters to search agent conversations."
+        }
+        L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
+        L10nKey::SearchHistoryHits => "{count} hits",
         L10nKey::CmdContinueAllAgents => "Continue All Agents",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
@@ -1928,6 +1935,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsGroupColorTheme => "Theme",
         L10nKey::SettingsGroupColorHashed => "Group colour",
+        L10nKey::SettingsGroupBackgroundScope => "Background covers",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "The header alone, or the header and its tabs as one block."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Header",
+        L10nKey::SettingsGroupScopeGroup => "Whole group",
+        L10nKey::SettingsGroupAnimations => "Animate folding",
+        L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"

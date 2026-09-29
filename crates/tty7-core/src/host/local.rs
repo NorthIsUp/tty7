@@ -346,6 +346,18 @@ impl Host for LocalHost {
         Ok(Roots::local().map_or_else(Vec::new, |roots| scan(&roots, known_dirs)))
     }
 
+    fn search_agent_history(
+        &self,
+        query: &str,
+    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
+        guard_off_ui();
+        Ok(
+            crate::core::agent_history::Roots::local().map_or_else(Vec::new, |roots| {
+                crate::core::history_search::search(&roots, query)
+            }),
+        )
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         guard_off_ui();
         local_watch(dirs, Arc::clone(&self.gitignore))

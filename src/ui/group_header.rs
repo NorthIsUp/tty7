@@ -3,12 +3,18 @@
 //! of `tab_sidebar.rs` for the reason `group_color.rs` is.
 
 use std::collections::HashMap;
+use std::f32::consts::FRAC_PI_2;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use gpui::{AnyElement, App, Context, Global, Hsla, IntoElement, Styled};
-use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _};
+use gpui::{
+    AnyElement, App, Context, EntityId, Global, Hsla, IntoElement, ParentElement as _, Styled,
+    Window, ease_in_out, px, radians,
+};
+use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex};
 
-use crate::core::config::{Config, GroupColorSource};
+use crate::core::config::{Config, GroupBackgroundScope, GroupColorSource};
+use crate::core::group_key::GroupKey;
 use crate::terminal::git_status::GitStatusCache;
 use crate::ui::app::Tty7App;
 use crate::ui::group_color::{active_ansi16, group_color};
@@ -23,7 +29,11 @@ const FILL_ALPHA: f32 = 0.14;
 /// palette is the loudest thing in the column.
 const OUTLINE_ALPHA: f32 = 0.6;
 
+/// How long a group takes to fold open or shut: an `NSOutlineView`'s pace.
+const FOLD: Duration = Duration::from_millis(200);
+
 pub(crate) struct HeaderStyle {
+    scope: GroupBackgroundScope,
     fill: Option<Hsla>,
     outline: Option<Hsla>,
     /// What the header's hover buttons paint under themselves so they cover
@@ -61,13 +71,40 @@ pub(crate) fn header_style(name: &str, rail: Hsla, cx: &App) -> HeaderStyle {
         }
     });
     HeaderStyle {
+        scope: cfg.group_background_scope,
         fill,
         outline,
         backing: fill.map_or(rail, |f| rail.blend(f)),
     }
 }
 
+/// Whether the header bar (`block == false`) or the block holding the header
+/// and its rows wears the fill and outline under `scope`.
+fn wears(scope: GroupBackgroundScope, block: bool) -> bool {
+    match scope {
+        GroupBackgroundScope::Header => !block,
+        GroupBackgroundScope::Group => block,
+    }
+}
+
+/// The header bar's fill and outline, when they cover the header alone.
 pub(crate) fn decorate<E: Styled>(el: E, style: &HeaderStyle) -> E {
+    match wears(style.scope, false) {
+        true => paint(el, style),
+        false => el,
+    }
+}
+
+/// The group block's fill and outline, when they cover the whole group. A
+/// section without a header (Ungrouped with nothing above it) gets neither.
+pub(crate) fn decorate_block<E: Styled>(el: E, name: Option<&str>, rail: Hsla, cx: &App) -> E {
+    match name.map(|n| header_style(n, rail, cx)) {
+        Some(style) if wears(style.scope, true) => paint(el, &style),
+        _ => el,
+    }
+}
+
+fn paint<E: Styled>(el: E, style: &HeaderStyle) -> E {
     let el = match style.fill.is_some() || style.outline.is_some() {
         true => el.rounded(crate::ui::rounding::ROW_RADIUS),
         false => el,
@@ -82,12 +119,91 @@ pub(crate) fn decorate<E: Styled>(el: E, style: &HeaderStyle) -> E {
     }
 }
 
-pub(crate) fn chevron(folded: bool) -> Icon {
-    Icon::new(match folded {
-        true => IconName::ChevronRight,
-        false => IconName::ChevronDown,
-    })
-    .xsmall()
+/// ▸ at `open == 0`, turning clockwise to ▾ at `open == 1`.
+pub(crate) fn chevron(open: f32) -> Icon {
+    Icon::new(IconName::ChevronRight)
+        .xsmall()
+        .rotate(radians(open * FRAC_PI_2))
+}
+
+struct Fold {
+    folded: bool,
+    since: Option<Instant>,
+}
+
+/// The last fold state each window's groups were drawn in, and when it last
+/// changed, so any path that folds a group (a click, ^x^g, a search) slides.
+#[derive(Default)]
+struct Folds(HashMap<(EntityId, Option<GroupKey>), Fold>);
+
+impl Global for Folds {}
+
+/// How open group `key` is drawn this frame, 0 shut to 1 open. A change in
+/// `folded` since the last frame starts the slide; while it runs the window
+/// asks for another frame.
+pub(crate) fn openness(
+    key: Option<&GroupKey>,
+    folded: bool,
+    window: &Window,
+    cx: &mut Context<Tty7App>,
+) -> f32 {
+    let animate = cx.global::<Config>().animations;
+    let app = cx.entity_id();
+    let now = Instant::now();
+    let fold = cx
+        .default_global::<Folds>()
+        .0
+        .entry((app, key.cloned()))
+        .or_insert(Fold {
+            folded,
+            since: None,
+        });
+    if fold.folded != folded {
+        let in_flight = fold.since.map(|s| now - s);
+        fold.since = animate.then(|| now - restart(in_flight));
+        fold.folded = folded;
+    }
+    let elapsed = fold.since.map(|s| now - s);
+    match elapsed.is_some_and(|e| e < FOLD) {
+        true => window.request_animation_frame(),
+        false => fold.since = None,
+    }
+    openness_at(folded, elapsed)
+}
+
+/// Eased openness `elapsed` into a slide towards `folded`; `None` is at rest.
+fn openness_at(folded: bool, elapsed: Option<Duration>) -> f32 {
+    let p = elapsed.map_or(1., |e| (e.as_secs_f32() / FOLD.as_secs_f32()).min(1.));
+    match folded {
+        true => 1. - ease_in_out(p),
+        false => ease_in_out(p),
+    }
+}
+
+/// Where a new slide starts. Reversing one mid-flight picks up at the mirror
+/// point, which `ease_in_out`'s symmetry puts at the same openness.
+fn restart(in_flight: Option<Duration>) -> Duration {
+    in_flight
+        .filter(|e| *e < FOLD)
+        .map_or(Duration::ZERO, |e| FOLD - e)
+}
+
+/// A group's rows, clipped to `open` of their `full` height while they slide;
+/// at rest they pass through untouched.
+pub(crate) fn clip_rows(rows: Vec<AnyElement>, open: f32, full: f32, gap: f32) -> Vec<AnyElement> {
+    if open >= 1. || rows.is_empty() {
+        return rows;
+    }
+    vec![
+        v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .gap(px(gap))
+            .overflow_hidden()
+            .h(px(full * open))
+            .children(rows)
+            .into_any_element(),
+    ]
 }
 
 /// Every repo's default branch this process has looked up, by host and
@@ -150,10 +266,19 @@ fn default_branch_name(
 }
 
 impl Tty7App {
-    /// The four header options, as rows for Settings' Tabs group.
-    pub(crate) fn group_header_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 4] {
+    /// The group header options, as rows for Settings' Tabs group.
+    pub(crate) fn group_header_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 6] {
         let cfg = cx.global::<Config>();
         let (outline, fill) = (cfg.group_outline, cfg.group_background);
+        let animations = cfg.animations;
+        let scope_ix = match cfg.group_background_scope {
+            GroupBackgroundScope::Header => 0,
+            GroupBackgroundScope::Group => 1,
+        };
+        let scopes = [
+            t(L10nKey::SettingsGroupScopeHeader),
+            t(L10nKey::SettingsGroupScopeGroup),
+        ];
         let ix = |s: GroupColorSource| match s {
             GroupColorSource::Theme => 0,
             GroupColorSource::Hashed => 1,
@@ -190,6 +315,23 @@ impl Tty7App {
                     this.update_config(cx, |c| c.group_background_color = pick(ix))
                 },
             ),
+            self.settings_choice(
+                "wt-group-background-scope",
+                &scopes,
+                scope_ix,
+                cx,
+                |this, ix, _, cx| {
+                    this.update_config(cx, |c| {
+                        c.group_background_scope = match ix {
+                            0 => GroupBackgroundScope::Header,
+                            _ => GroupBackgroundScope::Group,
+                        }
+                    })
+                },
+            ),
+            self.settings_switch("wt-group-animations", animations, cx, |this, on, _, cx| {
+                this.update_config(cx, |c| c.animations = on)
+            }),
         ];
         let labels = [
             (
@@ -207,6 +349,14 @@ impl Tty7App {
             (
                 L10nKey::SettingsGroupBackgroundColor,
                 L10nKey::SettingsGroupBackgroundColorDesc,
+            ),
+            (
+                L10nKey::SettingsGroupBackgroundScope,
+                L10nKey::SettingsGroupBackgroundScopeDesc,
+            ),
+            (
+                L10nKey::SettingsGroupAnimations,
+                L10nKey::SettingsGroupAnimationsDesc,
             ),
         ];
         let mut controls = controls.into_iter();
@@ -240,6 +390,44 @@ mod tests {
             source_color(GroupColorSource::Hashed, "tty7", &over, &ANSI16, theme),
             Hsla::from(gpui::rgb(0xff8800))
         );
+    }
+
+    #[test]
+    fn exactly_one_of_header_and_block_wears_the_fill() {
+        assert!(wears(GroupBackgroundScope::Header, false));
+        assert!(!wears(GroupBackgroundScope::Header, true));
+        assert!(!wears(GroupBackgroundScope::Group, false));
+        assert!(wears(GroupBackgroundScope::Group, true));
+    }
+
+    #[test]
+    fn a_fold_eases_from_one_end_to_the_other_and_rests_there() {
+        let ms = Duration::from_millis;
+        assert_eq!(openness_at(false, None), 1.);
+        assert_eq!(openness_at(true, None), 0.);
+        assert_eq!(openness_at(false, Some(ms(0))), 0.);
+        assert_eq!(openness_at(true, Some(ms(0))), 1.);
+        assert_eq!(openness_at(false, Some(FOLD / 2)), 0.5);
+        assert_eq!(openness_at(false, Some(FOLD * 3)), 1.);
+        assert_eq!(openness_at(true, Some(FOLD * 3)), 0.);
+        // Ease in: the first tenth covers less than a tenth of the way.
+        assert!(openness_at(false, Some(FOLD / 10)) < 0.1);
+        let mut last = 0.;
+        for step in 0..=20 {
+            let now = openness_at(false, Some(FOLD * step / 20));
+            assert!(now >= last, "step {step}");
+            last = now;
+        }
+    }
+
+    #[test]
+    fn reversing_mid_fold_carries_on_from_where_it_was() {
+        assert_eq!(restart(None), Duration::ZERO);
+        assert_eq!(restart(Some(FOLD * 2)), Duration::ZERO);
+        let at = FOLD / 4;
+        let before = openness_at(false, Some(at));
+        let after = openness_at(true, Some(restart(Some(at))));
+        assert!((before - after).abs() < 1e-6, "{before} vs {after}");
     }
 
     #[test]
