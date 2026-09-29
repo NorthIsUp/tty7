@@ -2034,6 +2034,16 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageHint => {
             "Enter で開く · ←/→ または ^1–^9 で種類を選択 · Esc でキャンセル"
         }
+        L10nKey::SettingsGroupOutline => "グループの枠線",
+        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineColor => "枠線の色",
+        L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
+        L10nKey::SettingsGroupBackground => "グループの背景",
+        L10nKey::SettingsGroupBackgroundDesc => "各グループ見出しの背後に淡い塗りを敷きます。",
+        L10nKey::SettingsGroupBackgroundColor => "背景の色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
+        L10nKey::SettingsGroupColorTheme => "テーマ",
+        L10nKey::SettingsGroupColorHashed => "グループの色",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",

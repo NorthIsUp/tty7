@@ -1971,6 +1971,18 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
         L10nKey::NewTabPageHint => "Enter opens · ←/→ or ^1–^9 picks the kind · Esc cancels",
+        L10nKey::SettingsGroupOutline => "Group outline",
+        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
+        L10nKey::SettingsGroupOutlineColor => "Outline colour",
+        L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
+        L10nKey::SettingsGroupBackground => "Group background",
+        L10nKey::SettingsGroupBackgroundDesc => "A tinted fill behind each group header.",
+        L10nKey::SettingsGroupBackgroundColor => "Background colour",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "A neutral from the theme, or each group's own colour."
+        }
+        L10nKey::SettingsGroupColorTheme => "Theme",
+        L10nKey::SettingsGroupColorHashed => "Group colour",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"

@@ -187,6 +187,10 @@ angle brackets, and a tab:
 | `dir_roots` | string[] | `["~/src","~/code","~/projects"]` | Directories whose children the new tab page offers. |
 | `dir_frecency` | object | `{}` | Maintained by tty7: how often each directory was launched into from the new tab page. |
 | `group_colors` | object | `{}` | Sidebar group colour by group name, e.g. `{"clawmux": "#ffd7d7"}`; unnamed groups get a stable colour from the theme. |
+| `group_outline` | bool | `false` | A 1px outline round each sidebar group header. |
+| `group_background` | bool | `true` | A tinted fill behind each sidebar group header. |
+| `group_outline_color` | string | `"hashed"` | `"theme"` (the theme's border) or `"hashed"` (the group's colour, `group_colors` included). |
+| `group_background_color` | string | `"hashed"` | `"theme"` (a muted neutral) or `"hashed"` (the group's colour at low alpha). |
 | `nice` | int | `5` | Niceness each pane's shell starts at (Unix); `0` leaves it alone. |
 | `install_cli_on_path` | bool | `true` | Put the bundled `tty7` command on PATH at launch. |
 
