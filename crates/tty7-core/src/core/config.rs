@@ -475,6 +475,12 @@ pub struct Config {
     pub group_outline_color: GroupColorSource,
     #[serde(default, deserialize_with = "de_lenient")]
     pub group_background_color: GroupColorSource,
+    /// Whether the fill and outline wrap the header alone or the whole group.
+    #[serde(default, deserialize_with = "de_lenient")]
+    pub group_background_scope: GroupBackgroundScope,
+    /// Animate a sidebar group folding open and shut.
+    #[serde(default = "default_true")]
+    pub animations: bool,
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     #[serde(default = "default_nice")]
@@ -873,6 +879,8 @@ impl Default for Config {
             group_background: true,
             group_outline_color: GroupColorSource::Hashed,
             group_background_color: GroupColorSource::Hashed,
+            group_background_scope: GroupBackgroundScope::Header,
+            animations: true,
             nice: default_nice(),
             per_pane_history: false,
             quarantined: false,
@@ -1604,6 +1612,16 @@ pub enum GroupColorSource {
     /// The group's own colour: its `group_colors` override, else its hash.
     #[default]
     Hashed,
+}
+
+/// How much of a sidebar group its fill and outline cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupBackgroundScope {
+    #[default]
+    Header,
+    /// The header and its rows, as one block.
+    Group,
 }
 
 /// What opens when a file link in the grid is clicked.

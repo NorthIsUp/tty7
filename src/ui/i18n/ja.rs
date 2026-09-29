@@ -1990,6 +1990,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
         L10nKey::SettingsGroupColorTheme => "テーマ",
         L10nKey::SettingsGroupColorHashed => "グループの色",
+        L10nKey::SettingsGroupBackgroundScope => "背景の範囲",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "見出しのみ、または見出しとタブをひとまとまりに。"
+        }
+        L10nKey::SettingsGroupScopeHeader => "見出し",
+        L10nKey::SettingsGroupScopeGroup => "グループ全体",
+        L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
+        L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",
