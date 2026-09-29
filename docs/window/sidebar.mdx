@@ -78,6 +78,16 @@ every window and after a restart. To pick one yourself, set it by name in
 
 A value that is not `#rrggbb` is ignored, and logged once.
 
+The header itself sits on a faint wash of that colour, and can carry an
+outline too. **Settings → General → Tabs** has both, or set them in
+`config.json`: `group_background` (on by default) and `group_outline` (off),
+each with a `_color` of `"hashed"` (the group's colour) or `"theme"` (a
+neutral from the theme).
+
+The branch beside a repo group's name is the repo's default branch
+(`origin/HEAD`, else `init.defaultBranch`), not whichever branch a tab has
+checked out — a group's tabs are often worktrees on different branches.
+
 ## What a row tells you
 
 <CardGroup cols={2}>
