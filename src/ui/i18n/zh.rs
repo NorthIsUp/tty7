@@ -1780,7 +1780,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
-        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 ^1–^9 选择类型 · Esc 取消",
+        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 {first}–9 选择类型 · Esc 取消",
         L10nKey::SettingsGroupOutline => "分组轮廓",
         L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
         L10nKey::SettingsGroupOutlineColor => "轮廓颜色",
