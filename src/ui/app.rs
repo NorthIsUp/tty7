@@ -1004,6 +1004,8 @@ pub struct Tty7App {
     /// the tab or pane captured when the question was raised, not on whatever
     /// the app happens to be pointing at by the time it is answered.
     close_prompt_open: bool,
+    /// `--continue` asked before this window's tabs arrived from the tree.
+    pub(crate) continue_when_tabs_land: bool,
     window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
@@ -1587,6 +1589,7 @@ impl Tty7App {
             settings_window: None,
             ssh_prompt: crate::ui::ssh_prompt::SshPromptState::new(cx),
             close_prompt_open: false,
+            continue_when_tabs_land: false,
             window_bounds: window_bounds_to_remember(window),
             workspace,
             workspace_rename: None,
@@ -1950,6 +1953,9 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
+        if std::mem::take(&mut self.continue_when_tabs_land) {
+            self.continue_all_agents(window, cx);
+        }
         cx.notify();
     }
 
@@ -1964,6 +1970,7 @@ impl Tty7App {
             self.workspace,
             &st.pane,
             alive.as_ref(),
+            None,
             self.font_size,
             window,
             cx,
@@ -3898,6 +3905,7 @@ impl Tty7App {
                     &spawn.agent,
                     spawn.agent_session_id.as_deref(),
                     spawn.agent_launch_argv.as_deref(),
+                    spawn.agent_prompt.as_deref(),
                     cx,
                 )
                 .or_else(|| spawn.run_on_land.clone())
@@ -5047,6 +5055,17 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.wake_tab_with(index, None, window, cx)
+    }
+
+    /// [`Self::wake_tab`], with `prompt` sent to each agent it resumes.
+    pub(crate) fn wake_tab_with(
+        &mut self,
+        index: usize,
+        prompt: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(asleep) = self.tabs.get_mut(index).and_then(|t| t.asleep.take()) else {
             return true;
         };
@@ -5061,6 +5080,7 @@ impl Tty7App {
             self.workspace,
             &layout,
             None,
+            prompt,
             self.font_size,
             window,
             cx,
@@ -6335,6 +6355,7 @@ impl Tty7App {
             CopyWorkingDirectory => self.copy_active_cwd(window, cx),
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
+            ContinueAllAgents => self.continue_all_agents(window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
@@ -9577,6 +9598,9 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &HibernateTab, window, cx| {
                     this.hibernate_tab(this.active, window, cx)
                 }))
+                .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
+                    this.continue_all_agents(window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)
                 }))
@@ -9740,6 +9764,7 @@ fn agent_resume_command(
     agent: &Option<crate::core::cli_agent::CLIAgent>,
     session_id: Option<&str>,
     launch_argv: Option<&[String]>,
+    prompt: Option<&str>,
     cx: &App,
 ) -> Option<String> {
     if !cx.global::<Config>().restore_agent_sessions {
@@ -9753,7 +9778,13 @@ fn agent_resume_command(
         );
         return None;
     };
-    agent.resume_command(session_id, launch_argv)
+    let cmd = agent.resume_command(session_id, launch_argv)?;
+    Some(
+        match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
+            Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
+            None => cmd,
+        },
+    )
 }
 
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
@@ -9904,7 +9935,13 @@ fn tabs_from_session(
     let Some(session) = session.filter(|s| !s.tabs.is_empty()) else {
         return (Vec::new(), 0, 0);
     };
-    let alive = alive_panes_on(&crate::terminal::PaneRoute::for_workspace(workspace));
+    let route = crate::terminal::PaneRoute::for_workspace(workspace);
+    let alive = alive_panes_on(&route);
+    // A remote listing is not asked for, so only here can "nothing of it is
+    // running" be told apart from "nobody checked".
+    let lazy = cx.global::<Config>().restore_asleep
+        && matches!(route, crate::terminal::PaneRoute::Local)
+        && alive.is_some();
     let mut tabs: Vec<Tab> = Vec::with_capacity(session.tabs.len());
     let mut dropped = 0usize;
     let home = crate::ui::path_display::home_for_host(
@@ -9916,7 +9953,12 @@ fn tabs_from_session(
         // the point. The one exception is the tab the window opens onto — a
         // tab on screen is awake, so that one is woken here, by the same
         // restore every other tab is getting.
-        if st.hibernated && index != session.active {
+        //
+        // A tab none of whose panes survived (a reboot, Quit and Stop) sleeps
+        // the same way: twelve agents come back as twelve places to click,
+        // not twelve cold starts racing each other at launch.
+        let dead = lazy && !crate::ui::agent_resume::layout_has_live_pane(&st.pane, alive.as_ref());
+        if (st.hibernated || dead) && index != session.active {
             tabs.push(asleep_tab(st, home.clone()));
             continue;
         }
@@ -9925,6 +9967,7 @@ fn tabs_from_session(
             owner,
             &st.pane,
             alive.as_ref(),
+            None,
             font_size,
             window,
             cx,
@@ -10055,6 +10098,7 @@ fn session_to_pane(
     owner: WorkspaceId,
     sp: &SessionPane,
     alive: Option<&std::collections::HashMap<u64, Option<String>>>,
+    prompt: Option<&str>,
     font_size: f32,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
@@ -10109,6 +10153,7 @@ fn session_to_pane(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),
+                        prompt,
                         cx,
                     ) {
                         terminal.read(cx).run_command_line(&cmd);
@@ -10120,6 +10165,7 @@ fn session_to_pane(
                         pending.spawn.agent = *agent;
                         pending.spawn.agent_session_id = agent_session_id.clone();
                         pending.spawn.agent_launch_argv = agent_launch_argv.clone();
+                        pending.spawn.agent_prompt = prompt.map(str::to_string);
                     });
                 }
             }
@@ -10131,8 +10177,8 @@ fn session_to_pane(
                 SessionAxis::Vertical => Axis::Vertical,
             };
             match (
-                session_to_pane(workspace, owner, a, alive, font_size, window, cx),
-                session_to_pane(workspace, owner, b, alive, font_size, window, cx),
+                session_to_pane(workspace, owner, a, alive, prompt, font_size, window, cx),
+                session_to_pane(workspace, owner, b, alive, prompt, font_size, window, cx),
             ) {
                 (Some(a), Some(b)) => Some(Pane::split_node(axis, *ratio, a, b)),
                 (Some(only), None) | (None, Some(only)) => Some(only),
@@ -10177,6 +10223,7 @@ pub(crate) fn new_terminal(
         agent_session_id: None,
         agent_launch_argv: None,
         run_on_land: None,
+        agent_prompt: None,
         owner,
         font_size,
     };
@@ -11435,6 +11482,7 @@ mod tests {
                         agent_session_id: Some("sid-abc".to_string()),
                         agent_launch_argv: Some(vec!["claude".to_string()]),
                         run_on_land: None,
+                        agent_prompt: None,
                         owner: None,
                         font_size: 14.0,
                     },
@@ -13078,6 +13126,7 @@ mod tab_focus_memory_tests {
                     agent_session_id: None,
                     agent_launch_argv: None,
                     run_on_land: None,
+                    agent_prompt: None,
                     owner: None,
                     font_size: 14.,
                 },

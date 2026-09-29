@@ -213,7 +213,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::Close => "Close",
         L10nKey::QuitStopServerTitle => "Quit and stop tty7 server?",
         L10nKey::QuitStopServerBody => {
-            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout reopen with fresh shells next launch. (Closing the window only retires tty7 to the tray — the shells keep running.)"
+            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, asleep: each starts when you open it, and an agent picks its conversation back up. (Closing the window only retires tty7 to the tray — the shells keep running.)"
         }
         L10nKey::QuitAndStop => "Quit and Stop",
         L10nKey::CloseSshConnectionTitle => "Close this SSH connection?",
@@ -1731,6 +1731,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdForkSessionSubtitle => "branch this agent session into a new tab",
         L10nKey::CmdMarkTabAsUnread => "Mark Tab as Unread",
         L10nKey::CmdHibernateTab => "Hibernate Tab",
+        L10nKey::CmdContinueAllAgents => "Continue All Agents",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
+        }
         L10nKey::CmdHibernateTabSubtitle => {
             "stop its processes to free memory; selecting it wakes it"
         }

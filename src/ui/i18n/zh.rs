@@ -190,7 +190,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::Close => "关闭",
         L10nKey::QuitStopServerTitle => "退出并停止 tty7 server？",
         L10nKey::QuitStopServerBody => {
-            "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时以全新的 shell 打开。（只关窗口的话应用收进托盘，shell 继续跑。）"
+            "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时处于休眠状态：打开哪个才启动哪个，agent 会接着原来的对话继续。（只关窗口的话应用收进托盘，shell 继续跑。）"
         }
         L10nKey::QuitAndStop => "退出并停止",
         L10nKey::CloseSshConnectionTitle => "关闭这个 SSH 连接？",
@@ -1604,6 +1604,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "将此 agent 会话 fork 到新标签页",
         L10nKey::CmdMarkTabAsUnread => "将标签页标记为未读",
         L10nKey::CmdHibernateTab => "休眠标签页",
+        L10nKey::CmdContinueAllAgents => "继续所有 Agent",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
+        }
         L10nKey::CmdHibernateTabSubtitle => "停止其中的进程以释放内存，选中即可唤醒",
         L10nKey::CmdClosePaneTab => "关闭窗格/标签页",
         L10nKey::CmdCloseWindow => "关闭窗口",

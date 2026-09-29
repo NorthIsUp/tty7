@@ -3359,6 +3359,7 @@ fn apply_agent(
     };
     if st.agent == agent {
         stamp_launch_argv(st, argv);
+        adopt_argv_session(st);
         return;
     }
     // The session belongs to whoever was in the foreground. Switching from
@@ -3375,6 +3376,26 @@ fn apply_agent(
     notify(st, DaemonMsg::Agent(agent));
     st.agent = agent;
     stamp_launch_argv(st, argv);
+    adopt_argv_session(st);
+}
+
+/// Take the session id the agent's own command line names, for a pane no hook
+/// has spoken for yet — what lets a reboot resume Claude without its hooks.
+fn adopt_argv_session(st: &mut PaneState) {
+    let (Some(agent), Some(argv)) = (st.agent, &st.agent_argv) else {
+        return;
+    };
+    let Some(id) = agent.session_id_in_argv(argv) else {
+        return;
+    };
+    let argv = argv.clone();
+    let sess = st.agent_session.get_or_insert_with(Default::default);
+    if sess.session_id.is_some() {
+        return;
+    }
+    sess.session_id = Some(id);
+    sess.launch_argv.get_or_insert(argv);
+    notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
 }
 
 fn stamp_launch_argv(st: &mut PaneState, argv: Option<Vec<String>>) {
@@ -5740,6 +5761,28 @@ mod tests {
         assert!(
             st.agent_session.is_none(),
             "switching the foreground agent drops the previous session"
+        );
+    }
+
+    #[test]
+    fn a_claude_launched_with_its_session_id_needs_no_hook_to_resume() {
+        use crate::core::cli_agent::CLIAgent;
+        const ID: &str = "e18a20ff-4c8c-4b94-867b-dd4b79032a6c";
+
+        let mut st = test_state(true);
+        let argv = vec!["claude".to_string(), "--session-id".into(), ID.into()];
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv.clone())));
+        let sess = st.agent_session.clone().expect("the argv named a session");
+        assert_eq!(sess.session_id.as_deref(), Some(ID));
+        assert_eq!(sess.launch_argv.as_deref(), Some(&argv[..]));
+        assert!(!sess.rich, "status still comes from hooks");
+
+        st.agent_session.as_mut().unwrap().session_id = Some("from-a-hook".into());
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv)));
+        assert_eq!(
+            st.agent_session.unwrap().session_id.as_deref(),
+            Some("from-a-hook"),
+            "a hook's later word wins: it follows /resume inside the agent"
         );
     }
 
