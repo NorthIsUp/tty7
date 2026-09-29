@@ -403,6 +403,12 @@ pub trait Host: Send + Sync + 'static {
         Ok(Default::default())
     }
 
+    /// The background job Claude session `session_id` is running as on this
+    /// host ([`crate::core::claude_background`]). Only the local host looks.
+    fn claude_background_job(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;
 
     fn is_connected(&self) -> bool {
