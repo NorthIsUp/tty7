@@ -11,6 +11,13 @@ if [ -n "$running" ] && [ "$(cat "$stamp" 2>/dev/null || true)" != "$running $(s
   echo "reload: rerun with --server to do it anyway." >&2
   exit 1
 fi
+# A window from another checkout (or the upstream app) owns the server; one
+# from here would replace it and end every pane's processes.
+others=$(pgrep -fl 'tty7-app$' | awk '{print $2}' | grep -v "^$MISE_PROJECT_ROOT/target/fast/tty7-app$" || true)
+if [ -n "$others" ]; then
+  echo "reload: tty7 is running from $others; reload from that checkout instead." >&2
+  exit 1
+fi
 # Only the window: its path ends in tty7-app, the server's in its flags.
 for pid in $(pgrep -f "$MISE_PROJECT_ROOT/target/fast/tty7-app$" || true); do
   kill "$pid"
