@@ -482,6 +482,16 @@ pub struct Config {
     /// Sidebar group colour overrides, by group name: `"clawmux": "#ffd7d7"`.
     #[serde(default)]
     pub group_colors: HashMap<String, String>,
+    /// A 1px outline round each sidebar group header.
+    #[serde(default)]
+    pub group_outline: bool,
+    /// A tinted fill behind each sidebar group header.
+    #[serde(default = "default_true")]
+    pub group_background: bool,
+    #[serde(default, deserialize_with = "de_lenient")]
+    pub group_outline_color: GroupColorSource,
+    #[serde(default, deserialize_with = "de_lenient")]
+    pub group_background_color: GroupColorSource,
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     #[serde(default = "default_nice")]
@@ -899,6 +909,10 @@ impl Default for Config {
             dir_roots: default_dir_roots(),
             dir_frecency: HashMap::new(),
             group_colors: HashMap::new(),
+            group_outline: false,
+            group_background: true,
+            group_outline_color: GroupColorSource::Hashed,
+            group_background_color: GroupColorSource::Hashed,
             nice: default_nice(),
             per_pane_history: false,
             quarantined: false,
@@ -1619,6 +1633,17 @@ pub enum RightPanelTab {
     /// cost as `Search`.
     #[serde(rename = "github")]
     GitHub,
+}
+
+/// Where a sidebar group header's outline or fill takes its colour from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupColorSource {
+    /// A neutral from the theme, the same for every group.
+    Theme,
+    /// The group's own colour: its `group_colors` override, else its hash.
+    #[default]
+    Hashed,
 }
 
 /// What opens when a file link in the grid is clicked.

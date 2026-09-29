@@ -59,7 +59,7 @@ pub(crate) fn group_color(
 
 /// The terminal palette the theme applied, which the sidebar has no handle
 /// on otherwise; before the first apply, the configured preset's own.
-fn active_ansi16(cx: &App) -> [(u8, u8, u8); 16] {
+pub(crate) fn active_ansi16(cx: &App) -> [(u8, u8, u8); 16] {
     match cx.try_global::<ActivePalette>() {
         Some(p) => p.ansi16.map(|c| (c.r, c.g, c.b)),
         None => presets::by_id(cx, &theme::effective_preset_id(cx)).ansi16,
