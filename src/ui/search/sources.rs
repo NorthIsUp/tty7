@@ -173,6 +173,8 @@ impl Catalog {
                 sessions: &self.sessions,
                 open: &self.open_agent_sessions,
             })),
+            // The page draws its own rows (`new_tab_page`).
+            SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
     }
 
