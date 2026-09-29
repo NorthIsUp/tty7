@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Install the fast build (install-app) and start it detached, on your real config (TTY7_CONFIG_DIR is passed through)"
+#MISE description="Install the fast build (install-app), restart the server in place if its code changed, and start the window detached, on your real config (TTY7_CONFIG_DIR is passed through)"
 #MISE depends=["install-app"]
 set -euo pipefail
 . "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
+fail() { echo "launch: $*" >&2; exit 1; }
+ensure_server
+before=$(server_pid || true)
 # The server keeps the environment of whoever started it and hands it to every
 # pane, so a launch from inside another tool (an agent's shell, a CI job) would
 # leak NO_COLOR, CLAUDECODE and the like into all of them. Start from what
@@ -11,10 +14,23 @@ env -i \
   HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" SHELL="${SHELL:-/bin/zsh}" \
   LANG="${LANG:-en_US.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
   PATH=/usr/bin:/bin:/usr/sbin:/sbin ${TTY7_CONFIG_DIR:+TTY7_CONFIG_DIR="$TTY7_CONFIG_DIR"} \
-  nohup "$app/Contents/MacOS/tty7-app" >/dev/null 2>&1 &
+  nohup "$exe" >/dev/null 2>&1 &
+window=$!
+# Settle first: a window that cannot reach the server starts its own.
+sleep 2
+pid=
 for _ in $(seq 20); do
-  pid=$(server_pid) && [ -n "$pid" ] && break
+  pid=$(server_pid || true) && [ -n "$pid" ] && break
   sleep 0.5
 done
-echo "${pid:-?} $(server_code)" > "$stamp"
-echo "launched; server ${pid:-not up yet}"
+# A second window hands off to the first and exits, so any window will do.
+pgrep -fx "$exe" >/dev/null || fail "no window from $exe is running"
+[ -n "$pid" ] || fail "no server answered within 12s"
+own=$(pgrep -P "$window" -f -- --daemon || true)
+[ -z "$own" ] || [ "$own" = "$pid" ] || fail "window $window started its own server $own instead of joining $pid"
+on_bundle "$pid" || fail "server $pid runs $(ps -o command= -p "$pid" || true), not $exe"
+if [ "$pid" = "$before" ] && [ "$(cat "$stamp" 2>/dev/null || true)" != "$pid $(server_code)" ]; then
+  fail "server $pid predates this launch and was not restarted onto this code"
+fi
+echo "$pid $(server_code)" > "$stamp"
+echo "launched; server $pid runs $exe"
