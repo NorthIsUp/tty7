@@ -208,10 +208,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let command = with_minted_session(
-            agent,
-            agent.launch_command(&cx.global::<Config>().agent_launch),
-        );
         let slot = match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
@@ -219,12 +215,32 @@ impl Tty7App {
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                self.new_tab_slot(cwd, None, window, cx)
+                return self.launch_agent_in(agent, cwd, window, cx);
             }
             SpawnWhere::Split => {
                 self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
             }
         };
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    /// Open a new tab in `cwd` for `agent` and start it there.
+    pub(crate) fn launch_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.new_tab_slot(cwd, None, window, cx);
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+        let command = with_minted_session(
+            agent,
+            agent.launch_command(&cx.global::<Config>().agent_launch),
+        );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
         // goes nowhere rather than into whatever pane was focused before.
