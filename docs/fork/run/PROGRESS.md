@@ -1,2 +1,3 @@
 - task T2: merged
 - task T1: merged
+- task T3: merged
