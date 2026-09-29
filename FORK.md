@@ -20,13 +20,14 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory) |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All |
 | `src/ui/group_color.rs` | a group's colour (override, else hashed into the theme) and its swatch |
+| `src/ui/group_header.rs` | a group header's outline and fill, its chevron, the repo default branch it names, and their Settings rows |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 
 ## Hooks in upstream files
 
 | file | function / site | why |
 |---|---|---|
-| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `nice` |
+| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `nice`; `GroupColorSource` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
 | `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks |
@@ -48,8 +49,12 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt` | carry the prompt until a connecting pane lands |
 | `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | `PendingSpawn` literals | `agent_prompt: None` |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch` |
+| `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git` | the header names `group_header::default_branch`, not the rows' checkout |
+| `src/ui/tab_sidebar.rs` | `tab_sidebar` group header bar | `group_header::decorate`, `group_header::chevron` on every header, its `backing` under the hover buttons |
+| `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
+| `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
-| `src/ui/mod.rs` | module list | `agent_resume`, `group_color`, `new_tab_page` |
+| `src/ui/mod.rs` | module list | `agent_resume`, `group_color`, `group_header`, `new_tab_page` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`; `NewTabPageNextKind`, `NewTabPagePrevKind` (Tab on the new tab page) |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents` |
 | `src/ui/keymap.rs` | `fixed_bindings` | Tab / ⇧Tab bound in the `NewTabPage` context, since Root's focus walker otherwise takes Tab |
@@ -61,10 +66,10 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.text_query = palette_text_query(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
-| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort` |
+| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
 | `docs/reference/configuration.mdx` | config table | the fork's config fields |
-| `docs/window/sidebar.mdx` | Group colours | `group_colors` |
+| `docs/window/sidebar.mdx` | Group colours | `group_colors`, header outline/fill, default branch |
 | `docs/window/search-everywhere.mdx` | Tabs table | the Text tab |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page` |

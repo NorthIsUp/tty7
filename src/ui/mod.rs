@@ -15,6 +15,7 @@ pub mod file_tree;
 pub mod forwards;
 pub mod github;
 pub mod group_color;
+pub mod group_header;
 pub mod hints;
 pub mod home;
 #[allow(dead_code)]
