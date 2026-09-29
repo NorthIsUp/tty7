@@ -1778,6 +1778,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
         L10nKey::CmdHibernateTab => "タブを休止",
+        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
+        L10nKey::SearchTabText => "テキスト",
+        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
+        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
@@ -1964,7 +1968,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新しいタブ",
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => "Enter で開く · Tab で種類を切替 · Esc でキャンセル",
+        L10nKey::NewTabPageHint => {
+            "Enter で開く · ←/→ または ^1–^9 で種類を選択 · Esc でキャンセル"
+        }
         L10nKey::SettingsGroupOutline => "グループの枠線",
         L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
         L10nKey::SettingsGroupOutlineColor => "枠線の色",

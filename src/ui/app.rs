@@ -3915,7 +3915,7 @@ impl Tty7App {
             .flatten();
         let view = build_terminal_view(parts, font_size, window, cx);
         if let Some(cmd) = resume {
-            view.read(cx).run_command_line(&cmd);
+            view.update(cx, |view, _| view.run_at_prompt(cmd));
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -6122,7 +6122,8 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let catalog = self.search_catalog(window, cx);
+        let mut catalog = self.search_catalog(window, cx);
+        catalog.text_query = Some(self.palette_text_query(window, cx));
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6469,6 +6470,7 @@ impl Tty7App {
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
             QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            SearchText => self.open_search(SearchTab::Text, "", window, cx),
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
@@ -9785,12 +9787,14 @@ fn agent_resume_command(
         return None;
     };
     let cmd = agent.resume_command(session_id, launch_argv)?;
-    Some(
-        match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
-            Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
-            None => cmd,
-        },
-    )
+    let resume = match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
+        Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
+        None => cmd,
+    };
+    Some(match agent.start_command(session_id, launch_argv) {
+        Some(fresh) => format!("{resume} || {fresh}"),
+        None => resume,
+    })
 }
 
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
@@ -10162,7 +10166,7 @@ fn session_to_pane(
                         prompt,
                         cx,
                     ) {
-                        terminal.read(cx).run_command_line(&cmd);
+                        terminal.update(cx, |view, _| view.run_at_prompt(cmd));
                     }
                 }
                 PaneSlot::Ready(_) => {}

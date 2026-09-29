@@ -1604,6 +1604,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "将此 agent 会话 fork 到新标签页",
         L10nKey::CmdMarkTabAsUnread => "将标签页标记为未读",
         L10nKey::CmdHibernateTab => "休眠标签页",
+        L10nKey::CmdSearchText => "在文件中搜索文本…",
+        L10nKey::SearchTabText => "文本",
+        L10nKey::SearchPlaceholderText => "搜索文件内容…",
+        L10nKey::SearchTextTooShort => "输入至少 3 个字符以搜索文件内容。",
         L10nKey::CmdContinueAllAgents => "继续所有 Agent",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
@@ -1776,7 +1780,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
-        L10nKey::NewTabPageHint => "Enter 打开 · Tab 切换类型 · Esc 取消",
+        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 ^1–^9 选择类型 · Esc 取消",
         L10nKey::SettingsGroupOutline => "分组轮廓",
         L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
         L10nKey::SettingsGroupOutlineColor => "轮廓颜色",

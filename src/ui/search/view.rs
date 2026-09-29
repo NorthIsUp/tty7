@@ -227,6 +227,9 @@ impl ListDelegate for SearchDelegate {
         {
             live(query, cx);
         }
+        if self.scope == Scope::Tab(SearchTab::Text) {
+            self.catalog.ask_text(query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -292,6 +295,7 @@ impl ListDelegate for SearchDelegate {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
             }
+            Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
         // The headline in body ink and the way out under it in caption ink:
@@ -541,6 +545,10 @@ impl SearchView {
             }
             // `set_query` searches only when the text changed; the tab did.
             state.delegate_mut().refresh(cx);
+            if tab == SearchTab::Text {
+                let delegate = state.delegate();
+                delegate.catalog.ask_text(&delegate.query, cx);
+            }
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
             state.scroll_to_item(IndexPath::default(), ScrollStrategy::Top, window, cx);
@@ -672,7 +680,7 @@ impl SearchView {
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
-    fn update_catalog(
+    pub(super) fn update_catalog(
         &mut self,
         change: impl FnOnce(&mut Catalog),
         window: &mut Window,
@@ -700,6 +708,11 @@ impl SearchView {
     #[cfg(test)]
     pub(crate) fn symbol_count(&self) -> usize {
         self.catalog.symbols.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn text_rows(&self) -> Vec<Item> {
+        self.catalog.text.clone()
     }
 
     /// The tab showing — or, in a row's own list, the one Escape returns to.

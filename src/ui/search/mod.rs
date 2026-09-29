@@ -12,6 +12,7 @@ mod command;
 mod files;
 mod score;
 mod sources;
+mod text;
 mod view;
 
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
@@ -36,6 +37,9 @@ pub(crate) enum SearchTab {
     /// Places a language server found — the references to a symbol, or its
     /// several definitions (`ui::lsp`). Reached only by those commands.
     Locations,
+    /// Find in files (`text`): searched on the machine only once enough is
+    /// typed, so it is on the row but never on the All tab.
+    Text,
 }
 
 impl SearchTab {
@@ -47,11 +51,12 @@ impl SearchTab {
     /// together, and a sample of paths among tabs and hosts answered nothing
     /// anyone had typed. Commands last, the way the rest of the row goes
     /// from the things you have to the things you can do.
-    pub(crate) const ORDER: [SearchTab; 5] = [
+    pub(crate) const ORDER: [SearchTab; 6] = [
         SearchTab::All,
         SearchTab::Terminals,
         SearchTab::Sessions,
         SearchTab::Hosts,
+        SearchTab::Text,
         SearchTab::Actions,
     ];
 
@@ -76,6 +81,7 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchTabHosts,
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
             SearchTab::Locations => L10nKey::SearchTabLocations,
+            SearchTab::Text => L10nKey::SearchTabText,
         })
     }
 
@@ -97,6 +103,7 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchPlaceholderHosts,
             SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
+            SearchTab::Text => L10nKey::SearchPlaceholderText,
         })
     }
 
@@ -119,7 +126,8 @@ mod tests {
     #[test]
     fn tab_steps_wrap_both_ways() {
         assert_eq!(SearchTab::All.step(true), SearchTab::Terminals);
-        assert_eq!(SearchTab::Hosts.step(true), SearchTab::Actions);
+        assert_eq!(SearchTab::Hosts.step(true), SearchTab::Text);
+        assert_eq!(SearchTab::Text.step(true), SearchTab::Actions);
         assert_eq!(SearchTab::Actions.step(true), SearchTab::All);
         assert_eq!(SearchTab::All.step(false), SearchTab::Actions);
         assert_eq!(SearchTab::Terminals.step(false), SearchTab::All);

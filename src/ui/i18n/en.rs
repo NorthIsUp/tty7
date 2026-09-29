@@ -1731,6 +1731,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdForkSessionSubtitle => "branch this agent session into a new tab",
         L10nKey::CmdMarkTabAsUnread => "Mark Tab as Unread",
         L10nKey::CmdHibernateTab => "Hibernate Tab",
+        L10nKey::CmdSearchText => "Search Text in Files…",
+        L10nKey::SearchTabText => "Text",
+        L10nKey::SearchPlaceholderText => "Search file contents…",
+        L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
         L10nKey::CmdContinueAllAgents => "Continue All Agents",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
@@ -1911,7 +1915,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
-        L10nKey::NewTabPageHint => "Enter opens · Tab switches kind · Esc cancels",
+        L10nKey::NewTabPageHint => "Enter opens · ←/→ or ^1–^9 picks the kind · Esc cancels",
         L10nKey::SettingsGroupOutline => "Group outline",
         L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
         L10nKey::SettingsGroupOutlineColor => "Outline colour",
