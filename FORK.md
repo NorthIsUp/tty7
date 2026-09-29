@@ -1,8 +1,8 @@
 # The NorthIsUp tty7 fork
 
 This is [l0ng-ai/tty7](https://github.com/l0ng-ai/tty7) plus agent resume after
-a reboot (Continue All Agents), a new tab page, sidebar group colours and a
-niceness for pane shells. It stays rebasable by one rule: fork logic lives in
+a reboot (Continue All Agents), a new tab page, a Text (find in files) tab in
+Search Everywhere, sidebar group colours and a niceness for pane shells. It stays rebasable by one rule: fork logic lives in
 fork-owned files, and an upstream file gets only a short hook call into them,
 listed below. `mise run sync-upstream` rebases onto `upstream/main`; when it
 stops on a conflict, the hook table says what each fork hunk in that file is
@@ -18,6 +18,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory) |
+| `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All |
 | `src/ui/group_color.rs` | a group's colour (override, else hashed into the theme) and its swatch |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 
@@ -50,9 +51,17 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents` |
 | `src/ui/keymap.rs` | `fixed_bindings` | Tab / ⇧Tab bound in the `NewTabPage` context, since Root's focus walker otherwise takes Tab |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents` in Search Everywhere |
-| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*` |
+| `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `SearchText` (Search Text in Files…) |
+| `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list (+ test) | the `Text` tab, on the row between Hosts and Actions |
+| `src/ui/search/sources.rs` | `Catalog` fields, `new`, `source`, `all` | `text`, `text_query`; `all` leaves Text out |
+| `src/ui/search/view.rs` | `perform_search`, `set_tab`, `render_empty`, `update_catalog` visibility, `text_rows` (test) | ask the window for text hits; the too-short hint |
+| `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
+| `src/ui/app.rs` | `open_search` | `catalog.text_query = palette_text_query(..)` |
+| `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
+| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
 | `docs/reference/configuration.mdx` | config table | the fork's config fields |
 | `docs/window/sidebar.mdx` | Group colours | `group_colors` |
+| `docs/window/search-everywhere.mdx` | Tabs table | the Text tab |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page` |
