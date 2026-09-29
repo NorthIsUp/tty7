@@ -39,6 +39,7 @@ pub mod pending_pane;
 pub mod perf;
 pub mod prefill;
 pub mod presets;
+pub mod proc_usage;
 pub mod prompt;
 pub mod remote_connect;
 pub mod remote_workspace;
