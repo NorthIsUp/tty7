@@ -351,6 +351,38 @@ impl Host for LocalHost {
         Ok(Roots::local().map_or_else(Vec::new, |roots| scan(&roots, known_dirs)))
     }
 
+    fn search_agent_history(
+        &self,
+        query: &str,
+    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
+        guard_off_ui();
+        Ok(
+            crate::core::agent_history::Roots::local().map_or_else(Vec::new, |roots| {
+                crate::core::history_search::search(&roots, query)
+            }),
+        )
+    }
+
+    fn agent_session_mentions(
+        &self,
+        agent: crate::core::cli_agent::CLIAgent,
+        id: &str,
+        repo: &crate::core::github::RepoSlug,
+    ) -> io::Result<crate::core::history_search::Mentions> {
+        guard_off_ui();
+        Ok(
+            crate::core::agent_history::Roots::local().map_or_else(Default::default, |roots| {
+                crate::core::history_search::session_mentions(&roots, agent, id, repo)
+            }),
+        )
+    }
+
+    fn claude_background_job(&self, session_id: &str) -> Option<String> {
+        guard_off_ui();
+        let dir = crate::core::claude_background::sessions_dir()?;
+        crate::core::claude_background::job_for_session(&dir, session_id)
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         guard_off_ui();
         local_watch(dirs, Arc::clone(&self.gitignore))

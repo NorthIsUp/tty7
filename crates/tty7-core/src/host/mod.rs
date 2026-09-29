@@ -394,6 +394,33 @@ pub trait Host: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
+    /// Past sessions on this host whose conversation contains `query`
+    /// ([`crate::core::history_search::search`]). Only the local host looks.
+    fn search_agent_history(
+        &self,
+        _query: &str,
+    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
+        Ok(Vec::new())
+    }
+
+    /// The issues and pull requests of `repo` that `agent`'s session `id`
+    /// on this host mentions ([`crate::core::history_search::session_mentions`]).
+    /// Only the local host looks.
+    fn agent_session_mentions(
+        &self,
+        _agent: crate::core::cli_agent::CLIAgent,
+        _id: &str,
+        _repo: &crate::core::github::RepoSlug,
+    ) -> io::Result<crate::core::history_search::Mentions> {
+        Ok(Default::default())
+    }
+
+    /// The background job Claude session `session_id` is running as on this
+    /// host ([`crate::core::claude_background`]). Only the local host looks.
+    fn claude_background_job(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;
 
     fn is_connected(&self) -> bool {

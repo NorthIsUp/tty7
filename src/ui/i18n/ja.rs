@@ -263,7 +263,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::Close => "閉じる",
         L10nKey::QuitStopServerTitle => "tty7 を終了して tty7 server を停止しますか？",
         L10nKey::QuitStopServerBody => {
-            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に新しいシェルで開きます。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
+            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時にスリープ状態で戻り、開いたタブから起動します。エージェントは元の会話を再開します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
         }
         L10nKey::QuitAndStop => "終了して停止",
         L10nKey::CloseSshConnectionTitle => "この SSH 接続を閉じますか？",
@@ -1419,6 +1419,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelNoChangesHint => "ワーキングツリーはクリーンです",
         L10nKey::PanelSessionSubtitle => "セッション",
         L10nKey::PanelProcessesSubtitle => "プロセス",
+        L10nKey::PanelProcessesTotal => "合計",
         L10nKey::PanelPortsSubtitle => "ポート",
         L10nKey::PanelLatency => "遅延",
         L10nKey::PanelPortsUnsupported => "リモートの tty7-server が古く、ポートを列挙できません。",
@@ -1824,6 +1825,26 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
         L10nKey::CmdHibernateTab => "タブを休止",
+        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
+        L10nKey::SearchTabText => "テキスト",
+        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
+        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
+        L10nKey::SearchTabHistory => "履歴",
+        L10nKey::SearchPlaceholderHistory => "あなたとエージェントの会話を検索…",
+        L10nKey::SearchHistoryTooShort => {
+            "エージェントの会話を検索するには 3 文字以上入力してください。"
+        }
+        L10nKey::SearchHistoryRemote => {
+            "エージェントの履歴はこのコンピューター上でのみ検索できます。"
+        }
+        L10nKey::SearchHistoryHits => "{count} 件",
+        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
+        L10nKey::SearchTabAgents => "エージェント",
+        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
+        L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
+        }
         L10nKey::CmdHibernateTabSubtitle => "プロセスを停止してメモリを解放。選択すると復帰",
         L10nKey::CmdClosePaneTab => "ペイン / タブを閉じる",
         L10nKey::CmdCloseWindow => "ウィンドウを閉じる",
@@ -2019,6 +2040,32 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNoAgentSeenHere => {
             "このワークスペースではまだコーディングエージェントが実行されていません — 一度手動で起動すると、ここに表示されます"
         }
+        L10nKey::NewTabPageTitle => "新しいタブ",
+        L10nKey::NewTabPageTerminal => "ターミナル",
+        L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
+        L10nKey::NewTabPageHint => {
+            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
+        }
+        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::SearchHintBackground => "バックグラウンドで開く",
+        L10nKey::SettingsGroupOutline => "グループの枠線",
+        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineColor => "枠線の色",
+        L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
+        L10nKey::SettingsGroupBackground => "グループの背景",
+        L10nKey::SettingsGroupBackgroundDesc => "各グループ見出しの背後に淡い塗りを敷きます。",
+        L10nKey::SettingsGroupBackgroundColor => "背景の色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
+        L10nKey::SettingsGroupColorTheme => "テーマ",
+        L10nKey::SettingsGroupColorHashed => "グループの色",
+        L10nKey::SettingsGroupBackgroundScope => "背景の範囲",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "見出しのみ、または見出しとタブをひとまとまりに。"
+        }
+        L10nKey::SettingsGroupScopeHeader => "見出し",
+        L10nKey::SettingsGroupScopeGroup => "グループ全体",
+        L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
+        L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",
@@ -2316,6 +2363,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNoDescription => "説明はありません。",
         L10nKey::GitHubFilterByLabel => "このラベルのみ表示",
         L10nKey::GitHubClearLabel => "ラベルの絞り込みを解除",
+        L10nKey::GitHubThisSession => "このセッション",
+        L10nKey::GitHubNoSessionPulls => "このセッションで言及された PR はありません",
+        L10nKey::GitHubShowAllPulls => "すべて表示",
+        L10nKey::GitHubMoreMentioned => "このセッションでほかに {count} 件言及",
         L10nKey::GitHubImage => "画像",
         L10nKey::GitHubComments => "{count} 件のコメント",
         L10nKey::GitHubCommits => "{count} 件のコミット",

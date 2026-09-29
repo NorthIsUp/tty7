@@ -248,7 +248,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::Close => "Close",
         L10nKey::QuitStopServerTitle => "Quit and stop tty7 server?",
         L10nKey::QuitStopServerBody => {
-            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout reopen with fresh shells next launch. (Closing the window only retires tty7 to the tray — the shells keep running.)"
+            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, asleep: each starts when you open it, and an agent picks its conversation back up. (Closing the window only retires tty7 to the tray — the shells keep running.)"
         }
         L10nKey::QuitAndStop => "Quit and Stop",
         L10nKey::CloseSshConnectionTitle => "Close this SSH connection?",
@@ -1357,6 +1357,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelNoChangesHint => "The working tree is clean.",
         L10nKey::PanelSessionSubtitle => "Session",
         L10nKey::PanelProcessesSubtitle => "Processes",
+        L10nKey::PanelProcessesTotal => "Total",
         L10nKey::PanelPortsSubtitle => "Ports",
         L10nKey::PanelPortsUnsupported => "That machine's tty7-server is too old to list ports.",
         L10nKey::PanelPortsProbeFailed => "Couldn't check what this pane is listening on.",
@@ -1767,6 +1768,24 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdForkSessionSubtitle => "branch this agent session into a new tab",
         L10nKey::CmdMarkTabAsUnread => "Mark Tab as Unread",
         L10nKey::CmdHibernateTab => "Hibernate Tab",
+        L10nKey::CmdSearchText => "Search Text in Files…",
+        L10nKey::SearchTabText => "Text",
+        L10nKey::SearchPlaceholderText => "Search file contents…",
+        L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
+        L10nKey::SearchTabHistory => "History",
+        L10nKey::SearchPlaceholderHistory => "Search what you and your agents said…",
+        L10nKey::SearchHistoryTooShort => {
+            "Type at least 3 characters to search agent conversations."
+        }
+        L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
+        L10nKey::SearchHistoryHits => "{count} hits",
+        L10nKey::CmdSearchAgents => "Search Tabs and Agent Sessions…",
+        L10nKey::SearchTabAgents => "Agents",
+        L10nKey::SearchPlaceholderAgents => "Search open tabs and agent sessions…",
+        L10nKey::CmdContinueAllAgents => "Continue All Agents",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
+        }
         L10nKey::CmdHibernateTabSubtitle => {
             "stop its processes to free memory; selecting it wakes it"
         }
@@ -1958,6 +1977,32 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppNoAgentSeenHere => {
             "No coding agent has run in this workspace yet — start one by hand once and it will be offered here"
         }
+        L10nKey::NewTabPageTitle => "New tab",
+        L10nKey::NewTabPageTerminal => "Terminal",
+        L10nKey::NewTabPagePlaceholder => "Directory…",
+        L10nKey::NewTabPageHint => "Enter opens · ←/→ or {first}–9 picks the kind · Esc cancels",
+        L10nKey::NewTabPageHintBackground => "⇧Enter opens in background",
+        L10nKey::SearchHintBackground => "Open in background",
+        L10nKey::SettingsGroupOutline => "Group outline",
+        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
+        L10nKey::SettingsGroupOutlineColor => "Outline colour",
+        L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
+        L10nKey::SettingsGroupBackground => "Group background",
+        L10nKey::SettingsGroupBackgroundDesc => "A tinted fill behind each group header.",
+        L10nKey::SettingsGroupBackgroundColor => "Background colour",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "A neutral from the theme, or each group's own colour."
+        }
+        L10nKey::SettingsGroupColorTheme => "Theme",
+        L10nKey::SettingsGroupColorHashed => "Group colour",
+        L10nKey::SettingsGroupBackgroundScope => "Background covers",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "The header alone, or the header and its tabs as one block."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Header",
+        L10nKey::SettingsGroupScopeGroup => "Whole group",
+        L10nKey::SettingsGroupAnimations => "Animate folding",
+        L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"
@@ -2251,6 +2296,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubNoDescription => "No description provided.",
         L10nKey::GitHubFilterByLabel => "Show only this label",
         L10nKey::GitHubClearLabel => "Clear label filter",
+        L10nKey::GitHubThisSession => "This session",
+        L10nKey::GitHubNoSessionPulls => "No PRs mentioned in this session",
+        L10nKey::GitHubShowAllPulls => "Show all",
+        L10nKey::GitHubMoreMentioned => "{count} more mentioned in this session",
         L10nKey::GitHubImage => "image",
         L10nKey::GitHubComments => "{count} comments",
         L10nKey::GitHubCommits => "{count} commits",

@@ -65,6 +65,36 @@ every window onto it — and the next launch — shows the same thing.
 have not pinned then sit in one flat list below your pinned groups, which show
 either way.
 
+### Group colours
+
+Each group header starts with a coloured dot. The colour comes from the group's
+name, picked from the theme's terminal palette, so a group looks the same in
+every window and after a restart. To pick one yourself, set it by name in
+`config.json`:
+
+```json
+"group_colors": { "tty7": "#e0b072" }
+```
+
+A value that is not `#rrggbb` is ignored, and logged once.
+
+The header itself sits on a faint wash of that colour, and can carry an
+outline too. **Settings → General → Tabs** has both, or set them in
+`config.json`: `group_background` (on by default) and `group_outline` (off),
+each with a `_color` of `"hashed"` (the group's colour) or `"theme"` (a
+neutral from the theme). Set `group_background_scope` to `"group"` and the wash
+and outline cover the header and its tabs as one block instead; a folded group
+is just its header either way.
+
+Folding a group slides its tabs open or shut and turns the chevron with them.
+Turn that off with `animations: false` (or **Animate folding** in Settings).
+
+The branch beside a repo group's name is the repo's default branch
+(`origin/HEAD`, else `init.defaultBranch`), not whichever branch a tab has
+checked out — a group's tabs are often worktrees on different branches.
+`origin/HEAD` is set when the repo is cloned and git never refreshes it, so if
+the remote's default has changed since, run `git remote set-head origin --auto`.
+
 ## What a row tells you
 
 <CardGroup cols={2}>

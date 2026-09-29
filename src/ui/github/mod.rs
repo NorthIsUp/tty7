@@ -160,6 +160,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) branch_pulls: HashMap<BranchPullKey, BranchPullCache>,
     /// The long sections of a detail the user unfolded.
     pub(crate) unfolded: std::collections::HashSet<(RepoSlug, u64, Fold)>,
+    /// What the focused pane's agent session mentions (`github_session`).
+    pub(crate) session: Option<crate::ui::github_session::SessionCache>,
 }
 
 /// A detail section that folds when it runs long.
@@ -286,7 +288,11 @@ impl Tty7App {
                 return GhTarget::Pending;
             }
         };
-        let pick = self.github.remote_pick.get(&repo).map(String::as_str);
+        let pick = crate::ui::github_session::remote_pick(
+            self.github.remote_pick.get(&repo).map(String::as_str),
+            cx.global::<crate::core::config::Config>()
+                .github_panel_prefer_origin,
+        );
         match tty7_core::core::github::remote::default_remote(&remotes, pick) {
             Some(chosen) => {
                 let chosen = chosen.clone();
@@ -727,6 +733,7 @@ impl Tty7App {
             entry.error = false;
             entry.fetched = None;
         }
+        crate::ui::github_session::mark_due(&mut self.github.session);
         cx.notify();
     }
 

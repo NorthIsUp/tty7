@@ -18,6 +18,7 @@ use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::new_tab_page::NewTabPage;
 
 /// What the list is showing: one of the tabs, or a list a row opens — the
 /// theme picker one of the Actions rows opens, or what can be done with a
@@ -227,6 +228,12 @@ impl ListDelegate for SearchDelegate {
         {
             live(query, cx);
         }
+        if self.scope == Scope::Tab(SearchTab::Text) {
+            self.catalog.ask_text(query, cx);
+        }
+        if self.scope == Scope::Tab(SearchTab::History) {
+            self.catalog.ask_history(query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -291,6 +298,10 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
+            }
+            Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
+            Scope::Tab(SearchTab::History) => {
+                super::history_text::empty_hint(&self.catalog, &self.query)
             }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
@@ -438,6 +449,8 @@ pub struct SearchView {
     /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
     /// less what cannot answer), set by whoever opened an editor tab.
     editor_tabs: Vec<SearchTab>,
+    /// The New Tab tab's page, drawn in place of the list.
+    new_tab: Option<Entity<NewTabPage>>,
     _sub: Subscription,
 }
 
@@ -473,7 +486,34 @@ impl SearchView {
             symbol_moved: false,
             heading: None,
             editor_tabs: Vec::new(),
+            new_tab: None,
             _sub,
+        }
+    }
+
+    pub(crate) fn set_new_tab(
+        &mut self,
+        page: Entity<NewTabPage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        NewTabPage::focus(&page, window, cx);
+        self.new_tab = Some(page);
+        cx.notify();
+    }
+
+    /// The page, while the New Tab tab is showing.
+    pub(crate) fn new_tab_page(&self) -> Option<Entity<NewTabPage>> {
+        self.new_tab
+            .clone()
+            .filter(|_| self.tab == SearchTab::NewTab)
+    }
+
+    /// Puts the keyboard back in the search field (`palette`).
+    pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
+        match self.new_tab_page() {
+            Some(page) => NewTabPage::focus(&page, window, cx),
+            None => self.list.update(cx, |state, cx| state.focus(window, cx)),
         }
     }
 
@@ -541,6 +581,14 @@ impl SearchView {
             }
             // `set_query` searches only when the text changed; the tab did.
             state.delegate_mut().refresh(cx);
+            if tab == SearchTab::Text {
+                let delegate = state.delegate();
+                delegate.catalog.ask_text(&delegate.query, cx);
+            }
+            if tab == SearchTab::History {
+                let delegate = state.delegate();
+                delegate.catalog.ask_history(&delegate.query, cx);
+            }
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
             state.scroll_to_item(IndexPath::default(), ScrollStrategy::Top, window, cx);
@@ -672,7 +720,7 @@ impl SearchView {
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
-    fn update_catalog(
+    pub(super) fn update_catalog(
         &mut self,
         change: impl FnOnce(&mut Catalog),
         window: &mut Window,
@@ -700,6 +748,11 @@ impl SearchView {
     #[cfg(test)]
     pub(crate) fn symbol_count(&self) -> usize {
         self.catalog.symbols.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn text_rows(&self) -> Vec<Item> {
+        self.catalog.text.clone()
     }
 
     /// The tab showing — or, in a row's own list, the one Escape returns to.
@@ -999,6 +1052,20 @@ impl SearchView {
                 t(L10nKey::SwitcherHintNavigate),
             ))
             .child(hint(vec![keycap("↵", cx)], t(L10nKey::SwitcherHintOpen)))
+            .when(self.selected_opens_tab(cx), |row| {
+                row.child(hint(
+                    vec![keycap("⇧", cx), keycap("↵", cx)],
+                    t(L10nKey::SearchHintBackground),
+                ))
+            })
+    }
+
+    fn selected_opens_tab(&self, cx: &App) -> bool {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .is_some_and(|item| crate::ui::background_tab::opens_tab(&item.kind))
     }
 }
 
@@ -1060,7 +1127,7 @@ const TABS_H: f32 = 34.;
 /// title the row picks out. `None` for an empty query, or one the fuzzy
 /// scorer matched as scattered letters — picking out stray letters reads as
 /// noise, not as an answer.
-fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
+pub(super) fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
     let query = query.trim();
     if query.is_empty() {
         return None;
@@ -1175,6 +1242,10 @@ impl Render for SearchView {
                 )
             })
             .child(self.render_footer(cx));
+        let card = match self.new_tab_page() {
+            Some(page) => page.into_any_element(),
+            None => card.into_any_element(),
+        };
 
         div()
             .absolute()
@@ -1204,6 +1275,17 @@ impl Render for SearchView {
             ))
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 if is_edit_gesture(&ev.keystroke) && this.on_edit_gesture(window, cx) {
+                    cx.stop_propagation();
+                }
+                // ⇧Enter: the list binds only a bare Enter, so confirm here; the
+                // held ⇧ is read back when the row runs (`background_tab`).
+                let ks = &ev.keystroke;
+                if ks.key == "enter"
+                    && ks.modifiers == gpui::Modifiers::shift()
+                    && let Some(ix) = this.list.read(cx).selected_index()
+                {
+                    let list = this.list.clone();
+                    this.on_list_event(&list, &ListEvent::Confirm(ix), window, cx);
                     cx.stop_propagation();
                 }
             }))
@@ -1347,6 +1429,24 @@ mod tests {
         app.read_with(&vcx, |app, _| {
             assert!(app.search.is_none(), "picking a row closes the search");
             assert_eq!(app.active, 2, "back to the tab used before this one");
+        });
+    }
+
+    /// ⇧Enter confirms the row too (`background_tab`): the list binds only a
+    /// bare Enter.
+    #[gpui::test]
+    fn shift_return_confirms_the_picked_row(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, _, _| app.tabs[1].last_used.set(5));
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("shift-enter");
+        vcx.run_until_parked();
+        app.read_with(&vcx, |app, _| {
+            assert!(app.search.is_none(), "⇧Enter picks the row");
+            assert_eq!(app.active, 1);
         });
     }
 

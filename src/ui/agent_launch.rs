@@ -147,11 +147,32 @@ pub(crate) fn fork_line(
     agent.fork_command(session_id, Some(&argv))
 }
 
+/// `line` with a fresh `--session-id` for Claude, so the pane knows which
+/// conversation it is from the first keystroke — no hook, no transcript. A
+/// line that already names a session, or starts none of its own, is left be.
+fn with_minted_session(agent: CLIAgent, line: String) -> String {
+    const NAMED: &[&str] = &[
+        "--session-id",
+        "--resume",
+        "-r",
+        "--continue",
+        "-c",
+        "--from-pr",
+    ];
+    let names_one = line
+        .split_whitespace()
+        .any(|t| NAMED.contains(&t.split('=').next().unwrap_or(t)));
+    if agent != CLIAgent::Claude || names_one {
+        return line;
+    }
+    format!("{line} --session-id {}", uuid::Uuid::new_v4())
+}
+
 /// Type `command` into the shell `slot` holds — now if it is up, or the
 /// moment it lands if it is still connecting.
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => view.read(cx).run_command_line(&command),
+        PaneSlot::Ready(view) => view.update(cx, |view, cx| view.run_at_prompt(command, cx)),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
@@ -187,7 +208,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let command = agent.launch_command(&cx.global::<Config>().agent_launch);
         let slot = match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
@@ -195,12 +215,32 @@ impl Tty7App {
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                self.new_tab_slot(cwd, None, window, cx)
+                return self.launch_agent_in(agent, cwd, window, cx);
             }
             SpawnWhere::Split => {
                 self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
             }
         };
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    /// Open a new tab in `cwd` for `agent` and start it there.
+    pub(crate) fn launch_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.new_tab_slot(cwd, None, window, cx);
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+        let command = with_minted_session(
+            agent,
+            agent.launch_command(&cx.global::<Config>().agent_launch),
+        );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
         // goes nowhere rather than into whatever pane was focused before.
@@ -349,6 +389,23 @@ impl Tty7App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_claude_launch_mints_the_session_it_will_resume() {
+        let line = with_minted_session(CLIAgent::Claude, "claude --model opus".into());
+        let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+        assert!(
+            CLIAgent::Claude.session_id_in_argv(&argv).is_some(),
+            "{line}"
+        );
+        for kept in ["claude --continue", "claude -r", "claude --session-id=x"] {
+            assert_eq!(with_minted_session(CLIAgent::Claude, kept.into()), kept);
+        }
+        assert_eq!(
+            with_minted_session(CLIAgent::Codex, "codex".into()),
+            "codex"
+        );
+    }
 
     fn usage(pairs: &[(&str, u32, u64)]) -> HashMap<String, ProfileUsage> {
         pairs

@@ -471,6 +471,10 @@ fn pane_environment(
         ),
         ("TERM_PROGRAM".to_string(), TERM_PROGRAM_NAME.to_string()),
         ("TERM_PROGRAM_VERSION".to_string(), version.to_string()),
+        // tty7 renders OSC 8 links, but `supports-hyperlinks` (Claude Code,
+        // most Node CLIs) only trusts a fixed TERM_PROGRAM list and strips
+        // them otherwise; this is the override it honours.
+        ("FORCE_HYPERLINK".to_string(), "1".to_string()),
         (TTY7_PANE_ENV.to_string(), pane.to_string()),
     ];
     #[cfg(windows)]
@@ -1717,6 +1721,9 @@ impl DaemonPane {
 
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
+        if let Some(pid) = shell_pid {
+            super::nice::apply(pid);
+        }
         let child = Arc::new(Mutex::new(child));
 
         drop(pair.slave);
@@ -3524,6 +3531,7 @@ fn apply_agent(
     };
     if st.agent == agent {
         stamp_launch_argv(st, argv);
+        adopt_argv_session(st);
         return;
     }
     // The session belongs to whoever was in the foreground. Switching from
@@ -3540,6 +3548,39 @@ fn apply_agent(
     notify(st, DaemonMsg::Agent(agent));
     st.agent = agent;
     stamp_launch_argv(st, argv);
+    adopt_argv_session(st);
+}
+
+/// Take the session id the agent's own command line names, for a pane no hook
+/// has spoken for yet — what lets a reboot resume Claude without its hooks.
+fn adopt_argv_session(st: &mut PaneState) {
+    let (Some(agent), Some(argv)) = (st.agent, &st.agent_argv) else {
+        return;
+    };
+    if st
+        .agent_session
+        .as_ref()
+        .is_some_and(|s| s.session_id.is_some())
+    {
+        return;
+    }
+    // `claude attach <job>` names only its job; the session file maps it back.
+    // ponytail: rereads the dir each foreground poll until it maps; cache the
+    // miss per argv if an unmappable attach ever shows up in a profile.
+    let Some(id) = agent.session_id_in_argv(argv).or_else(|| {
+        let job = crate::core::claude_background::attached_job(argv)?;
+        crate::core::claude_background::session_for_job(
+            &crate::core::claude_background::sessions_dir()?,
+            job,
+        )
+    }) else {
+        return;
+    };
+    let argv = argv.clone();
+    let sess = st.agent_session.get_or_insert_with(Default::default);
+    sess.session_id = Some(id);
+    sess.launch_argv.get_or_insert(argv);
+    notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
 }
 
 fn stamp_launch_argv(st: &mut PaneState, argv: Option<Vec<String>>) {
@@ -5911,6 +5952,28 @@ mod tests {
     }
 
     #[test]
+    fn a_claude_launched_with_its_session_id_needs_no_hook_to_resume() {
+        use crate::core::cli_agent::CLIAgent;
+        const ID: &str = "e18a20ff-4c8c-4b94-867b-dd4b79032a6c";
+
+        let mut st = test_state(true);
+        let argv = vec!["claude".to_string(), "--session-id".into(), ID.into()];
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv.clone())));
+        let sess = st.agent_session.clone().expect("the argv named a session");
+        assert_eq!(sess.session_id.as_deref(), Some(ID));
+        assert_eq!(sess.launch_argv.as_deref(), Some(&argv[..]));
+        assert!(!sess.rich, "status still comes from hooks");
+
+        st.agent_session.as_mut().unwrap().session_id = Some("from-a-hook".into());
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv)));
+        assert_eq!(
+            st.agent_session.unwrap().session_id.as_deref(),
+            Some("from-a-hook"),
+            "a hook's later word wins: it follows /resume inside the agent"
+        );
+    }
+
+    #[test]
     fn opaque_notifications_only_fall_back_when_no_rich_state() {
         use crate::core::cli_agent::{AgentSessionState, AgentStatus, CLIAgent};
 
@@ -7478,6 +7541,7 @@ mod tests {
         let version = env!("CARGO_PKG_VERSION");
 
         assert_eq!(env.get("TERM_PROGRAM").map(String::as_str), Some("tty7"));
+        assert_eq!(env.get("FORCE_HYPERLINK").map(String::as_str), Some("1"));
         assert_eq!(
             env.get("TERM_PROGRAM_VERSION").map(String::as_str),
             Some(version)

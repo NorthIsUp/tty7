@@ -102,6 +102,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # The NorthIsUp fork ships as its own app and notarizes with an App
+          # Store Connect API key (FORK.md).
+          TTY7_APP_NAME: tty7-niu
+          TTY7_BUNDLE_ID: com.northisup.tty7-niu
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
         run: bash .github/scripts/bundle-macos.sh "${{ matrix.target }}" "${{ matrix.arch }}"
 
       - name: Package Linux tarball
@@ -450,3 +457,9 @@ jobs:
               --draft --title "$GITHUB_REF_NAME" --notes ""
           fi
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      # The fork has no release skill to write notes and flip the draft, so a
+      # complete asset set is published as it lands (FORK.md).
+      - name: Publish the fork's release
+        if: github.repository == 'NorthIsUp/tty7'
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

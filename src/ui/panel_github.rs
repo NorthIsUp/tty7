@@ -106,7 +106,7 @@ impl Tty7App {
         let mut pinned = vec![self.github_repo_row(&repo, &remotes, &chosen, cx)];
         // The pull request the pane is working on, one click from the list
         // whichever way the list is switched.
-        if let Some(item) = self.github_branch_pull(host, &repo, &remotes, &chosen, cx) {
+        if let Some(item) = self.github_branch_pull(host.clone(), &repo, &remotes, &chosen, cx) {
             let branch = self
                 .github
                 .branches
@@ -123,7 +123,10 @@ impl Tty7App {
         // The Git tab's gap under its pinned block, so the header reads as
         // one unit and the list starts clear of it.
         pinned.push(div().flex_none().h(px(LIST_GAP)).into_any_element());
-        let body = self.github_list_body(&chosen.slug, cx);
+        let body = match self.github_session_body(&host, &chosen.slug, window, cx) {
+            Some(body) => body,
+            None => self.github_list_body(&chosen.slug, cx),
+        };
         self.github_shell(title, pinned, body, false)
     }
 
@@ -441,7 +444,12 @@ impl Tty7App {
             .px(px(PINNED_INSET))
             .pt(px(PINNED_GAP))
             .child(h_flex().gap(px(2.)).children(kind_cells))
-            .child(h_flex().gap(px(2.)).children(state_cells))
+            .child(
+                h_flex()
+                    .gap(px(2.))
+                    .children(state_cells)
+                    .children(self.github_session_chip(cx)),
+            )
             .into_any_element()
     }
 
@@ -544,7 +552,7 @@ impl Tty7App {
     /// resting list reads as a column of titles, and hovering a row answers
     /// "what labels, whose, how fresh" without a second line under every one
     /// of them.
-    fn github_item_row(
+    pub(crate) fn github_item_row(
         &self,
         slug: &RepoSlug,
         item: &Item,
@@ -700,7 +708,7 @@ pub(crate) fn github_tile(
     .tooltip(tooltip)
 }
 
-fn switch_cell(
+pub(crate) fn switch_cell(
     id: (&'static str, usize),
     label: &'static str,
     live: bool,
@@ -923,6 +931,7 @@ mod gpui_tests {
     use tty7_core::core::config::RightPanelTab;
     use tty7_core::core::github::{ApiError, Kind, Reply, Transport};
 
+    use crate::core::config::Config;
     use crate::daemon::protocol::DaemonMsg;
     use crate::ui::app::{Tty7App, test_window};
     use crate::ui::github::Connection;
@@ -1038,13 +1047,14 @@ mod gpui_tests {
             }));
             app.right_panel_visible = true;
             app.right_panel_tab = RightPanelTab::GitHub;
+            cx.global_mut::<Config>().github_panel_prefer_origin = false;
             cx.notify();
         });
         DaemonMsg::Cwd(root.clone())
             .encode(&mut pane)
             .expect("the pane's socket takes the cwd");
 
-        // A fork setup: upstream wins over origin.
+        // A fork setup, the fork not preferred: upstream wins over origin.
         settle(&app, &mut vcx, "the issue list", |app| {
             app.github
                 .lists

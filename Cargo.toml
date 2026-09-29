@@ -397,6 +397,24 @@ alacritty_terminal = { opt-level = 3 }
 lto = "thin"
 codegen-units = 1
 
+# The fork's day-to-day build (`mise run launch`, `mise run reload`): every
+# dependency fully optimized, the app crate at opt-level 1, no LTO and parallel
+# incremental codegen, so a change to the app crate rebuilds in about a minute
+# instead of the release profile's five. Always launch from one profile: a
+# window from another build replaces the server, and the panes' processes end.
+[profile.fast]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 256
+incremental = true
+
+[profile.fast.package."*"]
+opt-level = 3
+
+[profile.fast.package.tty7-core]
+opt-level = 3
+
 # ---- gpui fork ------------------------------------------------------------
 # Our `tty7` branch (cut from the pinned upstream rev) carries:
 #

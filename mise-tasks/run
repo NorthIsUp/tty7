@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run the debug GUI in the foreground"
+set -euo pipefail
+exec cargo run --locked --bin tty7-app "$@"

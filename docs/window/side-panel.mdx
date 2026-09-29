@@ -106,6 +106,12 @@ is more than one. GitHub Enterprise hosts are not supported.
 - Each row carries a state glyph whose *shape* says open, closed, not planned,
   merged or draft; the number, author and last update; and the labels.
   **Click a label** to show only that label, and the × beside it to clear it.
+- **This session**, beside Open | Closed on Pull Requests and on by default,
+  shows only the pull requests the focused pane's agent session has mentioned:
+  `#N`, `owner/repo#N` or a github.com link in its prompts, replies or tool
+  output. Mentioned ones not in the list (merged, or older than the page) are
+  `#N` chips underneath; click one for its detail. Turn it off here or with
+  `github_panel_session_filter`.
 - **Click a row** for the detail: title, state, author, labels, the description
   and the conversation as Markdown. A pull request adds its branches, size and
   changed files — click a file to open its patch in the
