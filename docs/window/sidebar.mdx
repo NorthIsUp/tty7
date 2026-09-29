@@ -67,10 +67,13 @@ either way.
 
 ### Group colours
 
-Each group header starts with a coloured dot. The colour comes from the group's
-name, picked from the theme's terminal palette, so a group looks the same in
-every window and after a restart. To pick one yourself, set it by name in
-`config.json`:
+Each group header starts with a coloured dot. Each group's hue is the golden
+angle (137.5°) round the colour wheel from the group above it, so neighbours are
+never close and the first seventeen are all at least 10° apart. Lightness and
+saturation are fixed per light or dark theme, so every hue is equally readable.
+Ungrouped is grey. The colour follows the group's place in the sidebar, so
+reordering groups, or closing one above it, changes it. To pin one, set it by
+name in `config.json`:
 
 ```json
 "group_colors": { "tty7": "#e0b072" }
