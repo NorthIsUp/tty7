@@ -1,4 +1,5 @@
 pub mod agent_launch;
+pub mod agent_resume;
 pub mod app;
 pub mod assets;
 pub mod code_editor;

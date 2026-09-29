@@ -1004,6 +1004,8 @@ pub struct Tty7App {
     /// the tab or pane captured when the question was raised, not on whatever
     /// the app happens to be pointing at by the time it is answered.
     close_prompt_open: bool,
+    /// `--continue` asked before this window's tabs arrived from the tree.
+    pub(crate) continue_when_tabs_land: bool,
     window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
@@ -1587,6 +1589,7 @@ impl Tty7App {
             settings_window: None,
             ssh_prompt: crate::ui::ssh_prompt::SshPromptState::new(cx),
             close_prompt_open: false,
+            continue_when_tabs_land: false,
             window_bounds: window_bounds_to_remember(window),
             workspace,
             workspace_rename: None,
@@ -1957,6 +1960,9 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
+        if std::mem::take(&mut self.continue_when_tabs_land) {
+            self.continue_all_agents(window, cx);
+        }
         cx.notify();
     }
 
@@ -5068,7 +5074,7 @@ impl Tty7App {
     }
 
     /// [`Self::wake_tab`], with `prompt` sent to each agent it resumes.
-    fn wake_tab_with(
+    pub(crate) fn wake_tab_with(
         &mut self,
         index: usize,
         prompt: Option<&str>,
@@ -5108,38 +5114,6 @@ impl Tty7App {
         self.save_session(cx);
         cx.notify();
         true
-    }
-
-    /// Wake every sleeping tab with an agent session in it, one every
-    /// `continue_stagger_ms`, and tell each agent `continue_prompt` — the
-    /// morning after a reboot, in one step. Tabs are found by id when their
-    /// turn comes, so closing or moving one meanwhile is harmless.
-    pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let cfg = cx.global::<Config>();
-        let prompt = cfg.continue_prompt.clone();
-        let stagger = std::time::Duration::from_millis(cfg.continue_stagger_ms);
-        let ids: Vec<_> = self
-            .tabs
-            .iter()
-            .filter(|t| t.asleep_layout().is_some_and(layout_has_agent_session))
-            .map(|t| t.tree_id.get())
-            .collect();
-        cx.spawn_in(window, async move |this, cx| {
-            for (n, id) in ids.into_iter().enumerate() {
-                if n > 0 {
-                    smol::Timer::after(stagger).await;
-                }
-                let woke = this.update_in(cx, |this, window, cx| {
-                    if let Some(i) = this.tabs.iter().position(|t| t.tree_id.get() == id) {
-                        this.wake_tab_with(i, Some(&prompt), window, cx);
-                    }
-                });
-                if woke.is_err() {
-                    return;
-                }
-            }
-        })
-        .detach();
     }
 
     /// Wake the tab on screen if it is asleep — for the paths that land on a
@@ -10097,7 +10071,7 @@ fn tabs_from_session(
         // A tab none of whose panes survived (a reboot, Quit and Stop) sleeps
         // the same way: twelve agents come back as twelve places to click,
         // not twelve cold starts racing each other at launch.
-        let dead = lazy && !layout_has_live_pane(&st.pane, alive.as_ref());
+        let dead = lazy && !crate::ui::agent_resume::layout_has_live_pane(&st.pane, alive.as_ref());
         if (st.hibernated || dead) && index != session.active {
             tabs.push(asleep_tab(st, home.clone()));
             continue;
@@ -10143,33 +10117,6 @@ fn tabs_from_session(
     }
     let active = session.active.min(tabs.len().saturating_sub(1));
     (tabs, active, dropped)
-}
-
-fn layout_has_agent_session(pane: &SessionPane) -> bool {
-    match pane {
-        SessionPane::Leaf {
-            agent,
-            agent_session_id,
-            ..
-        } => agent.is_some() && agent_session_id.is_some(),
-        SessionPane::Split { a, b, .. } => {
-            layout_has_agent_session(a) || layout_has_agent_session(b)
-        }
-    }
-}
-
-fn layout_has_live_pane(
-    pane: &SessionPane,
-    alive: Option<&std::collections::HashMap<u64, Option<String>>>,
-) -> bool {
-    match pane {
-        SessionPane::Leaf { pane_id, .. } => {
-            pane_id.is_some_and(|id| alive.is_some_and(|a| a.contains_key(&id)))
-        }
-        SessionPane::Split { a, b, .. } => {
-            layout_has_live_pane(a, alive) || layout_has_live_pane(b, alive)
-        }
-    }
 }
 
 /// A tab restored asleep: its place, its name and its group, and nothing
@@ -11131,37 +11078,12 @@ mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_W, Dir, Pane, Rename, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab,
         TabAgentSession, clear_window_override_values, close_prompt, document_column_px,
-        join_shell_args, layout_has_live_pane, leaf_shares_the_window_daemon, mru_order, native_ssh_pane_alive,
+        join_shell_args, leaf_shares_the_window_daemon, mru_order, native_ssh_pane_alive,
         one_slot_move, pane_free_for, parse_ssh_connect_input, parse_ssh_option_words,
         rename_outcome, side_panel_max, split_shell_args, step_in_order, strip_band,
         wd_path_saveable,
     };
     use gpui::{Edges, point, px, size};
-
-    #[test]
-    fn a_tab_sleeps_through_restore_only_when_nothing_of_it_survived() {
-        use crate::core::session::{SessionAxis, SessionPane};
-        let leaf = |id: Option<u64>| SessionPane::Leaf {
-            cwd: None,
-            pane_id: id,
-            shell: None,
-            ssh_spec: None,
-            agent: None,
-            agent_session_id: None,
-            agent_launch_argv: None,
-        };
-        let split = SessionPane::Split {
-            axis: SessionAxis::Horizontal,
-            ratio: 0.5,
-            a: Box::new(leaf(Some(1))),
-            b: Box::new(leaf(Some(2))),
-        };
-        let alive: std::collections::HashMap<u64, Option<String>> = [(2, None)].into();
-        assert!(layout_has_live_pane(&split, Some(&alive)));
-        assert!(!layout_has_live_pane(&leaf(Some(1)), Some(&alive)));
-        assert!(!layout_has_live_pane(&leaf(None), Some(&alive)));
-        assert!(!layout_has_live_pane(&split, Some(&Default::default())));
-    }
 
     #[test]
     fn a_rename_box_left_alone_is_not_a_rename() {
