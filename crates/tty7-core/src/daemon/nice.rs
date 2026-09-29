@@ -18,9 +18,23 @@ pub(crate) fn clamp(n: i32) -> Option<i32> {
 /// logged, never fatal: a pane at normal priority beats no pane.
 #[cfg(unix)]
 pub(crate) fn apply(pid: u32) {
-    if let Some(n) = clamp(Config::load().nice) {
-        apply_n(pid, n);
-    }
+    let Some(n) = clamp(Config::load().nice) else {
+        return;
+    };
+    apply_n(pid, n);
+    // A shell spawned in the daemon's first moments (the restored panes) was
+    // measured back at 0 a second later on macOS, while later spawns kept
+    // the value; the reset is outside tty7. Looking again settles it.
+    // ponytail: two fixed rechecks, not a watch; a reset after 5s would stick.
+    std::thread::spawn(move || {
+        for wait in [1, 4] {
+            std::thread::sleep(std::time::Duration::from_secs(wait));
+            // SAFETY: plain integers in, a plain integer out.
+            if unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t) } < n {
+                apply_n(pid, n);
+            }
+        }
+    });
 }
 
 #[cfg(not(unix))]
