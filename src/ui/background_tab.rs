@@ -55,7 +55,7 @@ impl Tty7App {
         out
     }
 
-    /// Insert a just-opened tab where `new_tab_position` says, and make it the
+    /// Insert a just-opened tab where [`Self::new_tab_home`] says, and make it the
     /// active one unless [`Self::in_background`] asked otherwise. With no tab
     /// open there is nothing to stay on, so it is activated anyway.
     pub(crate) fn seat_new_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
@@ -64,8 +64,9 @@ impl Tty7App {
             self.remember_active_pane(window, cx);
             self.maximized = None;
         }
-        let insert_at = self.new_tab_insert_at(cx);
+        let insert_at = self.new_tab_home(&tab, cx);
         self.tabs.insert(insert_at, tab);
+        self.note_unhomed(insert_at, cx);
         self.active = active_after_insert(self.active, insert_at, background);
         if !background {
             self.focus_active(window, cx);

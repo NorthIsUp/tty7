@@ -34,6 +34,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/palette.rs` | ⌘T / ⌘P / ⌘K open Search Everywhere on New Tab / All / Agents wherever focus is (the Settings window too), and an open palette keeps every key: a keystroke interceptor, ahead of all bindings |
+| `src/ui/new_tab_home.rs` | where a new tab lands in the sidebar: last in the group its cwd resolves to, else Ungrouped; a tab whose cwd is not probed yet is moved there once it is, unless filed or dragged meanwhile |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; the debounce and query plumbing History shares |
 | `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
@@ -108,7 +109,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
 | `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
-| `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `new_tab_page`, `palette` |
+| `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `new_tab_home`, `new_tab_page`, `palette` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
 | `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `palette::init`; the palette takes ⌘K first on macOS |
@@ -122,6 +123,10 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.text_query = palette_text_query(..)`, `catalog.history_query = palette_history_query(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
+| `src/ui/app.rs` | `Tty7App::unhomed` field + init; `render` → `home_new_tabs`; `apply_tab_order` clears `unhomed`; `reopen_closed_tab`, `open_native_ssh_tab`, fork `NewTab`, worktree tab → `seat_new_tab` | every new tab is placed by `new_tab_home` |
+| `src/ui/background_tab.rs` | `seat_new_tab` | `new_tab_home` for the slot, `note_unhomed` after |
+| `src/ui/tree_sync.rs` | `insert_tab_from_tree` | `note_unhomed`: a `tty7 tab new` tab is re-homed once its cwd resolves |
+| `src/ui/tab_sidebar.rs` | `spawn_group` (+ test `a_tab_spawned_inside_a_pinned_group_follows_its_cwd`), fold comment | a new tab no longer inherits the active tab's pinned group; its cwd decides |
 | `src/ui/app.rs` | `Tty7App::open_in_background` field + init; `new_tab_slot` → `seat_new_tab`; `new_tab_insert_at` made `pub(crate)` | insert without activating inside `in_background` |
 | `src/ui/app.rs` | `run_command` `LaunchAgent`, `ResumeSession`, `ForkSession` | wrap in `in_background` when ⇧ is held |
 | `src/ui/search/view.rs` | `render` `on_key_down`, `render_footer` | ⇧Enter confirms the row (the list binds bare Enter only); the ⇧↵ footer hint on tab-opening rows |

@@ -2979,6 +2979,7 @@ impl Tty7App {
         if self.active >= at && self.tabs.len() > 1 {
             self.active += 1;
         }
+        self.note_unhomed(at, cx);
         true
     }
 

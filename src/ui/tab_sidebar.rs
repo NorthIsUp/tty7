@@ -545,8 +545,8 @@ impl Tty7App {
             // No exception for the active tab. A fold that leaves one row
             // hanging under a shut chevron, with the header counting rows
             // that are not there, reads as a list that failed to load. The
-            // cost is that ⌘T inside a folded group — `spawn_group` seeds
-            // the new tab with the group it came from — puts the new tab
+            // cost is that ⌘T into a folded group — `spawn_group` seeds
+            // the new tab with the group its cwd is in — puts the new tab
             // behind the chevron: the pane area shows the fresh shell and the
             // header count goes up, but the row waits for the group to open.
             let row_count = visible_by_section[group_ix].len();
@@ -2777,14 +2777,8 @@ impl Tty7App {
 
     /// Where a tab about to be spawned in `cwd` goes.
     ///
-    /// A tab spawned from one kept in a pinned group joins it, before the cwd
-    /// is consulted at all — the cwd says nothing about a group the user
-    /// stated by hand. Every caller here spawns from the active tab (the ones
-    /// that start from a named tab activate it first), so that is the one to
-    /// inherit from. Without this, ⌘T inside a folded group would draw
-    /// nothing but the header's count going up by one.
-    ///
-    /// Otherwise a cwd inside a pinned folder joins that folder's group, and
+    /// Fork: by its cwd alone, never the active tab's pinned group (see
+    /// `new_tab_home`). A cwd inside a pinned folder joins that folder's group, and
     /// the auto group is seeded from the repo cache when its probe for that
     /// directory has already landed. A tab's auto group otherwise starts
     /// empty and only fills in once its shell has reported a cwd, which parks
@@ -2792,11 +2786,6 @@ impl Tty7App {
     /// tab spawned from one already in a repo inherits a warm cache, so this
     /// lands it in its group on the first frame.
     pub(crate) fn spawn_group(&self, cwd: Option<&Path>, cx: &gpui::App) -> SpawnPlace {
-        let kept = self
-            .tabs
-            .get(self.active)
-            .and_then(|t| t.group.get())
-            .filter(|g| self.sidebar_groups.contains(*g));
         let known = cwd.and_then(|cwd| {
             let host = self
                 .window_workspace(cx)
@@ -2809,7 +2798,7 @@ impl Tty7App {
             self.sidebar_groups.folder_for(Some(cwd), home.as_deref())
         });
         SpawnPlace {
-            group: kept.or(entered),
+            group: entered,
             auto: auto_key(None, known),
         }
     }
@@ -3422,40 +3411,23 @@ mod fold_tests {
         });
     }
 
-    /// ⌘T inside a pinned group has to land in it. Otherwise the new tab
-    /// goes wherever its cwd says, and if the group it was opened from is
-    /// folded, the only thing that happens on screen is the header's count
-    /// going up by one — the symptom #804 fixed for repo groups.
+    /// Fork: ⌘T from a tab kept in a pinned group goes where its cwd says,
+    /// not into that group (see `new_tab_home`).
     #[gpui::test]
-    fn a_tab_spawned_inside_a_pinned_group_joins_it(cx: &mut TestAppContext) {
+    fn a_tab_spawned_inside_a_pinned_group_follows_its_cwd(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
 
-        let work = app.update(&mut vcx, |app, cx| {
-            // A probe that would send the tab somewhere else if it were
-            // consulted, so this cannot pass by there being no answer.
+        app.update(&mut vcx, |app, cx| {
             plant_repo(app, 0, "/w/probed/sub", "/w/probed", cx);
             let work = label(app, "work", cx);
             app.set_tab_group(0, Some(work), cx);
             app.active = 0;
-            work
         });
         vcx.run_until_parked();
 
         app.update(&mut vcx, |app, cx| {
             let place = app.spawn_group(Some(&PathBuf::from("/w/probed/sub")), cx);
-            assert_eq!(
-                place.group,
-                Some(work),
-                "the pinned group is inherited ahead of anything the cwd says"
-            );
-        });
-
-        app.update(&mut vcx, |app, cx| app.set_tab_group(0, None, cx));
-        vcx.run_until_parked();
-
-        app.update(&mut vcx, |app, cx| {
-            let place = app.spawn_group(Some(&PathBuf::from("/w/probed/sub")), cx);
-            assert_eq!(place.group, None, "with nothing kept, nothing inherited");
+            assert_eq!(place.group, None, "the active tab's group is not inherited");
             assert_eq!(
                 place.auto,
                 Some(Some(AutoKey::Repo(PathBuf::from("/w/probed")))),

@@ -1016,6 +1016,8 @@ pub struct Tty7App {
     pub(crate) switcher: Option<crate::ui::switcher::Switcher>,
     /// Set only inside [`Tty7App::in_background`]; see `background_tab.rs`.
     pub(crate) open_in_background: bool,
+    /// New tabs waiting for their cwd to name a group; see `new_tab_home.rs`.
+    pub(crate) unhomed: crate::ui::new_tab_home::Unhomed,
     pub(crate) host_snapshots: std::collections::HashMap<
         crate::ui::host_registry::HostId,
         crate::ui::switcher::HostSnapshot,
@@ -1601,6 +1603,7 @@ impl Tty7App {
             connect: None,
             switcher: None,
             open_in_background: false,
+            unhomed: Vec::new(),
             host_snapshots: std::collections::HashMap::new(),
             remote_host_errors: std::collections::HashMap::new(),
             parked_dismissed: std::collections::HashSet::new(),
@@ -1993,11 +1996,7 @@ impl Tty7App {
             self.closed.push(st);
             return;
         };
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
-        self.tabs.insert(
-            insert_at,
+        self.seat_new_tab(
             Tab {
                 pane,
                 name: st.name,
@@ -2017,9 +2016,9 @@ impl Tty7App {
                 focus_origin: Default::default(),
                 asleep: None,
             },
+            window,
+            cx,
         );
-        self.active = insert_at;
-        self.focus_active(window, cx);
         self.save_session(cx);
         cx.notify();
     }
@@ -4114,13 +4113,7 @@ impl Tty7App {
                 return;
             }
         };
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
-        self.tabs
-            .insert(insert_at, Tab::new(Pane::leaf(PaneSlot::Ready(view))));
-        self.active = insert_at;
-        self.focus_active(window, cx);
+        self.seat_new_tab(Tab::new(Pane::leaf(PaneSlot::Ready(view))), window, cx);
         self.save_session(cx);
         cx.notify();
     }
@@ -5522,14 +5515,9 @@ impl Tty7App {
 
         match placement {
             ForkPlacement::NewTab => {
-                self.remember_active_pane(window, cx);
-                self.maximized = None;
-                let insert_at = self.new_tab_insert_at(cx);
                 let tab = Tab::new(Pane::leaf(new));
                 group.seat(&tab);
-                self.tabs.insert(insert_at, tab);
-                self.active = insert_at;
-                self.focus_active(window, cx);
+                self.seat_new_tab(tab, window, cx);
             }
             ForkPlacement::Split { axis, before } => {
                 let placed = self.tabs.get_mut(index).is_some_and(|tab| {
@@ -5712,14 +5700,9 @@ impl Tty7App {
         if let Some(first) = first {
             crate::ui::agent_launch::run_when_ready(&view, first, cx);
         }
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
         let mut tab = Tab::new(Pane::leaf(view));
         tab.name = Some(wt.branch);
-        self.tabs.insert(insert_at, tab);
-        self.active = insert_at;
-        self.focus_active(window, cx);
+        self.seat_new_tab(tab, window, cx);
         self.save_session(cx);
         cx.notify();
     }
@@ -5728,6 +5711,7 @@ impl Tty7App {
         if order.len() != self.tabs.len() || order.iter().enumerate().all(|(i, &o)| i == o) {
             return;
         }
+        self.unhomed.clear();
         // The rename box rides out a reorder: it tracks its tab by tree id,
         // so the drift that once forced it closed here is gone (#598).
         let was_active = self.active;
@@ -8893,6 +8877,7 @@ impl Render for Tty7App {
         // Before anything asks where a tab is drawn: a tab that walked into a
         // pinned folder since the last frame is filed there on this one.
         self.settle_sidebar_groups(cx);
+        self.home_new_tabs(cx);
         self.touch_active_tab();
         self.declare_displayed_panes(cx);
         self.scm_sync_watchers(window, cx);
