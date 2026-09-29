@@ -16,6 +16,7 @@ or <kbd>Esc</kbd> to close it.
 | **Actions** | Every action tty7 can perform, whether or not it has a keybinding — the fastest way to reach the ones that deliberately ship unbound, like pane resize and swap. |
 | **Terminals** | Every open tab of every workspace, this window's first and most recently used first, then every way to open a new one: the shells this machine has (*Shell: zsh*) and the coding agents on your `PATH` (*Agent: Claude Code*). |
 | **Sessions** | Past Claude Code and Codex sessions on this computer — the ones that ran in the focused tab's directory first, then the rest, newest first. <kbd>⏎</kbd> resumes one. |
+| **History** | What you and your agents said in past Claude Code and Codex sessions on this computer: one row per session, its best matching message with what you typed picked out, the agent and where it ran beside it. <kbd>⏎</kbd> resumes it there, as on **Sessions**. Tool calls and their output are not searched. Like **Text**, it searches once you have typed three characters and paused, and is never part of **All**; in a remote workspace it is empty, since the history is this computer's. |
 | **Hosts** | Your saved SSH hosts, most used first — and whatever address you type. |
 | **Text** | Every line in the project's files that contains what you type, as `file:line`; <kbd>⏎</kbd> opens the file there. It searches once you have typed three characters and paused, on the machine the project is on, and is never part of **All**, since every query reads files. |
 

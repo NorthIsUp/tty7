@@ -382,6 +382,15 @@ pub trait Host: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
+    /// Past sessions on this host whose conversation contains `query`
+    /// ([`crate::core::history_search::search`]). Only the local host looks.
+    fn search_agent_history(
+        &self,
+        _query: &str,
+    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
+        Ok(Vec::new())
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;
 
     fn is_connected(&self) -> bool {

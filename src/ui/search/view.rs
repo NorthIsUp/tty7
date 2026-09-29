@@ -230,6 +230,9 @@ impl ListDelegate for SearchDelegate {
         if self.scope == Scope::Tab(SearchTab::Text) {
             self.catalog.ask_text(query, cx);
         }
+        if self.scope == Scope::Tab(SearchTab::History) {
+            self.catalog.ask_history(query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -296,6 +299,9 @@ impl ListDelegate for SearchDelegate {
                 t(L10nKey::SearchSymbolsNoneHint)
             }
             Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
+            Scope::Tab(SearchTab::History) => {
+                super::history_text::empty_hint(&self.catalog, &self.query)
+            }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
         // The headline in body ink and the way out under it in caption ink:
@@ -548,6 +554,10 @@ impl SearchView {
             if tab == SearchTab::Text {
                 let delegate = state.delegate();
                 delegate.catalog.ask_text(&delegate.query, cx);
+            }
+            if tab == SearchTab::History {
+                let delegate = state.delegate();
+                delegate.catalog.ask_history(&delegate.query, cx);
             }
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
@@ -1073,7 +1083,7 @@ const TABS_H: f32 = 34.;
 /// title the row picks out. `None` for an empty query, or one the fuzzy
 /// scorer matched as scattered letters — picking out stray letters reads as
 /// noise, not as an answer.
-fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
+pub(super) fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
     let query = query.trim();
     if query.is_empty() {
         return None;
