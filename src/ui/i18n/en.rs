@@ -1991,7 +1991,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
-        L10nKey::NewTabPageHint => "Enter opens · ←/→ or ^1–^9 picks the kind · Esc cancels",
+        L10nKey::NewTabPageHint => "Enter opens · ←/→ or {first}–9 picks the kind · Esc cancels",
         L10nKey::SettingsGroupOutline => "Group outline",
         L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
         L10nKey::SettingsGroupOutlineColor => "Outline colour",
