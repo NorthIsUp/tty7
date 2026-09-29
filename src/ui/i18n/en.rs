@@ -1793,6 +1793,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabText => "Text",
         L10nKey::SearchPlaceholderText => "Search file contents…",
         L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
+        L10nKey::SearchTabHistory => "History",
+        L10nKey::SearchPlaceholderHistory => "Search what you and your agents said…",
+        L10nKey::SearchHistoryTooShort => {
+            "Type at least 3 characters to search agent conversations."
+        }
+        L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
+        L10nKey::SearchHistoryHits => "{count} hits",
         L10nKey::CmdContinueAllAgents => "Continue All Agents",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "resume every sleeping agent tab, a few seconds apart, and tell each to continue"

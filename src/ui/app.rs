@@ -6603,6 +6603,7 @@ impl Tty7App {
     ) {
         let mut catalog = self.search_catalog(window, cx);
         catalog.text_query = Some(self.palette_text_query(window, cx));
+        catalog.history_query = self.palette_history_query(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();

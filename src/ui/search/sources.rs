@@ -108,6 +108,11 @@ pub(crate) struct Catalog {
     /// Asked with every query the Text tab is given; its answer comes back
     /// through `SearchView::set_text_hits`.
     pub text_query: Option<LiveQuery>,
+    /// The History tab's rows for the last query it asked (`history_text`).
+    pub history: Vec<Item>,
+    /// Asked with every query the History tab is given; `None` where the
+    /// window's workspace is on another machine.
+    pub history_query: Option<LiveQuery>,
 }
 
 /// Something that answers a query later — a language server.
@@ -136,6 +141,8 @@ impl Catalog {
             live_query: None,
             text: Vec::new(),
             text_query: None,
+            history: Vec::new(),
+            history_query: None,
         }
     }
 
@@ -152,7 +159,11 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
-            SearchTab::Text => Some(Box::new(super::text::Text(&self.text))),
+            SearchTab::Text => Some(Box::new(super::text::Text(&self.text, SearchTab::Text))),
+            SearchTab::History => Some(Box::new(super::text::Text(
+                &self.history,
+                SearchTab::History,
+            ))),
         }
     }
 
@@ -202,7 +213,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
-            .filter(|tab| *tab != SearchTab::Text)
+            .filter(|tab| !matches!(tab, SearchTab::Text | SearchTab::History))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing

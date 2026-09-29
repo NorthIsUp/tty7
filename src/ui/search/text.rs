@@ -80,14 +80,15 @@ pub(crate) fn empty_hint(query: &str) -> &'static str {
     }
 }
 
-/// The rows of the last search that came back. Until the next one lands,
-/// they stay filtered by what is typed now, so extending a query narrows the
-/// list at once instead of blanking it.
-pub(super) struct Text<'a>(pub &'a [Item]);
+/// The rows of the last search that came back, for the tab they belong to
+/// (Text, or `history_text`'s History). Until the next one lands, they stay
+/// filtered by what is typed now, so extending a query narrows the list at
+/// once instead of blanking it.
+pub(super) struct Text<'a>(pub &'a [Item], pub SearchTab);
 
 impl Source for Text<'_> {
     fn tab(&self) -> SearchTab {
-        SearchTab::Text
+        self.1
     }
 
     fn browse(&self, _cx: &App) -> Vec<Section> {
@@ -146,6 +147,17 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> super::LiveQuery {
+        self.live_query(window, cx, Self::palette_text_search)
+    }
+
+    /// A query callback that runs `search` on this window, outside the
+    /// search's own update.
+    pub(super) fn live_query(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        search: fn(&mut Self, String, &mut Window, &mut Context<Self>),
+    ) -> super::LiveQuery {
         let app = cx.entity().downgrade();
         let handle = window.window_handle();
         std::rc::Rc::new(move |query: &str, cx: &mut App| {
@@ -154,24 +166,49 @@ impl Tty7App {
             // update, and answering it updates the search.
             cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, cx| {
-                    let _ = app.update(cx, |app, cx| app.palette_text_search(query, window, cx));
+                    let _ = app.update(cx, |app, cx| search(app, query, window, cx));
                 });
             });
         })
     }
 
-    fn palette_text_search(&mut self, query: String, window: &mut Window, cx: &mut Context<Self>) {
-        let seq = LATEST.fetch_add(1, Ordering::Relaxed) + 1;
-        let Some(pattern) = pattern(&query).map(str::to_owned) else {
-            self.palette_text_land(seq, Vec::new(), window, cx);
-            return;
+    /// Numbers `query` in `latest` and, once typing has paused with nothing
+    /// newer asked, runs `ask` with its number and pattern. A query too short
+    /// to ask gets `None` at once, so the tab empties without waiting.
+    pub(super) fn after_pause(
+        &mut self,
+        latest: &'static AtomicU64,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        ask: impl FnOnce(&mut Self, u64, Option<String>, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let seq = latest.fetch_add(1, Ordering::Relaxed) + 1;
+        let Some(pattern) = pattern(query).map(str::to_owned) else {
+            return ask(self, seq, None, window, cx);
         };
         cx.spawn_in(window, async move |app, cx| {
             cx.background_executor().timer(DEBOUNCE).await;
-            if LATEST.load(Ordering::Relaxed) != seq {
+            if latest.load(Ordering::Relaxed) != seq {
                 return;
             }
             let _ = app.update_in(cx, |app, window, cx| {
+                ask(app, seq, Some(pattern), window, cx)
+            });
+        })
+        .detach();
+    }
+
+    fn palette_text_search(&mut self, query: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.after_pause(
+            &LATEST,
+            &query,
+            window,
+            cx,
+            |app, seq, pattern, window, cx| {
+                let Some(pattern) = pattern else {
+                    return app.palette_text_land(seq, Vec::new(), window, cx);
+                };
                 // After the pause, not before: a tab whose repository root was
                 // not yet known has had the time to resolve it.
                 // ponytail: still resolving after the pause finds nothing; the
@@ -205,9 +242,8 @@ impl Tty7App {
                         app.palette_text_land(seq, rows, window, cx);
                     },
                 );
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     fn palette_text_land(
