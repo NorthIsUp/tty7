@@ -22,7 +22,7 @@ use crate::ui::agent_launch::most_recent;
 use crate::ui::app::Tty7App;
 use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
-use crate::ui::i18n::{L10nKey, t};
+use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::path_display::{abbreviate_home, local_home};
 use crate::ui::search::fuzzy_score;
 use crate::ui::switcher::CARD_TOP;
@@ -252,6 +252,14 @@ fn row_highlights(query: &str, dir: &Path, shown: &str) -> Vec<std::ops::Range<u
         .collect()
 }
 
+/// The chord that picks kind `n`, spelled for this platform: `⌘1`, `Ctrl+1`.
+fn digit_chord(n: usize) -> String {
+    match crate::ui::keymap::secondary_glyph() {
+        "⌘" => format!("⌘{n}"),
+        other => format!("{other}+{n}"),
+    }
+}
+
 /// The kind the page starts on, as an index into Terminal-then-`offered`:
 /// the agent launched last, or Terminal when none has been. `most_recent`
 /// alone would fall back to the first agent on `PATH`.
@@ -462,7 +470,8 @@ impl Tty7App {
                 page.scroll.scroll_to_item(page.selected);
             }
             _ => match key.parse::<usize>() {
-                Ok(n @ 1..=9) if mods.control => {
+                // ⌘1–9 on macOS, Ctrl+1–9 elsewhere, the way tabs are picked.
+                Ok(n @ 1..=9) if mods.secondary() => {
                     if let Some(page) = self.new_tab_page.as_mut()
                         && n <= page.kinds.len()
                     {
@@ -524,7 +533,7 @@ impl Tty7App {
                                 .hover(|chip| chip.bg(hover))
                         })
                         .when(at < 9, |chip| {
-                            chip.child(div().mr(px(5.)).opacity(0.6).child(format!("^{}", at + 1)))
+                            chip.child(div().mr(px(5.)).opacity(0.6).child(digit_chord(at + 1)))
                         })
                         .child(kind.label())
                         .on_click(cx.listener(move |this, _, _window, cx| {
@@ -623,7 +632,10 @@ impl Tty7App {
                     .border_color(border)
                     .text_size(rems(11. / 16.))
                     .text_color(muted)
-                    .child(t(L10nKey::NewTabPageHint)),
+                    .child(t_fmt(
+                        L10nKey::NewTabPageHint,
+                        &[("first", &digit_chord(1))],
+                    )),
             );
 
         Some(
@@ -866,6 +878,16 @@ mod tests {
         assert_eq!(row_highlights("stu", dir, shown), vec![13..16]);
         // A `/` query matches the whole shown path, as the filter does.
         assert_eq!(row_highlights("src/cl", dir, shown), vec![2..8]);
+    }
+
+    #[test]
+    fn kind_chords_use_the_platform_s_command_key() {
+        let want = if cfg!(target_os = "macos") {
+            "⌘3"
+        } else {
+            "Ctrl+3"
+        };
+        assert_eq!(digit_chord(3), want);
     }
 
     #[test]
