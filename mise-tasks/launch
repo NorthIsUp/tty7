@@ -2,4 +2,4 @@
 #MISE description="Start the release build detached, on your real config"
 #MISE depends=["release"]
 set -euo pipefail
-nohup target/release/tty7-app >/dev/null 2>&1 &
+nohup "$MISE_PROJECT_ROOT/target/release/tty7-app" >/dev/null 2>&1 &
