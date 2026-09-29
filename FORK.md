@@ -18,6 +18,8 @@ privacy grants survive every reinstall. The running app watches the bundle's
 `local-build-id` and offers a restart when a new build lands; it never checks
 GitHub. `mise run launch` and `reload` run that bundle.
 
+A merge to main that bumps the workspace `version` in `Cargo.toml` gets tagged
+`v<version>` by `tag-on-bump.yml`, which starts `release.yml` on that tag.
 CI (`release.yml`, on a `v*` tag) ships `tty7-niu.app` (`com.northisup.tty7-niu`),
 notarized, and publishes the release here; its updater reads this repo's
 releases. The signing secrets come from `! mise run set-release-secrets`.
@@ -39,6 +41,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached by path and mtime; `session_mentions`, one session's issue and PR references, tool output included; a bare `#N` only when the session ran in a checkout of the shown repo |
+| `.github/workflows/tag-on-bump.yml` | on a main push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
 | `src/ui/group_color.rs` | a group's colour (override, else hashed into the theme) and its swatch |
 | `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows |
 | `src/ui/github_session.rs` | the GitHub tab's "This session" filter: Pull Requests narrowed to those the focused pane's agent session mentions, the rest as `#N` chips; `remote_pick`, the fork before upstream; `panel_state`, the list it opens on |
