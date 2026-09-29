@@ -13,7 +13,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 | file | what it holds |
 |---|---|
 | `FORK.md` | this page |
-| `mise.toml`, `mise-tasks/` | tool pin; build, test, release, launch and `sync-upstream` file tasks |
+| `mise.toml`, `mise-tasks/` | tool pin; build, test, release and `sync-upstream`; `build-fast`, `launch` (clean env) and `reload` (window only, refuses when the server's code changed) |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
@@ -26,6 +26,7 @@ for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
 
 | file | function / site | why |
 |---|---|---|
+| `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |
 | `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `nice` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |

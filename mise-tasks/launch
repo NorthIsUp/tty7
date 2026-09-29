@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-#MISE description="Start the release build detached, on your real config"
-#MISE depends=["release"]
+#MISE description="Start the fast build detached, on your real config (TTY7_CONFIG_DIR is passed through)"
+#MISE depends=["build-fast"]
 set -euo pipefail
+. "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
 # The server keeps the environment of whoever started it and hands it to every
 # pane, so a launch from inside another tool (an agent's shell, a CI job) would
 # leak NO_COLOR, CLAUDECODE and the like into all of them. Start from what
 # launchd gives a Dock launch; the panes' login shells build the rest.
-exec env -i \
+env -i \
   HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" SHELL="${SHELL:-/bin/zsh}" \
   LANG="${LANG:-en_US.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" \
-  PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  nohup "$MISE_PROJECT_ROOT/target/release/tty7-app" >/dev/null 2>&1 &
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin ${TTY7_CONFIG_DIR:+TTY7_CONFIG_DIR="$TTY7_CONFIG_DIR"} \
+  nohup "$MISE_PROJECT_ROOT/target/fast/tty7-app" >/dev/null 2>&1 &
+for _ in $(seq 20); do
+  pid=$(server_pid) && [ -n "$pid" ] && break
+  sleep 0.5
+done
+echo "${pid:-?} $(server_code)" > "$stamp"
+echo "launched; server ${pid:-not up yet}"
