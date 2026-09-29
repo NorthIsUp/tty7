@@ -102,7 +102,7 @@ const INFO_ROW_H: f32 = 28.;
 
 /// How tall a process row is — a notch tighter than the Session rows, since
 /// the list is read as one block rather than line by line.
-const PROC_ROW_H: f32 = 26.;
+pub(crate) const PROC_ROW_H: f32 = 26.;
 
 /// How far a child process sits in from its parent, the width of the `└`
 /// elbow that marks it.
@@ -252,6 +252,7 @@ const SEARCH_GLYPH_GAP: f32 = 3.;
 pub(crate) struct RightPanelState {
     pub(crate) procs_pane: Option<u64>,
     pub(crate) procs: Option<PaneProcs>,
+    pub(crate) cpu: crate::ui::proc_usage::CpuTracker,
     pub(crate) procs_loading: bool,
     pub(crate) procs_gen: u64,
     pub(crate) procs_forwards: Option<crate::ui::app::ForwardRoute>,
@@ -1329,16 +1330,16 @@ impl Tty7App {
                             .when(p.foreground, |d| d.font_weight(gpui::FontWeight::MEDIUM))
                             .child(p.name.clone()),
                     )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(rems(META_MONO))
-                            .font_family(mono.clone())
-                            .text_color(cx.theme().muted_foreground)
-                            .child(p.pid.to_string()),
-                    ),
+                    .child(crate::ui::proc_usage::row_cells(
+                        p,
+                        &self.right_panel.cpu,
+                        mono.clone(),
+                        cx,
+                    )),
             );
         }
+        let total = crate::ui::proc_usage::total_row(procs, &self.right_panel.cpu, mono, cx);
+        let list = list.children(total);
         Some(
             v_flex()
                 .child(self.panel_subtitle(t(L10nKey::PanelProcessesSubtitle), None, cx))
@@ -1906,6 +1907,9 @@ impl Tty7App {
                     // answer with in place: blanking it on one failed poll
                     // would make the panel flicker on a link that hiccups.
                     if let Some(procs) = procs {
+                        app.right_panel
+                            .cpu
+                            .sample(&procs.procs, std::time::Instant::now());
                         app.right_panel.procs = Some(procs);
                     }
                     if forwards.is_some() {
