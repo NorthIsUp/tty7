@@ -1658,6 +1658,8 @@ l10n_keys! {
     NewTabPageTerminal,
     NewTabPagePlaceholder,
     NewTabPageHint,
+    NewTabPageHintBackground,
+    SearchHintBackground,
     SettingsGroupOutline,
     SettingsGroupOutlineDesc,
     SettingsGroupOutlineColor,

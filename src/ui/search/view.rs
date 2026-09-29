@@ -1039,6 +1039,20 @@ impl SearchView {
                 t(L10nKey::SwitcherHintNavigate),
             ))
             .child(hint(vec![keycap("↵", cx)], t(L10nKey::SwitcherHintOpen)))
+            .when(self.selected_opens_tab(cx), |row| {
+                row.child(hint(
+                    vec![keycap("⇧", cx), keycap("↵", cx)],
+                    t(L10nKey::SearchHintBackground),
+                ))
+            })
+    }
+
+    fn selected_opens_tab(&self, cx: &App) -> bool {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .is_some_and(|item| crate::ui::background_tab::opens_tab(&item.kind))
     }
 }
 
@@ -1246,6 +1260,17 @@ impl Render for SearchView {
                 if is_edit_gesture(&ev.keystroke) && this.on_edit_gesture(window, cx) {
                     cx.stop_propagation();
                 }
+                // ⇧Enter: the list binds only a bare Enter, so confirm here; the
+                // held ⇧ is read back when the row runs (`background_tab`).
+                let ks = &ev.keystroke;
+                if ks.key == "enter"
+                    && ks.modifiers == gpui::Modifiers::shift()
+                    && let Some(ix) = this.list.read(cx).selected_index()
+                {
+                    let list = this.list.clone();
+                    this.on_list_event(&list, &ListEvent::Confirm(ix), window, cx);
+                    cx.stop_propagation();
+                }
             }))
             .on_mouse_down(
                 MouseButton::Left,
@@ -1393,6 +1418,24 @@ mod tests {
         app.read_with(&vcx, |app, _| {
             assert!(app.search.is_none(), "picking a row closes the search");
             assert_eq!(app.active, 2, "back to the tab used before this one");
+        });
+    }
+
+    /// ⇧Enter confirms the row too (`background_tab`): the list binds only a
+    /// bare Enter.
+    #[gpui::test]
+    fn shift_return_confirms_the_picked_row(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, _, _| app.tabs[1].last_used.set(5));
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("shift-enter");
+        vcx.run_until_parked();
+        app.read_with(&vcx, |app, _| {
+            assert!(app.search.is_none(), "⇧Enter picks the row");
+            assert_eq!(app.active, 1);
         });
     }
 
