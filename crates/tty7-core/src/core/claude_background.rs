@@ -95,9 +95,9 @@ fn pid_alive(pid: i32) -> bool {
             || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn pid_alive(pid: i32) -> bool {
-    pid > 0
+    pid > 0 && !crate::daemon::winproc::wait_for_exit(pid as u32, std::time::Duration::ZERO)
 }
 
 #[cfg(test)]
