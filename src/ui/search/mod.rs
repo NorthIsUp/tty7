@@ -10,6 +10,7 @@
 
 mod command;
 mod files;
+mod history_text;
 mod score;
 mod sources;
 mod text;
@@ -40,6 +41,9 @@ pub(crate) enum SearchTab {
     /// Find in files (`text`): searched on the machine only once enough is
     /// typed, so it is on the row but never on the All tab.
     Text,
+    /// Full text over past agent conversations (`history_text`): like Text,
+    /// asked only once enough is typed, and never on the All tab.
+    History,
 }
 
 impl SearchTab {
@@ -51,10 +55,11 @@ impl SearchTab {
     /// together, and a sample of paths among tabs and hosts answered nothing
     /// anyone had typed. Commands last, the way the rest of the row goes
     /// from the things you have to the things you can do.
-    pub(crate) const ORDER: [SearchTab; 6] = [
+    pub(crate) const ORDER: [SearchTab; 7] = [
         SearchTab::All,
         SearchTab::Terminals,
         SearchTab::Sessions,
+        SearchTab::History,
         SearchTab::Hosts,
         SearchTab::Text,
         SearchTab::Actions,
@@ -82,6 +87,7 @@ impl SearchTab {
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
             SearchTab::Locations => L10nKey::SearchTabLocations,
             SearchTab::Text => L10nKey::SearchTabText,
+            SearchTab::History => L10nKey::SearchTabHistory,
         })
     }
 
@@ -104,6 +110,7 @@ impl SearchTab {
             SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
             SearchTab::Text => L10nKey::SearchPlaceholderText,
+            SearchTab::History => L10nKey::SearchPlaceholderHistory,
         })
     }
 
@@ -126,6 +133,8 @@ mod tests {
     #[test]
     fn tab_steps_wrap_both_ways() {
         assert_eq!(SearchTab::All.step(true), SearchTab::Terminals);
+        assert_eq!(SearchTab::Sessions.step(true), SearchTab::History);
+        assert_eq!(SearchTab::History.step(true), SearchTab::Hosts);
         assert_eq!(SearchTab::Hosts.step(true), SearchTab::Text);
         assert_eq!(SearchTab::Text.step(true), SearchTab::Actions);
         assert_eq!(SearchTab::Actions.step(true), SearchTab::All);
