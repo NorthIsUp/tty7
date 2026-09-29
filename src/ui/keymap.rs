@@ -64,6 +64,17 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         SwitcherAcrossBack,
         Some("Switcher"),
     ));
+    // The new tab page loses Tab to Root's focus walker the same way.
+    bindings.push(KeyBinding::new(
+        "tab",
+        NewTabPageNextKind,
+        Some("NewTabPage"),
+    ));
+    bindings.push(KeyBinding::new(
+        "shift-tab",
+        NewTabPagePrevKind,
+        Some("NewTabPage"),
+    ));
     // Tab walks the search's tabs. Bound on the search's own context for the
     // switcher's reason: Root's focus walker would otherwise take it out of
     // the modal, onto whichever chrome tile is behind it, ring and all.

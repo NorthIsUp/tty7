@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Start the release build detached, on your real config"
+#MISE depends=["release"]
+set -euo pipefail
+nohup target/release/tty7-app >/dev/null 2>&1 &

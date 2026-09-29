@@ -1234,6 +1234,7 @@ impl Tty7App {
                 if pinned {
                     avail -= PIN_MARK_SIZE + row_metrics::META_GAP;
                 }
+                avail -= crate::ui::group_color::SWATCH + row_metrics::META_GAP;
                 let count_label = row_count.to_string();
                 if folded {
                     avail -=
@@ -1352,6 +1353,7 @@ impl Tty7App {
                                 .into_any_element(),
                         })
                     })
+                    .child(crate::ui::group_color::swatch(&name, cx))
                     .child(match renaming_group {
                         Some(input) => div()
                             .id(("sidebar-group-rename", group_ix))
@@ -2481,7 +2483,7 @@ impl Tty7App {
         };
         match folder {
             Some(folder) => self.new_tab_at(folder, window, cx),
-            None => self.new_tab(window, cx),
+            None => self.new_tab_with_shell(None, window, cx),
         }
         if self.tabs.len() == before {
             return;

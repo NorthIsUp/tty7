@@ -14,6 +14,7 @@ pub mod file_copy;
 pub mod file_tree;
 pub mod forwards;
 pub mod github;
+pub mod group_color;
 pub mod hints;
 pub mod home;
 #[allow(dead_code)]
@@ -25,6 +26,7 @@ pub mod keymap;
 pub mod local_link;
 pub mod lsp;
 pub mod machine_mirror;
+pub mod new_tab_page;
 pub mod notice;
 pub mod pane;
 pub mod pane_drag;
