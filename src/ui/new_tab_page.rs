@@ -694,8 +694,19 @@ mod tests {
         dirs.into_iter().map(|(d, _)| d).collect()
     }
 
+    /// Resolved the way [`candidates`] resolves them, so a typed path meets
+    /// the same canonical form (`\\?\C:\…` on Windows).
     fn as_dirs(paths: &[PathBuf]) -> Vec<Dir> {
-        paths.iter().map(|p| (p.clone(), p.clone())).collect()
+        let host = host();
+        paths
+            .iter()
+            .map(|p| {
+                (
+                    p.clone(),
+                    host.canonicalize(p).unwrap_or_else(|_| p.clone()),
+                )
+            })
+            .collect()
     }
 
     /// [`filter`] the way the page runs it: the typed row resolved first.
