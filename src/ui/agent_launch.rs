@@ -170,7 +170,7 @@ fn with_minted_session(agent: CLIAgent, line: String) -> String {
 
 /// Type `command` into the shell `slot` holds — now if it is up, or the
 /// moment it lands if it is still connecting.
-fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
+pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
         PaneSlot::Ready(view) => view.update(cx, |view, cx| view.run_at_prompt(command, cx)),
         PaneSlot::Connecting(pending) => {

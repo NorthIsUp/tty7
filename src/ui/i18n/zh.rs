@@ -43,6 +43,37 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDefinedIn => "定义于",
         L10nKey::SettingsConnectInNewTab => "在新标签页中连接",
         L10nKey::SettingsCopied => "已复制",
+        L10nKey::SettingsNavMobile => "手机",
+        L10nKey::SettingsMobileAccess => "允许手机访问",
+        L10nKey::SettingsMobileAccessDesc => {
+            "配对过的手机可以查看并操作这台电脑上的窗格，关掉所有窗口也可以。连接端到端加密。"
+        }
+        L10nKey::SettingsMobileStatusStarting => "正在启动…",
+        L10nKey::SettingsMobileStatusFailed => "未运行：{error}",
+        L10nKey::SettingsMobileStartFailed => "手机访问没能启动：{error}",
+        L10nKey::SettingsMobileNoAnswer => {
+            "tty7 server 没有启动它。请在 设置 → 关于 中重启 server 后再试。"
+        }
+        L10nKey::SettingsMobilePair => "配对手机",
+        L10nKey::SettingsMobileShowCode => "显示配对码",
+        L10nKey::SettingsMobilePairDesc => "生成一个一次性配对码，给手机上的 tty7 app 用。",
+        L10nKey::SettingsMobilePairNeedsAccess => "请先打开手机访问。",
+        L10nKey::SettingsMobilePairScan => "用手机上的 tty7 app 扫描，或者复制配对码粘贴过去。",
+        L10nKey::SettingsMobilePairValid => "{time} 后失效，只能配对一台手机。",
+        L10nKey::SettingsMobileNewCode => "换一个配对码",
+        L10nKey::SettingsMobilePairExpired => "这个配对码已过期。生成一个新的再配对。",
+        L10nKey::SettingsMobilePairTried => {
+            "这个配对码已被尝试过，不能再用了 —— 可能是输错了，或者连接中途断了。生成一个新的再配对。"
+        }
+        L10nKey::SettingsMobilePairReplaced => "已有更新的配对码替换了它。生成一个新的再配对。",
+        L10nKey::SettingsMobileCopyCode => "复制配对码",
+        L10nKey::SettingsMobilePaired => "已与 {name} 配对。",
+        L10nKey::SettingsMobilePhones => "已配对的手机",
+        L10nKey::SettingsMobileNoPhones => "还没有配对过手机。",
+        L10nKey::SettingsMobileUnpair => "取消配对",
+        L10nKey::SettingsSearchMobileKeywords => {
+            "手机 移动 iphone android ipad 配对 二维码 远程 访问"
+        }
         L10nKey::SettingsCopySshCommand => "复制 ssh 命令",
         L10nKey::SettingsStoredInTty7 => "保存在 tty7 设置中",
         L10nKey::SettingsClickAgainToRemove => "再次点击以删除",
@@ -1422,6 +1453,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::RemoteNoticeDisconnected => "未连接——输入无效",
         L10nKey::RemoteActionRetryNow => "立即重试",
         L10nKey::RemoteActionTakeBack => "收回",
+        L10nKey::PaneLeasedBy => "正在 {by} 上使用，按它的屏幕尺寸显示",
         L10nKey::RemoteActionConnect => "连接",
         L10nKey::RemoteActionRetry => "重试",
         L10nKey::RemoteActionRemoveEntry => "移除条目",
@@ -1747,7 +1779,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
             "config.json 读取失败。tty7 保留了当前在用的设置，文件也原样保留。修好权限或内容后会自动重载；在此之前保存设置会覆盖它。"
         }
         L10nKey::AppWorktreeRemoveDetailDirty => {
-            "位于 {path} 的已关闭标签页的 worktree 有未提交的变更。"
+            "位于 {path} 的已关闭标签页的 worktree 有未提交的变更。删除前会先存到 refs/tty7/trash/{name}。"
         }
         L10nKey::AppWorktreeRemoveDetailClean => "位于 {path} 的已关闭标签页的 worktree 是干净的。",
         L10nKey::AppWorktreeRemoveTitle => "删除 worktree“{branch}”？",
@@ -1768,10 +1800,26 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::PaneDragHandleTooltip => "拖动可把这个窗格挪到别处",
         L10nKey::AppWorktreeRemoved => "已删除 worktree“{branch}”",
         L10nKey::AppWorktreeRemoveFailed => "删除 worktree 失败：{error}",
-        L10nKey::AppForkStillConnecting => "无法 fork：窗格仍在连接中",
+        L10nKey::WorktreePromptAgent => "启动",
+        L10nKey::WorktreePromptShell => "终端",
+        L10nKey::WorktreePromptTask => "任务",
+        L10nKey::WorktreePromptSetup => "先运行 .tty7/setup",
+        L10nKey::WorktreePromptSetupHint => {
+            "没有 .tty7/setup。加一个，新 worktree 就会先运行 `{command}`"
+        }
+        L10nKey::AppWorktreeSetupTitle => "运行这个仓库的 setup 脚本？",
+        L10nKey::AppWorktreeSetupDetail => {
+            "{path} 会在新标签页里最先运行。只在信任这个仓库时批准；脚本内容一变，tty7 会再问一次。"
+        }
+        L10nKey::AppWorktreeSetupRun => "运行",
+        L10nKey::AppWorktreeSetupSkip => "跳过",
+        L10nKey::AppWorktreeNotCarried => "未按 .worktreeinclude 复制：{paths}",
+        L10nKey::AppWorktreeRemovedBranchKept => {
+            "已删除 worktree；分支“{branch}”有未合并的提交，已保留"
+        }
         L10nKey::AppPaneNoCodingAgent => "此窗格未运行编码 agent",
         L10nKey::AppForkNoCommand => "tty7 没有用于 {name} 的 fork 命令",
-        L10nKey::AppForkLocalOnly => "{name} 会话只能从本地窗格 fork",
+        L10nKey::AppForkLocalOnly => "无法在 SSH 或 WSL 会话里 fork {name} 会话",
         L10nKey::AppForkNoSessionId => {
             "tty7 尚未在此窗格中看到 {name} 的会话 ID，请在“设置 → 集成”中安装其 hook"
         }

@@ -298,6 +298,11 @@ pub struct Config {
     /// a check happens every six hours.
     #[serde(default = "default_true")]
     pub auto_download_updates: bool,
+    /// Whether the local daemon runs the mobile gateway, so phones paired in
+    /// Settings → Mobile can reach this machine's panes. Off by default: it
+    /// opens a UDP port, and a paired phone can type into any pane.
+    #[serde(default)]
+    pub mobile_access: bool,
     /// Whether the GUI puts the bundled `tty7` CLI on PATH at launch (see
     /// `core::cli_install`). On by default: the CLI is the agent-facing half of
     /// this product and is worth nothing sitting unreachable inside the bundle.
@@ -427,6 +432,10 @@ pub struct Config {
     /// "New Agent Tab" opens.
     #[serde(default)]
     pub agent_frecency: HashMap<String, ProfileUsage>,
+    /// Approved `.tty7/setup` scripts: repo (`worktree::setup::trust_key`) to
+    /// the sha256 of the content approved. A changed script asks again.
+    #[serde(default)]
+    pub worktree_setup_trust: HashMap<String, String>,
     /// Past agent sessions taken out of the search's Sessions tab, as
     /// `<agent slug>:<session id>`. Only the listing forgets them; the
     /// agent's own history is not touched.
@@ -838,6 +847,7 @@ impl Default for Config {
             sidebar_auto_grouping: true,
             notify_on_command_finish: NotifyMode::Unfocused,
             check_for_updates: true,
+            mobile_access: false,
             update_channel: UpdateChannel::default(),
             auto_download_updates: true,
             install_cli_on_path: true,
@@ -876,6 +886,7 @@ impl Default for Config {
             agent_commands: HashMap::new(),
             agent_launch: HashMap::new(),
             agent_frecency: HashMap::new(),
+            worktree_setup_trust: HashMap::new(),
             hidden_agent_sessions: BTreeSet::new(),
             restore_agent_sessions: true,
             restore_asleep: true,

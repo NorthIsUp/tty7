@@ -47,6 +47,41 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsDefinedIn => "Defined in",
         L10nKey::SettingsConnectInNewTab => "Connect in new tab",
         L10nKey::SettingsCopied => "Copied",
+        L10nKey::SettingsNavMobile => "Mobile",
+        L10nKey::SettingsMobileAccess => "Allow phone access",
+        L10nKey::SettingsMobileAccessDesc => {
+            "Phones you pair can see this machine's panes and type into them, even with every window closed. Connections are end-to-end encrypted."
+        }
+        L10nKey::SettingsMobileStatusStarting => "Starting…",
+        L10nKey::SettingsMobileStatusFailed => "Not running: {error}",
+        L10nKey::SettingsMobileStartFailed => "Phone access could not start: {error}",
+        L10nKey::SettingsMobileNoAnswer => {
+            "the tty7 server did not start it. Restart the server in Settings → About, then try again."
+        }
+        L10nKey::SettingsMobilePair => "Pair a phone",
+        L10nKey::SettingsMobileShowCode => "Show code",
+        L10nKey::SettingsMobilePairDesc => "Shows a one-time code for the tty7 app on your phone.",
+        L10nKey::SettingsMobilePairNeedsAccess => "Turn on phone access first.",
+        L10nKey::SettingsMobilePairScan => {
+            "Scan this with the tty7 app on your phone, or copy the code and paste it there."
+        }
+        L10nKey::SettingsMobilePairValid => "Expires in {time}. Works for one phone.",
+        L10nKey::SettingsMobileNewCode => "New code",
+        L10nKey::SettingsMobilePairExpired => "This code has expired. Make a new one to pair.",
+        L10nKey::SettingsMobilePairTried => {
+            "This code was tried and no longer works — it may have been mistyped, or the connection dropped. Make a new one to pair."
+        }
+        L10nKey::SettingsMobilePairReplaced => {
+            "A newer code has replaced this one. Make a new one to pair."
+        }
+        L10nKey::SettingsMobileCopyCode => "Copy code",
+        L10nKey::SettingsMobilePaired => "Paired with {name}.",
+        L10nKey::SettingsMobilePhones => "Paired phones",
+        L10nKey::SettingsMobileNoPhones => "No phones paired yet.",
+        L10nKey::SettingsMobileUnpair => "Unpair",
+        L10nKey::SettingsSearchMobileKeywords => {
+            "phone mobile iphone android ipad pair qr code remote access"
+        }
         L10nKey::SettingsCopySshCommand => "Copy ssh command",
         L10nKey::SettingsStoredInTty7 => "Stored in tty7 settings",
         L10nKey::SettingsClickAgainToRemove => "Click again to remove",
@@ -1529,6 +1564,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::RemoteNoticeDisconnected => "Not connected — typing has no effect",
         L10nKey::RemoteActionRetryNow => "Retry Now",
         L10nKey::RemoteActionTakeBack => "Take Back",
+        L10nKey::PaneLeasedBy => "In use on {by}, at its screen size",
         L10nKey::RemoteActionConnect => "Connect",
         L10nKey::RemoteActionRetry => "Retry",
         L10nKey::RemoteActionRemoveEntry => "Remove entry",
@@ -1880,7 +1916,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "config.json could not be read. tty7 kept the settings it is running on and left the file exactly as it is. Fix its permissions or contents and tty7 reloads; saving a setting first overwrites it."
         }
         L10nKey::AppWorktreeRemoveDetailDirty => {
-            "The closed tab's worktree at {path} has uncommitted changes."
+            "The closed tab's worktree at {path} has uncommitted changes. They are saved to refs/tty7/trash/{name} before anything is deleted."
         }
         L10nKey::AppWorktreeRemoveDetailClean => "The closed tab's worktree at {path} is clean.",
         L10nKey::AppWorktreeRemoveTitle => "Remove worktree \"{branch}\"?",
@@ -1903,10 +1939,28 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PaneDragHandleTooltip => "Drag to move this pane",
         L10nKey::AppWorktreeRemoved => "Removed worktree \"{branch}\"",
         L10nKey::AppWorktreeRemoveFailed => "Worktree removal failed: {error}",
-        L10nKey::AppForkStillConnecting => "Could not fork: the pane is still connecting",
+        L10nKey::WorktreePromptAgent => "Start",
+        L10nKey::WorktreePromptShell => "Shell",
+        L10nKey::WorktreePromptTask => "Task",
+        L10nKey::WorktreePromptSetup => "Runs .tty7/setup first",
+        L10nKey::WorktreePromptSetupHint => {
+            "No .tty7/setup. Add one to run `{command}` in new worktrees"
+        }
+        L10nKey::AppWorktreeSetupTitle => "Run this repo's setup script?",
+        L10nKey::AppWorktreeSetupDetail => {
+            "{path} runs in the new tab before anything else. Approve it only if you trust this repo; tty7 asks again whenever the script changes."
+        }
+        L10nKey::AppWorktreeSetupRun => "Run Setup",
+        L10nKey::AppWorktreeSetupSkip => "Skip",
+        L10nKey::AppWorktreeNotCarried => "Not copied from .worktreeinclude: {paths}",
+        L10nKey::AppWorktreeRemovedBranchKept => {
+            "Removed worktree; kept branch \"{branch}\", which has unmerged commits"
+        }
         L10nKey::AppPaneNoCodingAgent => "This pane isn't running a coding agent",
         L10nKey::AppForkNoCommand => "tty7 has no fork command for {name}",
-        L10nKey::AppForkLocalOnly => "{name} sessions can only be forked from a local pane",
+        L10nKey::AppForkLocalOnly => {
+            "{name} sessions can't be forked from inside an SSH or WSL session"
+        }
         L10nKey::AppForkNoSessionId => {
             "tty7 hasn't seen a {name} session id in this pane — install its hooks in Settings → Integrations"
         }

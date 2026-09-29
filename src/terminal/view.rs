@@ -666,6 +666,13 @@ const INTEGRATION_NOTICE_TIMEOUT: std::time::Duration = std::time::Duration::fro
 
 const OPPORTUNISTIC_GIT_GAP: std::time::Duration = std::time::Duration::from_millis(1500);
 
+/// How long a pane whose repository is still unanswered waits before asking
+/// again. Only a probe that failed leaves it that way, and whatever broke it
+/// (a remote link mid-reconnect, a `git` that would not start) is gone in
+/// seconds, not milliseconds — nor worth a request every poll tick while it
+/// lasts.
+const GIT_RETRY_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// How long a title the program set has to stand before the tab adopts it.
 ///
 /// Long enough that a command which is over almost as soon as it started never
@@ -710,6 +717,9 @@ const MAX_HISTORY_BYTES: u64 = 4 << 20;
 enum GitRefresh {
     Edge,
     Opportunistic,
+    /// Nothing happened; the cache just has no answer for this pane's cwd
+    /// yet, because the last probe failed. Throttled by [`GIT_RETRY_GAP`].
+    Retry,
 }
 
 fn known_pty_shim(fg: &str) -> Option<&'static str> {
@@ -2161,6 +2171,25 @@ impl TerminalView {
 
     pub fn git_status_cwd(&self) -> Option<&std::path::Path> {
         self.git_status_cwd.as_deref()
+    }
+
+    /// This pane sits somewhere the repo cache cannot place yet — neither a
+    /// repository nor "not one" — and a retry is due. Only a failed probe
+    /// leaves a cwd that way; without this it would wait for the cwd to change
+    /// or a command to finish before anyone asked again.
+    ///
+    /// Read-only on purpose: this runs on every poll tick, and the cache is a
+    /// global whose every mutable touch redraws the window — while a probe is
+    /// in flight or throttled, the answer has to be "no" at no cost.
+    fn git_retry_due(&self, cx: &App) -> bool {
+        let Some(cwd) = self.git_status_cwd.as_deref() else {
+            return false;
+        };
+        let Some(cache) = cx.try_global::<crate::terminal::git_status::GitStatusCache>() else {
+            return false;
+        };
+        cache.known_repo_for(self.host_id, cwd).is_none()
+            && cache.probe_due(self.host_id, cwd, GIT_RETRY_GAP)
     }
 
     /// Plant the cwd the git-status poll would have found. For tests that
@@ -4052,6 +4081,8 @@ impl TerminalView {
             self.refresh_git_status(cwd_now, GitRefresh::Edge, cx);
         } else if tool_activity {
             self.refresh_git_status(cwd_now, GitRefresh::Opportunistic, cx);
+        } else if self.git_retry_due(cx) {
+            self.refresh_git_status(cwd_now, GitRefresh::Retry, cx);
         }
 
         self.follow_history_scope(cx);
@@ -4260,6 +4291,7 @@ impl TerminalView {
             GitRefresh::Opportunistic => {
                 cache.begin_probe_throttled(id, &cwd, OPPORTUNISTIC_GIT_GAP)
             }
+            GitRefresh::Retry => cache.begin_probe_throttled(id, &cwd, GIT_RETRY_GAP),
         });
         if !claimed {
             return;
@@ -4269,10 +4301,13 @@ impl TerminalView {
         crate::ui::host_ops::HostOps::run_detached(
             host,
             cx,
-            move |h| crate::terminal::git_status::probe(h, &probe_cwd),
+            move |h| crate::terminal::git_status::probe_repo(h, &probe_cwd),
             move |cx, result| {
-                let rerun = cx.update_global::<GitStatusCache, _>(|cache, _| {
-                    cache.finish_probe(id, &cwd, result)
+                use crate::terminal::git_status::RepoProbe;
+                let rerun = cx.update_global::<GitStatusCache, _>(|cache, _| match result {
+                    RepoProbe::Repo(snap) => cache.finish_probe(id, &cwd, Some(snap)),
+                    RepoProbe::NotARepo => cache.finish_probe(id, &cwd, None),
+                    RepoProbe::Failed => cache.fail_probe(id, &cwd),
                 });
                 if rerun {
                     let _ = pane.update(cx, |view, cx| {
@@ -8833,6 +8868,7 @@ mod tests {
             }),
             label: None,
             resize_echo: false,
+            size_lease: false,
         }
     }
 
@@ -10514,6 +10550,7 @@ mod tests {
             spec: None,
             label: None,
             resize_echo: false,
+            size_lease: false,
         };
 
         let remote = ws.target.host_id();
@@ -10531,6 +10568,7 @@ mod tests {
             spec: None,
             label: None,
             resize_echo: false,
+            size_lease: false,
         };
         assert_eq!(sibling.target.host_id(), remote);
     }
@@ -14769,6 +14807,7 @@ mod gpui_tests {
             )),
             label: None,
             resize_echo: false,
+            size_lease: false,
         }));
         id
     }
@@ -15022,6 +15061,7 @@ mod gpui_tests {
                     spec: None,
                     label: Some("hummingbot".into()),
                     resize_echo: false,
+                    size_lease: false,
                 }));
                 assert_eq!(view.title, "hummingbot", "an untitled tab shows the name");
                 view.handle_event(AlacEvent::Exit, cx);

@@ -49,6 +49,51 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDefinedIn => "定義元",
         L10nKey::SettingsConnectInNewTab => "新しいタブで接続",
         L10nKey::SettingsCopied => "コピーしました",
+        L10nKey::SettingsNavMobile => "モバイル",
+        L10nKey::SettingsMobileAccess => "スマートフォンからのアクセスを許可",
+        L10nKey::SettingsMobileAccessDesc => {
+            "ペアリングしたスマートフォンから、このマシンのペインを表示して入力できます。ウインドウをすべて閉じていても使えます。通信はエンドツーエンドで暗号化されます。"
+        }
+        L10nKey::SettingsMobileStatusStarting => "起動しています…",
+        L10nKey::SettingsMobileStatusFailed => "実行されていません: {error}",
+        L10nKey::SettingsMobileStartFailed => {
+            "スマートフォンからのアクセスを開始できませんでした: {error}"
+        }
+        L10nKey::SettingsMobileNoAnswer => {
+            "tty7 サーバーが起動しませんでした。設定 → 情報 でサーバーを再起動してから、もう一度お試しください。"
+        }
+        L10nKey::SettingsMobilePair => "スマートフォンをペアリング",
+        L10nKey::SettingsMobileShowCode => "コードを表示",
+        L10nKey::SettingsMobilePairDesc => {
+            "スマートフォンの tty7 アプリ用に、1 回限りのコードを表示します。"
+        }
+        L10nKey::SettingsMobilePairNeedsAccess => {
+            "先にスマートフォンからのアクセスをオンにしてください。"
+        }
+        L10nKey::SettingsMobilePairScan => {
+            "スマートフォンの tty7 アプリでスキャンするか、コードをコピーして貼り付けてください。"
+        }
+        L10nKey::SettingsMobilePairValid => {
+            "あと {time} で失効します。1 台のスマートフォンに限ります。"
+        }
+        L10nKey::SettingsMobileNewCode => "新しいコード",
+        L10nKey::SettingsMobilePairExpired => {
+            "このコードは期限切れです。新しいコードを作成してペアリングしてください。"
+        }
+        L10nKey::SettingsMobilePairTried => {
+            "このコードは一度試されたため使えなくなりました（入力ミスや接続の中断など）。新しいコードを作成してペアリングしてください。"
+        }
+        L10nKey::SettingsMobilePairReplaced => {
+            "新しいコードに置き換えられました。新しいコードを作成してペアリングしてください。"
+        }
+        L10nKey::SettingsMobileCopyCode => "コードをコピー",
+        L10nKey::SettingsMobilePaired => "{name} とペアリングしました。",
+        L10nKey::SettingsMobilePhones => "ペアリング済みのスマートフォン",
+        L10nKey::SettingsMobileNoPhones => "ペアリングしたスマートフォンはまだありません。",
+        L10nKey::SettingsMobileUnpair => "ペアリングを解除",
+        L10nKey::SettingsSearchMobileKeywords => {
+            "スマホ モバイル iphone android ipad ペアリング qr コード リモート アクセス"
+        }
         L10nKey::SettingsCopySshCommand => "ssh コマンドをコピー",
         L10nKey::SettingsStoredInTty7 => "tty7 の設定に保存",
         L10nKey::SettingsClickAgainToRemove => "もう一度クリックで削除",
@@ -1583,6 +1628,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::RemoteNoticeDisconnected => "未接続です — 入力しても反映されません",
         L10nKey::RemoteActionRetryNow => "今すぐ再試行",
         L10nKey::RemoteActionTakeBack => "取り戻す",
+        L10nKey::PaneLeasedBy => "{by} で使用中（その画面サイズで表示）",
         L10nKey::RemoteActionConnect => "接続",
         L10nKey::RemoteActionRetry => "再試行",
         L10nKey::RemoteActionRemoveEntry => "エントリを削除",
@@ -1925,7 +1971,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "config.json を読み込めませんでした。実行中の設定を保持し、ファイルもそのままです。権限か内容を直せば自動で再読み込みされます。それまでに設定を保存すると上書きされます"
         }
         L10nKey::AppWorktreeRemoveDetailDirty => {
-            "閉じたタブの {path} にあるワークツリーには未コミットの変更があります"
+            "閉じたタブの {path} にあるワークツリーには未コミットの変更があります。削除前に refs/tty7/trash/{name} へ保存します"
         }
         L10nKey::AppWorktreeRemoveDetailClean => {
             "閉じたタブの {path} にあるワークツリーはクリーンです"
@@ -1950,11 +1996,27 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PaneDragHandleTooltip => "ドラッグしてこのペインを移動",
         L10nKey::AppWorktreeRemoved => "ワークツリー「{branch}」を削除しました",
         L10nKey::AppWorktreeRemoveFailed => "ワークツリーの削除に失敗しました: {error}",
-        L10nKey::AppForkStillConnecting => "フォークできませんでした: ペインはまだ接続中です",
+        L10nKey::WorktreePromptAgent => "起動",
+        L10nKey::WorktreePromptShell => "シェル",
+        L10nKey::WorktreePromptTask => "タスク",
+        L10nKey::WorktreePromptSetup => "最初に .tty7/setup を実行",
+        L10nKey::WorktreePromptSetupHint => {
+            ".tty7/setup がありません。追加すると新しいワークツリーで `{command}` を実行します"
+        }
+        L10nKey::AppWorktreeSetupTitle => "このリポジトリのセットアップスクリプトを実行しますか？",
+        L10nKey::AppWorktreeSetupDetail => {
+            "{path} は新しいタブで最初に実行されます。このリポジトリを信頼できる場合のみ許可してください。スクリプトが変わるたびに再確認します"
+        }
+        L10nKey::AppWorktreeSetupRun => "実行",
+        L10nKey::AppWorktreeSetupSkip => "スキップ",
+        L10nKey::AppWorktreeNotCarried => ".worktreeinclude から複製されませんでした: {paths}",
+        L10nKey::AppWorktreeRemovedBranchKept => {
+            "ワークツリーを削除しました。ブランチ「{branch}」には未マージのコミットがあるため残しました"
+        }
         L10nKey::AppPaneNoCodingAgent => "このペインはコーディングエージェントを実行していません",
         L10nKey::AppForkNoCommand => "tty7 には {name} 用のフォークコマンドがありません",
         L10nKey::AppForkLocalOnly => {
-            "{name} のセッションはローカルペインからしかフォークできません"
+            "SSH または WSL セッション内の {name} のセッションはフォークできません"
         }
         L10nKey::AppForkNoSessionId => {
             "tty7 はこのペインで {name} のセッション ID を確認できていません — 設定 → 連携でフックをインストールしてください"

@@ -5272,8 +5272,16 @@ impl Tty7App {
             move |_this, found, cx| {
                 let Some(wt) = found else { return };
                 let path = wt.path.display().to_string();
+                let name = wt
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 let detail = if wt.dirty {
-                    t_fmt(L10nKey::AppWorktreeRemoveDetailDirty, &[("path", &path)])
+                    t_fmt(
+                        L10nKey::AppWorktreeRemoveDetailDirty,
+                        &[("path", &path), ("name", &name)],
+                    )
                 } else {
                     t_fmt(L10nKey::AppWorktreeRemoveDetailClean, &[("path", &path)])
                 };
@@ -5312,8 +5320,15 @@ impl Tty7App {
                             cx,
                             move |h| crate::core::worktree::remove(h, &wt, force),
                             move |_this, result, window, cx| match result {
-                                Ok(()) => window.push_notification(
-                                    t_fmt(L10nKey::AppWorktreeRemoved, &[("branch", &branch)]),
+                                Ok(removed) => window.push_notification(
+                                    t_fmt(
+                                        if removed.branch_kept {
+                                            L10nKey::AppWorktreeRemovedBranchKept
+                                        } else {
+                                            L10nKey::AppWorktreeRemoved
+                                        },
+                                        &[("branch", &branch)],
+                                    ),
                                     cx,
                                 ),
                                 Err(e) => window.push_notification(
@@ -5470,9 +5485,12 @@ impl Tty7App {
             self.activate(index, window, cx);
         }
 
+        // The directory the source runs in, on whichever host it runs on: an
+        // agent keys its history by directory, and a fork started anywhere
+        // else finds nothing to branch.
         let (cwd, shell) = {
             let view = source.read(cx);
-            (view.local_cwd(), view.shell_spec())
+            (view.spawnable_cwd(), view.shell_spec())
         };
         let group = self.spawn_group(cwd.as_deref(), cx);
         let new = match new_terminal(
@@ -5498,12 +5516,9 @@ impl Tty7App {
                 return;
             }
         };
-        let Some(terminal) = new.terminal() else {
-            log::error!("fork spawn produced a pane that is still connecting");
-            window.push_notification(t(L10nKey::AppForkStillConnecting), cx);
-            return;
-        };
-        terminal.read(cx).run_command_line(&cmd);
+        // A remote workspace's pane is still dialling here; the fork runs
+        // the moment it lands.
+        crate::ui::agent_launch::run_when_ready(&new, cmd, cx);
 
         match placement {
             ForkPlacement::NewTab => {
@@ -5662,9 +5677,12 @@ impl Tty7App {
         );
     }
 
+    /// Open `wt` in a new tab named after its branch, typing `first` — its
+    /// setup and agent — into the shell there.
     pub(crate) fn open_worktree_tab(
         &mut self,
         wt: crate::core::worktree::NewWorktree,
+        first: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -5691,6 +5709,9 @@ impl Tty7App {
                 return;
             }
         };
+        if let Some(first) = first {
+            crate::ui::agent_launch::run_when_ready(&view, first, cx);
+        }
         self.remember_active_pane(window, cx);
         self.maximized = None;
         let insert_at = self.new_tab_insert_at(cx);
@@ -7026,6 +7047,10 @@ impl Tty7App {
             ssh_show_all: false,
             ssh_confirm_remove: false,
             ssh_copied: None,
+            mobile_pairing: None,
+            mobile_paired: None,
+            mobile_copied: false,
+            mobile_starting: false,
             ssh_filter,
             ssh_collapsed_groups: std::collections::HashSet::new(),
             agent_hooks_host: crate::ui::host_ops::HostId::LOCAL,
@@ -8619,6 +8644,51 @@ impl Tty7App {
         )
     }
 
+    /// One pill per pane in the active tab that a phone is running at its own
+    /// size. The window keeps its grid meanwhile and shows the pane's output
+    /// laid out for the phone, so it says why, and offers the pane back.
+    fn render_lease_notices(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        use gpui_component::Sizable as _;
+        use gpui_component::button::ButtonVariants as _;
+        let Some(tab) = self.tabs.get(self.active) else {
+            return Vec::new();
+        };
+        let theme = cx.theme();
+        let (info, foreground, popover) = (theme.info, theme.foreground, theme.popover);
+        tab.pane
+            .terminals()
+            .into_iter()
+            .filter_map(|leaf| {
+                let by = leaf.read(cx).terminal.leased_by()?;
+                let id = leaf.entity_id().as_u64();
+                Some(
+                    crate::ui::notice::pill(info, cx)
+                        .child(
+                            div()
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(foreground)
+                                .child(crate::ui::i18n::t_fmt(
+                                    crate::ui::i18n::L10nKey::PaneLeasedBy,
+                                    &[("by", &by)],
+                                )),
+                        )
+                        .child(
+                            gpui_component::button::Button::new(gpui::SharedString::from(format!(
+                                "lease-take-back-{id}"
+                            )))
+                            .label(crate::ui::i18n::t(
+                                crate::ui::i18n::L10nKey::RemoteActionTakeBack,
+                            ))
+                            .custom(crate::ui::theme::inverted_button(popover, cx))
+                            .small()
+                            .on_click(move |_, _, cx| leaf.read(cx).terminal.take_back()),
+                        )
+                        .into_any_element(),
+                )
+            })
+            .collect()
+    }
+
     fn render_remote_input_notice(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         if self.tabs.is_empty() {
             return None;
@@ -8997,6 +9067,7 @@ impl Render for Tty7App {
                     [self.render_remote_input_notice(cx), ssh_status]
                         .into_iter()
                         .flatten()
+                        .chain(self.render_lease_notices(cx))
                         .collect(),
                 ),
                 |this, el| this.child(el),
