@@ -3584,14 +3584,27 @@ fn adopt_argv_session(st: &mut PaneState) {
     let (Some(agent), Some(argv)) = (st.agent, &st.agent_argv) else {
         return;
     };
-    let Some(id) = agent.session_id_in_argv(argv) else {
+    if st
+        .agent_session
+        .as_ref()
+        .is_some_and(|s| s.session_id.is_some())
+    {
+        return;
+    }
+    // `claude attach <job>` names only its job; the session file maps it back.
+    // ponytail: rereads the dir each foreground poll until it maps; cache the
+    // miss per argv if an unmappable attach ever shows up in a profile.
+    let Some(id) = agent.session_id_in_argv(argv).or_else(|| {
+        let job = crate::core::claude_background::attached_job(argv)?;
+        crate::core::claude_background::session_for_job(
+            &crate::core::claude_background::sessions_dir()?,
+            job,
+        )
+    }) else {
         return;
     };
     let argv = argv.clone();
     let sess = st.agent_session.get_or_insert_with(Default::default);
-    if sess.session_id.is_some() {
-        return;
-    }
     sess.session_id = Some(id);
     sess.launch_argv.get_or_insert(argv);
     notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
