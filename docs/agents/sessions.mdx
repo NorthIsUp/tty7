@@ -31,6 +31,9 @@ every `continue_stagger_ms` (3 s), and resumes each with `continue_prompt` as it
 next turn — `claude --resume <id> continue`. Only Claude Code and Codex take a
 prompt on resume; other agents are woken without one.
 
+Launching with `tty7-app --continue` runs it as soon as the window's tabs are back —
+the morning-after-a-reboot button.
+
 <Note>
   Resume needs the session id. Claude Code names it on its own command line —
   quick launch starts it with `--session-id <uuid>`, and a typed
