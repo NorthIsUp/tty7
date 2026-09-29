@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use gpui::ClickEvent;
 use gpui::{
     AnyElement, App, Context, Entity, FontWeight, HighlightStyle, KeyDownEvent, MouseButton,
     MouseDownEvent, ScrollHandle, SharedString, StyledText, Subscription, Window, div, prelude::*,
@@ -402,7 +403,13 @@ impl Tty7App {
         }
     }
 
-    fn commit_new_tab_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// `background` (⇧) opens the tab behind the one the page was over.
+    fn commit_new_tab_page(
+        &mut self,
+        background: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(page) = self.new_tab_page.as_ref() else {
             return;
         };
@@ -412,10 +419,10 @@ impl Tty7App {
         };
         let kind = page.kinds[page.kind];
         self.close_new_tab_page(window, cx);
-        match kind {
-            Kind::Terminal => self.new_tab_at(dir.clone(), window, cx),
-            Kind::Agent(agent) => self.launch_agent_in(agent, Some(dir.clone()), window, cx),
-        }
+        self.in_background(background, |this| match kind {
+            Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
+            Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
+        });
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }
 
@@ -451,7 +458,7 @@ impl Tty7App {
         let chord = mods.platform || mods.control || mods.alt;
         match key {
             "escape" => self.close_new_tab_page(window, cx),
-            "enter" => self.commit_new_tab_page(window, cx),
+            "enter" => self.commit_new_tab_page(mods.shift, window, cx),
             // With a query typed, the arrows are the caret's.
             "left" | "right" if !chord && self.new_tab_page_query_is_empty(cx) => {
                 self.step_new_tab_page_kind(key == "right", cx)
@@ -561,11 +568,11 @@ impl Tty7App {
                     let ranges = row_highlights(&query, dir, &shown);
                     StyledText::new(shown).with_highlights(ranges.into_iter().map(|r| (r, hit)))
                 }))
-                .on_click(cx.listener(move |this, _, window, cx| {
+                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                     if let Some(page) = this.new_tab_page.as_mut() {
                         page.selected = at;
                     }
-                    this.commit_new_tab_page(window, cx);
+                    this.commit_new_tab_page(ev.modifiers().shift, window, cx);
                 }))
         });
 
@@ -632,9 +639,10 @@ impl Tty7App {
                     .border_color(border)
                     .text_size(rems(11. / 16.))
                     .text_color(muted)
-                    .child(t_fmt(
-                        L10nKey::NewTabPageHint,
-                        &[("first", &digit_chord(1))],
+                    .child(format!(
+                        "{} · {}",
+                        t_fmt(L10nKey::NewTabPageHint, &[("first", &digit_chord(1))]),
+                        t(L10nKey::NewTabPageHintBackground)
                     )),
             );
 
