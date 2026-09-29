@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Rebuild and restart only the window; the server and every pane keep running. Refuses when the server's own code changed, which would replace it"
-#MISE depends=["build-fast"]
+#MISE description="Rebuild, reinstall and restart only the window; the server and every pane keep running. Refuses when the server's own code changed, which would replace it"
 # [USAGE] flag "--server" help="Go ahead even though the server's code changed: the server is replaced and every pane's processes end (agent tabs resume when opened)"
 set -euo pipefail
 . "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
@@ -11,8 +10,9 @@ if [ -n "$running" ] && [ "$(cat "$stamp" 2>/dev/null || true)" != "$running $(s
   echo "reload: rerun with --server to do it anyway." >&2
   exit 1
 fi
+"$MISE_PROJECT_ROOT/mise-tasks/install-app"
 # Only the window: its path ends in tty7-app, the server's in its flags.
-for pid in $(pgrep -f "$MISE_PROJECT_ROOT/target/fast/tty7-app$" || true); do
+for pid in $(pgrep -f "$app/Contents/MacOS/tty7-app$" || true); do
   kill "$pid"
   for _ in 1 2 3 4 5; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
 done
