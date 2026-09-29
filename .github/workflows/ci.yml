@@ -94,9 +94,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The fork ships macOS only; Windows and Linux rows are off.
           - runner: macos-14
             target: aarch64-apple-darwin
+          # Off for CI speed while the fork is macOS-only; uncomment to build
+          # them again (and re-add their required checks). Releases still build
+          # every platform.
+          # - runner: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          # - runner: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
     needs: changes
     runs-on: ${{ matrix.runner }}
     # Line tables keep file:line in backtraces but shrink the cached target dir.
@@ -230,7 +236,8 @@ jobs:
   # PR. Keep this job non-required until it has a few weeks of green.
   server-musl:
     needs: changes
-    # Off in the fork: it ships macOS only.
+    # Off for CI speed while the fork is macOS-only; restore the line below.
+    # if: needs.changes.outputs.code == 'true'
     if: false
     name: tty7-server musl (${{ matrix.target }})
     runs-on: ubuntu-latest
