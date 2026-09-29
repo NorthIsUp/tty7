@@ -1303,7 +1303,9 @@ impl Tty7App {
                 let label = elide_label(&ts, &header_font, header_size, &name, name_avail);
                 let name_w = measure_text(&ts, &header_font, header_size, &label);
                 let hover_group = SharedString::from(format!("sidebar-group-{group_ix}"));
-                let header_style = crate::ui::group_header::header_style(&name, rail_fill, cx);
+                let hue_slot = section.key.is_some().then_some(group_ix);
+                let header_style =
+                    crate::ui::group_header::header_style(&name, hue_slot, rail_fill, cx);
                 let bar = h_flex()
                     .id(("sidebar-group", group_ix))
                     .map(|bar| crate::ui::group_header::decorate(bar, &header_style))
@@ -1391,7 +1393,7 @@ impl Tty7App {
                                 .into_any_element(),
                         })
                     })
-                    .child(crate::ui::group_color::swatch(&name, cx))
+                    .child(crate::ui::group_color::swatch(&name, hue_slot, cx))
                     .child(match renaming_group {
                         Some(input) => div()
                             .id(("sidebar-group-rename", group_ix))
@@ -1617,6 +1619,7 @@ impl Tty7App {
                     crate::ui::group_header::decorate_block(
                         b,
                         section.name.as_deref(),
+                        section.key.is_some().then_some(group_ix),
                         rail_fill,
                         cx,
                     )

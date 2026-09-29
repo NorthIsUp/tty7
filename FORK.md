@@ -42,7 +42,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached by path and mtime; `session_mentions`, one session's issue and PR references, tool output included; a bare `#N` only when the session ran in a checkout of the shown repo |
 | `.github/workflows/tag-on-bump.yml` | on a main push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
-| `src/ui/group_color.rs` | a group's colour (override, else hashed into the theme) and its swatch |
+| `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) and its swatch |
 | `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows |
 | `src/ui/github_session.rs` | the GitHub tab's "This session" filter: Pull Requests narrowed to those the focused pane's agent session mentions, the rest as `#N` chips; `remote_pick`, the fork before upstream; `panel_state`, the list it opens on |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
@@ -102,7 +102,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/agent_launch.rs` | `with_minted_session`, `launch_agent` split into `launch_agent_in` / `start_agent_in` (+ test) | mint Claude's `--session-id` at launch; launch into an explicit cwd for the new tab page |
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt` | carry the prompt until a connecting pane lands |
 | `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | `PendingSpawn` literals | `agent_prompt: None` |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch` |
+| `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch`; the `hue_slot` (section index, `None` for Ungrouped) passed to it, `header_style` and `decorate_block` |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git` | the header names `group_header::default_branch`, not the rows' checkout |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` group header bar | `group_header::decorate`, `group_header::chevron` on every header, its `backing` under the hover buttons |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, after `folded` | `group_header::openness`; rows stay drawn until a fold's slide ends; `rows_h` summed per row |
