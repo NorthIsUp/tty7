@@ -5838,6 +5838,7 @@ impl Tty7App {
         catalog.sessions = sessions;
         catalog.sessions_here = here;
         catalog.files = self.file_list_now(cx);
+        catalog.open_agent_sessions = self.open_agent_session_ids(cx);
         catalog
     }
 
@@ -6371,6 +6372,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
+            SearchAgents => self.toggle_agents_search(window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
@@ -9616,6 +9618,9 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
                     this.continue_all_agents(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
+                    this.toggle_agents_search(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)

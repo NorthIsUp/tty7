@@ -1791,6 +1791,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "エージェントの履歴はこのコンピューター上でのみ検索できます。"
         }
         L10nKey::SearchHistoryHits => "{count} 件",
+        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
+        L10nKey::SearchTabAgents => "エージェント",
+        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
