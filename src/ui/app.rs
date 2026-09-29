@@ -9785,12 +9785,14 @@ fn agent_resume_command(
         return None;
     };
     let cmd = agent.resume_command(session_id, launch_argv)?;
-    Some(
-        match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
-            Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
-            None => cmd,
-        },
-    )
+    let resume = match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
+        Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
+        None => cmd,
+    };
+    Some(match agent.start_command(session_id, launch_argv) {
+        Some(fresh) => format!("{resume} || {fresh}"),
+        None => resume,
+    })
 }
 
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
