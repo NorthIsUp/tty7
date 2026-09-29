@@ -831,6 +831,7 @@ fn main() {
             })
             .detach();
         keymap::init(cx);
+        crate::ui::hotkey_window::init(cx);
         crate::ui::local_link::LocalLink::install(cx);
 
         let reopen = crate::ui::windows::restore_target(cx, open_path.as_deref());

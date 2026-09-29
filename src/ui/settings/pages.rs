@@ -548,6 +548,7 @@ impl Tty7App {
             ),
         );
         groups.push(self.render_window_section(cx));
+        groups.extend(self.hotkey_window_settings(cx));
         Self::settings_page(groups)
     }
 
