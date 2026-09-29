@@ -8,6 +8,7 @@
 //! - [`score`]: the one fuzzy scorer every tab shares.
 //! - [`view`]: the modal — the tab row, the list, the theme picker.
 
+mod agents;
 mod command;
 mod files;
 mod history_text;
@@ -44,6 +45,9 @@ pub(crate) enum SearchTab {
     /// Full text over past agent conversations (`history_text`): like Text,
     /// asked only once enough is typed, and never on the All tab.
     History,
+    /// Open tabs, then the agent sessions not open in one (`agents`, ⌘K).
+    /// Off the row: Terminals and Sessions already are its halves.
+    Agents,
 }
 
 impl SearchTab {
@@ -88,6 +92,7 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchTabLocations,
             SearchTab::Text => L10nKey::SearchTabText,
             SearchTab::History => L10nKey::SearchTabHistory,
+            SearchTab::Agents => L10nKey::SearchTabAgents,
         })
     }
 
@@ -111,6 +116,7 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
             SearchTab::Text => L10nKey::SearchPlaceholderText,
             SearchTab::History => L10nKey::SearchPlaceholderHistory,
+            SearchTab::Agents => L10nKey::SearchPlaceholderAgents,
         })
     }
 
