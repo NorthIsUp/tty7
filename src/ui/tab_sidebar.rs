@@ -169,13 +169,13 @@ fn counts_width(
 }
 
 /// The branch a whole group shares, lifted off its rows and onto its header.
-struct SharedGit {
-    status: crate::terminal::git_status::GitStatus,
+pub(crate) struct SharedGit {
+    pub(crate) status: crate::terminal::git_status::GitStatus,
     /// Where a click on the counts opens the diff overlay, if the setting
     /// allows one.
-    click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
+    pub(crate) click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
     /// Every row the group counts, drawn or folded away.
-    rows: Vec<usize>,
+    pub(crate) rows: Vec<usize>,
 }
 
 /// What a sidebar row rendered, next to what it had to leave out, so the
@@ -598,35 +598,12 @@ impl Tty7App {
                     rows: rows.clone(),
                 })
             });
-            // Fork: the header names the repo's default branch, not whatever
-            // its rows' checkout is on (see `group_header`).
-            let header_git: Option<SharedGit> = section.name.as_ref().and_then(|_| {
-                let branch = visible_by_section[group_ix]
+            // Fork: the header names the repo's default branch (`group_header`).
+            let header_git = section.name.as_ref().and_then(|_| {
+                let repo = visible_by_section[group_ix]
                     .iter()
-                    .find_map(|&i| git_click(&self.tabs[i], window, cx))
-                    .and_then(|(host, cwd)| {
-                        crate::ui::group_header::default_branch(host, &cwd, cx)
-                    });
-                match (&shared_git, branch) {
-                    (Some(s), branch) => Some(SharedGit {
-                        status: crate::terminal::git_status::GitStatus {
-                            branch: branch.unwrap_or_default(),
-                            ..s.status.clone()
-                        },
-                        click: s.click.clone(),
-                        rows: s.rows.clone(),
-                    }),
-                    (None, Some(branch)) => Some(SharedGit {
-                        status: crate::terminal::git_status::GitStatus {
-                            branch,
-                            added: 0,
-                            removed: 0,
-                        },
-                        click: None,
-                        rows: Vec::new(),
-                    }),
-                    (None, None) => None,
-                }
+                    .find_map(|&i| git_click(&self.tabs[i], window, cx));
+                crate::ui::group_header::header_git(shared_git.as_ref(), repo, cx)
             });
             for (slot, i) in visible.into_iter().enumerate() {
                 let badge_pos = badge_pos[i];

@@ -526,8 +526,22 @@ mod tests {
             app.open_search(SearchTab::Text, "needle", window, cx)
         });
         let rows = loop {
-            let rows = app.update_in(&mut vcx, |app, _, cx| {
-                app.search.as_ref().map(|v| v.read(cx).text_rows())
+            let rows = app.update_in(&mut vcx, |app, window, cx| {
+                let view = app.search.clone()?;
+                let mut rows = Vec::new();
+                view.update(cx, |view, cx| {
+                    view.update_catalog(
+                        |c| {
+                            rows = c
+                                .live(SearchTab::Text)
+                                .map(|l| l.rows.clone())
+                                .unwrap_or_default()
+                        },
+                        window,
+                        cx,
+                    )
+                });
+                Some(rows)
             });
             if let Some(rows) = rows.filter(|r| !r.is_empty()) {
                 break rows;

@@ -38,10 +38,10 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
-| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `Resume`/`AtPrompt`, the one command a restored agent pane types |
+| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/palette.rs` | ⌘T / ⌘P / ⌘K open Search Everywhere on New Tab / All / Agents wherever focus is (the Settings window too), and an open palette keeps every key: a keystroke interceptor, ahead of all bindings |
-| `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands |
+| `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands; `bind_shift_enter`, the palette list's ⇧Enter |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; `LiveTab`, the per-palette ask, debounce and latest-answer check History shares |
 | `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
@@ -117,15 +117,14 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `render` | `on_action` for `ContinueAllAgents`, `SearchAgents` (→ `palette::open_palette_on`) |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
-| `src/ui/app.rs` | `wake_tab` → `wake_tab_with` | wake with a prompt for the resumed agent |
-| `src/ui/app.rs` | `agent_resume_command`, `session_to_pane`, `land_pane`, `reopen_closed_tab` | return an `agent_resume::Resume` (agent, id, argv, `prompt`) instead of a command line |
+| `src/ui/app.rs` | `agent_resume_command`, `session_to_pane` (connecting leaf) | return an `agent_resume::Resume` (agent, id, argv) instead of a command line; its prompt is `agent_resume::wake_prompt`, which a connecting pane carries in `PendingSpawn::agent_prompt` |
 | `src/ui/app.rs` | `tabs_from_session` | restore a tab with no live pane asleep (`restore_asleep`) |
-| `src/ui/app.rs` | test `PendingSpawn` literals | `agent_prompt: None` |
+| `src/ui/app.rs` | `PendingSpawn` literals | `..Default::default()` |
 | `src/ui/agent_launch.rs` | `with_minted_session`, `launch_agent` split into `launch_agent_in` / `start_agent_in` (+ test) | mint Claude's `--session-id` at launch; launch into an explicit cwd for the new tab page |
-| `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt` | carry the prompt until a connecting pane lands |
-| `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | `PendingSpawn` literals | `agent_prompt: None` |
+| `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt`, `Default` derive | carry the prompt until a connecting pane lands; literals fill the rest with `..Default::default()` |
+| `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | test `PendingSpawn` literals | `..Default::default()` |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch`; the `hue_slot` (section index, `None` for Ungrouped) passed to it, `header_style` and `decorate_block` |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git` | the header names `group_header::default_branch`, not the rows' checkout |
+| `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git`; `SharedGit` `pub(crate)` | `group_header::header_git`: the header names the repo's default branch, not the rows' checkout |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` group header bar | `group_header::decorate`, `group_header::chevron` on every header, its `backing` under the hover buttons |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, after `folded` | `group_header::openness`; rows stay drawn until a fold's slide ends; `rows_h` summed per row |
 | `src/ui/tab_sidebar.rs` | test `folding_a_group_takes_its_rows_off_the_sidebar` | `animations = false`: it checks where a fold ends, not its slide |
@@ -136,20 +135,20 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `hotkey_window`, `new_tab_page`, `palette` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
-| `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `palette::init`; the palette takes ⌘K first on macOS |
+| `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `background_tab::bind_shift_enter` first, so the base snapshot keeps it; the palette takes ⌘K first on macOS |
 | `src/ui/settings_window.rs` | `SettingsWindow::app` | `pub(crate)`, so a palette chord in Settings opens the palette over its workspace |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents`, `SearchAgents` in Search Everywhere |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `SearchText` (Search Text in Files…) |
 | `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `Agents` and `NewTab` tabs, off the row |
 | `src/ui/search/sources.rs` | `Catalog` fields, `new`, `source`, `all` | `live` (`text::LiveTab`s), `open_agent_sessions`; `all` leaves Text and History out; New Tab has no rows of its own; `rank`, `by_section` are `pub(super)` for Agents |
-| `src/ui/search/view.rs` | `perform_search`, `set_tab`, `render_empty`, `update_catalog` and `match_range` visibility, `text_rows` (test) | `Catalog::ask_live` for the tab showing; the too-short and remote hints |
+| `src/ui/search/view.rs` | `perform_search`, `set_tab`, `render_empty`, `update_catalog` visibility | `Catalog::ask_live` for the tab showing; the too-short and remote hints |
 | `src/ui/search/view.rs` | `SearchView::new_tab`, `set_new_tab`, `new_tab_page`, `focus`; `render` card | the New Tab tab draws `NewTabPage` in place of the list; `palette` puts focus back in the field |
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.live = palette_live_tabs(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
 | `src/ui/app.rs` | `Tty7App::open_in_background` field + init; `new_tab_slot` → `seat_new_tab`; `new_tab_insert_at` made `pub(crate)` | insert without activating inside `in_background` |
 | `src/ui/app.rs` | `run_command` `LaunchAgent`, `ResumeSession`, `ForkSession` | wrap in `in_background` when ⇧ is held |
-| `src/ui/search/view.rs` | `render` `on_key_down`, `render_footer` | ⇧Enter confirms the row (the list binds bare Enter only); the ⇧↵ footer hint on tab-opening rows |
+| `src/ui/search/view.rs` | `render_footer` | the ⇧↵ footer hint on tab-opening rows |
 | `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents`, `GitHubThisSession`, `GitHubNoSessionPulls`, `GitHubShowAllPulls`, `GitHubMoreMentioned`, `SearchHintBackground`, `SettingsHotkey*`, `Switcher{Set,Unset}HotkeyWorkspace`, `SwitcherHotkeyWorkspace` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
