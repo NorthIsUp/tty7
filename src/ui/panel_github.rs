@@ -101,7 +101,9 @@ impl Tty7App {
         }
 
         let query = self.github_query(&chosen.slug);
-        self.github_ensure_list(&query, cx);
+        if !self.github.session.tab {
+            self.github_ensure_list(&query, cx);
+        }
 
         let mut pinned = vec![self.github_repo_row(&repo, &remotes, &chosen, cx)];
         // The pull request the pane is working on, one click from the list
@@ -123,7 +125,7 @@ impl Tty7App {
         // The Git tab's gap under its pinned block, so the header reads as
         // one unit and the list starts clear of it.
         pinned.push(div().flex_none().h(px(LIST_GAP)).into_any_element());
-        let body = match self.github_session_body(&host, &chosen.slug, window, cx) {
+        let body = match self.github_session_tab_body(&host, &chosen.slug, window, cx) {
             Some(body) => body,
             None => self.github_list_body(&chosen.slug, cx),
         };
@@ -401,9 +403,11 @@ impl Tty7App {
             .into_any_element()
     }
 
-    /// Issues | Pull Requests on the left, Open | Closed on the right.
+    /// Session | Issues | Pull Requests on the left, Open | Closed | All on
+    /// the right.
     fn github_switch_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let kind = self.github.kind;
+        let session = self.github.session.tab;
         let state = self.github.state;
         let kinds = [
             (Kind::Issues, t(L10nKey::GitHubIssues)),
@@ -412,10 +416,13 @@ impl Tty7App {
         let states = [
             (StateFilter::Open, t(L10nKey::GitHubOpen)),
             (StateFilter::Closed, t(L10nKey::GitHubClosed)),
+            (StateFilter::All, t(L10nKey::GitHubAll)),
         ];
+        let session_cell = self.github_session_tab_cell(cx);
         let kind_cells = kinds.into_iter().enumerate().map(|(i, (k, label))| {
-            switch_cell(("panel-github-kind", i), label, k == kind, cx)
+            switch_cell(("panel-github-kind", i), label, k == kind && !session, cx)
                 .on_click(cx.listener(move |this, _, _window, cx| {
+                    this.github.session.tab = false;
                     this.github.kind = k;
                     this.github.list_scroll = gpui::ScrollHandle::new();
                     cx.notify();
@@ -443,13 +450,13 @@ impl Tty7App {
             .gap_y(px(PINNED_GAP))
             .px(px(PINNED_INSET))
             .pt(px(PINNED_GAP))
-            .child(h_flex().gap(px(2.)).children(kind_cells))
             .child(
                 h_flex()
                     .gap(px(2.))
-                    .children(state_cells)
-                    .children(self.github_session_chip(cx)),
+                    .child(session_cell)
+                    .children(kind_cells),
             )
+            .child(h_flex().gap(px(2.)).children(state_cells))
             .into_any_element()
     }
 
@@ -1047,6 +1054,7 @@ mod gpui_tests {
             }));
             app.right_panel_visible = true;
             app.right_panel_tab = RightPanelTab::GitHub;
+            app.github.session.tab = false;
             cx.global_mut::<Config>().fork.github_panel_prefer_origin = false;
             cx.notify();
         });

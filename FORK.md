@@ -48,7 +48,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `.github/workflows/tag-on-bump.yml` | on a `main-niu` push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
 | `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) and its swatch |
 | `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows |
-| `src/ui/github_session.rs` | the GitHub tab's "This session" filter: Pull Requests narrowed to those the focused pane's agent session mentions, the rest as `#N` chips; `remote_pick`, the fork before upstream; `panel_state`, the list it opens on |
+| `src/ui/github_session.rs` | the GitHub tab's Session list, its default: every issue and pull request the focused pane's agent session mentions, latest first, rows from the lists, details and a capped one-at-a-time lookup; `remote_pick`, the fork before upstream |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 | `crates/tty7-core/src/daemon/procstat.rs` | per-process RSS, CPU time and start stamp for Info → Processes; `compact_bytes` |
 | `src/ui/proc_usage.rs` | CPU% from two samples, the Processes row's CPU / memory / pid cells and its Total line |
@@ -57,7 +57,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/fork_host.rs` | `ForkHost` (history search, session mentions, resume plan) behind `Host::fork`: the local host's answers, and `NoFork`'s nothing-found for every other host |
 | `crates/tty7-core/src/core/history_cache.rs` | the History tab's transcript cache: by path, size and mtime, least recently read dropped past the cap, deleted files forgotten |
 | `src/terminal/view/program_notes.rs` | which notices about a pane reach the desktop (command finish, agent, and what the program wrote over OSC 9/99/777), and showing the program's own, drained even after the shell exits |
-| `crates/tty7-core/src/core/fork_config.rs` | `ForkConfig`: the fork's settings (resume, new tab page, group decoration, `nice`, GitHub panel, global hotkey), flattened into `Config`; `GroupColorSource`, `GroupBackgroundScope`, `GitHubPanelList` |
+| `crates/tty7-core/src/core/fork_config.rs` | `ForkConfig`: the fork's settings (resume, new tab page, group decoration, `nice`, GitHub panel, global hotkey), flattened into `Config`; `GroupColorSource`, `GroupBackgroundScope`. The retired `github_panel_default_list` / `github_panel_session_filter` keys still load (ignored) |
 | `src/ui/hotkey_window/` | the global hotkey (`global_hotkey`, ⌥Space), macOS only: `mod.rs` the platform-free rules (toggle, the lift stack, restore, the switcher row's item and badge, the Workspaces menu label); `carbon.rs` the chord table and `RegisterEventHotKey`; `appkit.rs` the one dedicated hotkey window (its workspace saved in `hotkey-window`) shown / focused / ordered out with a fade, full screen (floating level under Force Quit, the Dock and menu bar moved aside by presentation options), windows activated over it lifted above it, hide on focus loss; `settings.rs` its Settings rows |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 | `src/terminal/color_scheme.rs` | DEC mode 2031: `CSI ? 997 ; 1\|2 n` to a pane whose program switched it on when the theme's background changes, and the `CSI ? 996 n` answer (Claude Code's `theme: auto` re-reads OSC 11 only on a 997) |
@@ -98,12 +98,14 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/mod.rs` | module list | `pub mod history_search`, `pub mod claude_background`, `pub mod fork_config`, `pub mod fork_host`, `pub mod history_cache` |
 | `crates/tty7-core/src/core/agent_history.rs` | `Found`, `claude_files`, `codex_files`, `codex_not_the_users`, `strip_injected`, `unix` made `pub(crate)` | `history_search` walks and filters the same files |
 | `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::fork` (default `NoFork`; the local host is its own `ForkHost`) | the fork's host calls (`fork_host`), so the UI never reads the history files |
-| `src/ui/github/mod.rs` | `GitHubPanelState::session`, `github_refresh` | the filter's mentions cache; refresh marks it due |
-| `src/ui/panel_github.rs` | test `the_tab_lists_and_opens_an_issue_without_touching_the_network`, test imports | `github_panel_prefer_origin = false`: it checks upstream's own remote order |
+| `src/ui/github/mod.rs` | `GitHubPanelState::session`, `github_refresh`, `off_ui` made `pub(crate)` | the Session tab's state (on by default) and mentions cache; refresh marks it due; the lookup runs on `off_ui` |
+| `crates/tty7-core/src/core/github/model.rs` | `StateFilter::All`, `StateFilter::admits` | the Open \| Closed \| All switch; which rows the Session list keeps |
+| `crates/tty7-core/src/core/github/api.rs` | `item` | one issue or pull request as a list row (`/issues/N`), for a mention no list page has |
+| `src/ui/panel_github.rs` | test `the_tab_lists_and_opens_an_issue_without_touching_the_network`, test imports | `github_panel_prefer_origin = false`: it checks upstream's own remote order; `session.tab = false`: it checks the Issues list |
 | `src/ui/github/mod.rs` | `github_target_for` | `github_session::remote_pick`: `origin` before `upstream` unless the user picked one |
-| `src/ui/panel_github.rs` | `render_panel_github` body, `github_switch_row` state group, `switch_cell` / `github_item_row` made `pub(crate)`, `host.clone()` into `github_branch_pull` | `github_session_body` before the plain list; the This session chip |
+| `src/ui/panel_github.rs` | `render_panel_github` (list ensure, body), `github_switch_row` (kind cells, states), `switch_cell` / `github_item_row` made `pub(crate)`, `host.clone()` into `github_branch_pull` | no kind list fetched on the Session tab; `github_session_tab_body` before the plain list; the Session cell before Issues \| Pull Requests, which light only off it; All after Open \| Closed |
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
-| `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`; `github` from `github_session::panel_state` (`github_panel_default_list`) |
+| `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land` |
 | `src/main.rs` | `main`, after `keymap::init` | `hotkey_window::init` |
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
 | `src/ui/settings/pages.rs` | `render_settings_general`, Startup & Restore group | chain `resume_agents_setting` (Resume agents on restart) |
@@ -156,12 +158,12 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `Tty7App::open_in_background` field + init; `new_tab_slot` → `seat_new_tab`; `new_tab_insert_at` made `pub(crate)` | insert without activating inside `in_background` |
 | `src/ui/app.rs` | `run_command` `LaunchAgent`, `ResumeSession`, `ForkSession` | wrap in `in_background` when ⇧ is held |
 | `src/ui/search/view.rs` | `render_footer` | the ⇧↵ footer hint on tab-opening rows |
-| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents`, `GitHubThisSession`, `GitHubNoSessionPulls`, `GitHubShowAllPulls`, `GitHubMoreMentioned`, `SearchHintBackground`, `SettingsHotkey*`, `Switcher{Set,Unset}HotkeyWorkspace`, `SwitcherHotkeyWorkspace` |
+| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents`, `GitHubSession`, `GitHubAll`, `GitHubNoSessionMentions`, `GitHubNoSessionMatches`, `SearchHintBackground`, `SettingsHotkey*`, `Switcher{Set,Unset}HotkeyWorkspace`, `SwitcherHotkeyWorkspace` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
 | `docs/reference/configuration.mdx` | config table | the fork's config fields |
 | `docs/window/sidebar.mdx` | Group colours | `group_colors`, header outline/fill, default branch |
-| `docs/window/side-panel.mdx` | GitHub list bullets | the This session filter |
+| `docs/window/side-panel.mdx` | GitHub list bullets | the Session tab, All |
 | `docs/window/search-everywhere.mdx` | intro; Tabs table; Sessions | ⌘T/⌘P/⌘K from anywhere, modal; the Text, History, Agents and New Tab tabs; ⇧ opens in the background |
 | `docs/reference/keyboard-shortcuts.mdx` | New Tab, Search Everywhere, Clear Scrollback rows; after View | ⌘K is Agents; Clear Scrollback moved to ⌘⇧K; ⌘T is the palette's New Tab tab; the three chords work from anywhere and the palette is modal |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page`, `window/hotkey-window` |

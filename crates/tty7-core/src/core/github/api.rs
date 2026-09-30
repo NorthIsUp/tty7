@@ -246,6 +246,12 @@ pub fn list(t: &dyn Transport, q: &ListQuery, page: u32) -> Result<ListPage, Api
     })
 }
 
+/// One issue or pull request as a list row, in one request.
+pub fn item(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Item, ApiError> {
+    let reply = t.get(&format!("{}/issues/{number}", repo_path(slug)))?;
+    Ok(decode::<RawIssue>(&reply)?.into_item())
+}
+
 /// One issue or pull request with its body and conversation — and, for a pull
 /// request, its branches, size and changed files.
 pub fn detail(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Detail, ApiError> {

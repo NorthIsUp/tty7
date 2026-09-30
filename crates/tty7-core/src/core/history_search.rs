@@ -84,17 +84,15 @@ pub fn search(roots: &Roots, query: &str) -> Vec<HistoryHit> {
     out
 }
 
-/// ponytail: the newest this many of each kind; older mentions drop off.
+/// ponytail: the newest this many; older mentions drop off.
 const MAX_MENTIONS: usize = 200;
 
 /// The issue and pull request numbers of one repository a session names.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mentions {
-    /// `#N`, `owner/repo#N` and `…/pull/N` links, the latest mention first.
-    pub refs: Vec<u64>,
-    /// `…/issues/N` links not also in `refs`: a pull request only if a list
-    /// says so.
-    pub issue_links: Vec<u64>,
+    /// `#N`, `owner/repo#N` and `…/pull/N` or `…/issues/N` links, each once,
+    /// the latest mention first.
+    pub numbers: Vec<u64>,
 }
 
 /// What `agent`'s session `id` says about `repo`: its prompts, replies and
@@ -177,32 +175,25 @@ fn mentions_in<'a>(texts: impl Iterator<Item = &'a str>, repo: &RepoSlug, bare: 
         }
         _ => bare,
     };
-    let mut seen: Vec<(u64, bool)> = Vec::new();
+    let mut seen: Vec<u64> = Vec::new();
     for text in texts {
         for c in MENTION.captures_iter(text) {
-            let (number, issue_link) = match (c.get(4), c.get(7)) {
-                (Some(n), _) if ours(c.get(1), c.get(2)) => {
-                    (n, c[3].eq_ignore_ascii_case("issues"))
-                }
-                (None, Some(n)) if ours(c.get(5), c.get(6)) => (n, false),
+            let number = match (c.get(4), c.get(7)) {
+                (Some(n), _) if ours(c.get(1), c.get(2)) => n,
+                (None, Some(n)) if ours(c.get(5), c.get(6)) => n,
                 _ => continue,
             };
             if let Ok(number) = number.as_str().parse() {
-                seen.push((number, issue_link));
+                seen.push(number);
             }
         }
     }
     let mut out = Mentions::default();
-    for &(number, issue_link) in seen.iter().rev() {
-        let list = match issue_link {
-            true => &mut out.issue_links,
-            false => &mut out.refs,
-        };
-        if list.len() < MAX_MENTIONS && !list.contains(&number) {
-            list.push(number);
+    for &number in seen.iter().rev() {
+        if out.numbers.len() < MAX_MENTIONS && !out.numbers.contains(&number) {
+            out.numbers.push(number);
         }
     }
-    out.issue_links.retain(|n| !out.refs.contains(n));
     out
 }
 
@@ -701,8 +692,7 @@ mod tests {
             "#12 again (#17) but not a#18, x/y/z#19, &#20; or #21abc",
         ];
         let m = mentions_in(texts.into_iter(), &repo, true);
-        assert_eq!(m.refs, vec![17, 12, 14, 13]);
-        assert_eq!(m.issue_links, vec![16], "12 is already a ref");
+        assert_eq!(m.numbers, vec![17, 12, 16, 14, 13]);
     }
 
     #[test]
@@ -713,8 +703,7 @@ mod tests {
             "acme/widgets#13, https://github.com/Acme/Widgets/issues/14",
         ];
         let m = mentions_in(texts.into_iter(), &repo, false);
-        assert_eq!(m.refs, vec![13]);
-        assert_eq!(m.issue_links, vec![14]);
+        assert_eq!(m.numbers, vec![14, 13]);
     }
 
     #[test]
@@ -766,9 +755,9 @@ mod tests {
         let roots = roots(home.path());
         let repo = slug("acme", "widgets");
         let m = session_mentions(&roots, CLIAgent::Claude, "s1", &repo);
-        assert_eq!(m.refs, vec![4, 5, 3]);
+        assert_eq!(m.numbers, vec![4, 5, 3]);
         assert_eq!(
-            session_mentions(&roots, CLIAgent::Codex, "c1", &repo).refs,
+            session_mentions(&roots, CLIAgent::Codex, "c1", &repo).numbers,
             vec![8]
         );
         assert_eq!(
@@ -776,7 +765,7 @@ mod tests {
             Mentions::default()
         );
         assert_eq!(
-            session_mentions(&roots, CLIAgent::Claude, "s3", &repo).refs,
+            session_mentions(&roots, CLIAgent::Claude, "s3", &repo).numbers,
             vec![79],
             "a bare #N outside a checkout of the repo is some other repo's"
         );
