@@ -5,10 +5,12 @@
 //! only activation is skipped. Kept out of `app.rs`: upstream's
 //! `Tty7App::new_tab_slot` hands its tab to [`Tty7App::seat_new_tab`].
 
-use gpui::{Context, Modifiers, Window};
+use std::rc::Rc;
+
+use gpui::{App, Context, KeyBinding, KeyBindingContextPredicate, Keystroke, Modifiers, Window};
 
 use crate::ui::app::{Tab, Tty7App};
-use crate::ui::search::CommandKind;
+use crate::ui::search::{CommandKind, KEY_CONTEXT};
 
 /// The modifier that sends a new tab to the background. ⌥ is taken (split).
 pub(crate) fn wanted_by(mods: Modifiers) -> bool {
@@ -29,6 +31,39 @@ pub(crate) fn opens_tab(kind: &CommandKind) -> bool {
             | CommandKind::ForkSession { .. }
             | CommandKind::LaunchAgent(_)
     )
+}
+
+/// ⇧Enter confirms a palette row as Enter does; [`wanted`] reads the ⇧ back
+/// when the row runs. gpui-component binds the list's bare Enter to an action
+/// it keeps private, so this borrows that binding's. Bound before the keymap
+/// takes its base snapshot, so a rebuild keeps it.
+pub(crate) fn bind_shift_enter(cx: &mut App) {
+    let enter = Keystroke::parse("enter").expect("a valid keystroke");
+    let confirm = cx
+        .key_bindings()
+        .borrow()
+        .bindings()
+        .find(|b| {
+            b.predicate().is_some_and(|p| p.to_string() == "List")
+                && b.match_keystrokes(std::slice::from_ref(&enter)) == Some(false)
+        })
+        .map(|b| b.action().boxed_clone());
+    let Some(confirm) = confirm else {
+        log::warn!("no List binding for enter; the palette's ⇧Enter stays unbound");
+        return;
+    };
+    let context = KeyBindingContextPredicate::parse(&format!("{KEY_CONTEXT} > List")).ok();
+    match KeyBinding::load(
+        "shift-enter",
+        confirm,
+        context.map(Rc::new),
+        false,
+        None,
+        cx.keyboard_mapper().as_ref(),
+    ) {
+        Ok(binding) => cx.bind_keys([binding]),
+        Err(e) => log::warn!("palette ⇧Enter: {e}"),
+    }
 }
 
 /// The active index once a tab is inserted at `insert_at`: the new tab in
@@ -112,5 +147,22 @@ mod tests {
         assert_eq!(seat(&app, &mut vcx, true), (3, 1), "added, still on tab 1");
         assert!(!app.update(&mut vcx, |app, _| app.open_in_background));
         assert_eq!(seat(&app, &mut vcx, false), (4, 2), "foreground: activated");
+    }
+
+    /// ⇧Enter confirms the row too: the list binds only a bare Enter.
+    #[gpui::test]
+    fn shift_return_confirms_the_picked_row(cx: &mut gpui::TestAppContext) {
+        let (app, mut vcx, _streams) = test_window::harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, _, _| app.tabs[1].last_used.set(5));
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(crate::ui::search::SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("shift-enter");
+        vcx.run_until_parked();
+        app.read_with(&vcx, |app, _| {
+            assert!(app.search.is_none(), "⇧Enter picks the row");
+            assert_eq!(app.active, 1);
+        });
     }
 }
