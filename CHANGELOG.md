@@ -5,16 +5,6 @@ All notable changes to tty7 are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **`.itermcolors` themes with whole-number components load.** iTerm2 and
-  Python's `plistlib` write an exact 0 or 1 as `<integer>` rather than
-  `<real>`; the loader read only reals, so such a file failed with "missing or
-  malformed 'Ansi N Color'" and was listed under "Not loaded from the themes
-  folder". Integer components are now read and clamped like real ones.
-
 ## [26.9.4] - 2026-09-29
 
 ### Added
