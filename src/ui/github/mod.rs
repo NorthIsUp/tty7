@@ -291,6 +291,7 @@ impl Tty7App {
         let pick = crate::ui::github_session::remote_pick(
             self.github.remote_pick.get(&repo).map(String::as_str),
             cx.global::<crate::core::config::Config>()
+                .fork
                 .github_panel_prefer_origin,
         );
         match tty7_core::core::github::remote::default_remote(&remotes, pick) {

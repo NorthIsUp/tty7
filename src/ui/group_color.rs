@@ -98,7 +98,7 @@ pub(crate) fn swatch(name: &str, slot: Option<usize>, cx: &App) -> impl IntoElem
     let color = group_color(
         name,
         slot,
-        &cx.global::<Config>().group_colors,
+        &cx.global::<Config>().fork.group_colors,
         dark_rail(cx),
     );
     div()

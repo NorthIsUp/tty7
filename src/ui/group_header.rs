@@ -13,7 +13,7 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex};
 
-use crate::core::config::{Config, GroupBackgroundScope, GroupColorSource};
+use crate::core::config::Config;
 use crate::core::group_key::GroupKey;
 use crate::terminal::git_status::GitStatusCache;
 use crate::ui::app::Tty7App;
@@ -21,6 +21,7 @@ use crate::ui::group_color::{dark_rail, group_color};
 use crate::ui::host_ops::{HostId, HostOps};
 use crate::ui::host_registry::HostRegistry;
 use crate::ui::i18n::{L10nKey, t};
+use tty7_core::core::fork_config::{GroupBackgroundScope, GroupColorSource};
 
 /// A hashed fill's alpha: a pastel over a light rail, a wash over a dark one,
 /// and the muted name stays readable on both.
@@ -63,18 +64,21 @@ pub(crate) fn header_style(name: &str, slot: Option<usize>, rail: Hsla, cx: &App
     let dark = dark_rail(cx);
     let theme = cx.theme();
     let color =
-        |source, neutral| source_color(source, name, slot, &cfg.group_colors, dark, neutral);
-    let fill = cfg
-        .group_background
-        .then(|| color(cfg.group_background_color, theme.muted_foreground).opacity(FILL_ALPHA));
-    let outline = cfg.group_outline.then(|| match cfg.group_outline_color {
-        GroupColorSource::Theme => theme.border,
-        GroupColorSource::Hashed => {
-            color(GroupColorSource::Hashed, theme.border).opacity(OUTLINE_ALPHA)
-        }
+        |source, neutral| source_color(source, name, slot, &cfg.fork.group_colors, dark, neutral);
+    let fill = cfg.fork.group_background.then(|| {
+        color(cfg.fork.group_background_color, theme.muted_foreground).opacity(FILL_ALPHA)
     });
+    let outline = cfg
+        .fork
+        .group_outline
+        .then(|| match cfg.fork.group_outline_color {
+            GroupColorSource::Theme => theme.border,
+            GroupColorSource::Hashed => {
+                color(GroupColorSource::Hashed, theme.border).opacity(OUTLINE_ALPHA)
+            }
+        });
     HeaderStyle {
-        scope: cfg.group_background_scope,
+        scope: cfg.fork.group_background_scope,
         fill,
         outline,
         backing: fill.map_or(rail, |f| rail.blend(f)),
@@ -156,7 +160,7 @@ pub(crate) fn openness(
     window: &Window,
     cx: &mut Context<Tty7App>,
 ) -> f32 {
-    let animate = cx.global::<Config>().animations;
+    let animate = cx.global::<Config>().fork.animations;
     let app = cx.entity_id();
     let now = Instant::now();
     let fold = cx
@@ -278,9 +282,9 @@ impl Tty7App {
     /// The group header options, as rows for Settings' Tabs group.
     pub(crate) fn group_header_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 6] {
         let cfg = cx.global::<Config>();
-        let (outline, fill) = (cfg.group_outline, cfg.group_background);
-        let animations = cfg.animations;
-        let scope_ix = match cfg.group_background_scope {
+        let (outline, fill) = (cfg.fork.group_outline, cfg.fork.group_background);
+        let animations = cfg.fork.animations;
+        let scope_ix = match cfg.fork.group_background_scope {
             GroupBackgroundScope::Header => 0,
             GroupBackgroundScope::Group => 1,
         };
@@ -292,7 +296,10 @@ impl Tty7App {
             GroupColorSource::Theme => 0,
             GroupColorSource::Hashed => 1,
         };
-        let (outline_ix, fill_ix) = (ix(cfg.group_outline_color), ix(cfg.group_background_color));
+        let (outline_ix, fill_ix) = (
+            ix(cfg.fork.group_outline_color),
+            ix(cfg.fork.group_background_color),
+        );
         let pick = |ix: usize| match ix {
             0 => GroupColorSource::Theme,
             _ => GroupColorSource::Hashed,
@@ -303,17 +310,19 @@ impl Tty7App {
         ];
         let controls = [
             self.settings_switch("wt-group-outline", outline, cx, |this, on, _, cx| {
-                this.update_config(cx, |c| c.group_outline = on)
+                this.update_config(cx, |c| c.fork.group_outline = on)
             }),
             self.settings_choice(
                 "wt-group-outline-color",
                 &sources,
                 outline_ix,
                 cx,
-                move |this, ix, _, cx| this.update_config(cx, |c| c.group_outline_color = pick(ix)),
+                move |this, ix, _, cx| {
+                    this.update_config(cx, |c| c.fork.group_outline_color = pick(ix))
+                },
             ),
             self.settings_switch("wt-group-background", fill, cx, |this, on, _, cx| {
-                this.update_config(cx, |c| c.group_background = on)
+                this.update_config(cx, |c| c.fork.group_background = on)
             }),
             self.settings_choice(
                 "wt-group-background-color",
@@ -321,7 +330,7 @@ impl Tty7App {
                 fill_ix,
                 cx,
                 move |this, ix, _, cx| {
-                    this.update_config(cx, |c| c.group_background_color = pick(ix))
+                    this.update_config(cx, |c| c.fork.group_background_color = pick(ix))
                 },
             ),
             self.settings_choice(
@@ -331,7 +340,7 @@ impl Tty7App {
                 cx,
                 |this, ix, _, cx| {
                     this.update_config(cx, |c| {
-                        c.group_background_scope = match ix {
+                        c.fork.group_background_scope = match ix {
                             0 => GroupBackgroundScope::Header,
                             _ => GroupBackgroundScope::Group,
                         }
@@ -339,7 +348,7 @@ impl Tty7App {
                 },
             ),
             self.settings_switch("wt-group-animations", animations, cx, |this, on, _, cx| {
-                this.update_config(cx, |c| c.animations = on)
+                this.update_config(cx, |c| c.fork.animations = on)
             }),
         ];
         let labels = [
