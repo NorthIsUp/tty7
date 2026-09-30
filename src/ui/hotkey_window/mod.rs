@@ -87,8 +87,8 @@ impl<W: PartialEq> Stack<W> {
 /// The full screen hotkey window's level: NSFloatingWindowLevel, over other
 /// apps' windows but under every system window. Force Quit and the out of
 /// application memory dialog are loginwindow's, at kCGModalPanelWindowLevel
-/// (8), so this and the windows lifted over it stay below that; the Dock and
-/// menu bar get out of its way through presentation options, not a level.
+/// (8), so this and the windows lifted over it stay below that; the Dock gets
+/// out of its way through presentation options, not a level.
 const LEVEL: isize = 3;
 
 /// kCGModalPanelWindowLevel, where loginwindow puts Force Quit.
@@ -102,8 +102,7 @@ fn above(hotkey_level: isize) -> isize {
 
 /// How the Dock makes room for the full screen hotkey window, following the
 /// user's own Dock setting: an auto-hiding Dock still slides in over it, an
-/// always-shown one is hidden while it has focus. The menu bar always
-/// auto-hides (AppKit only allows that combined with one of these).
+/// always-shown one is hidden while it has focus. The menu bar stays.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Dock {
     AutoHide,
@@ -118,13 +117,20 @@ fn dock(autohides: bool) -> Dock {
 }
 
 /// How the app's presentation options change: `Some(on)` sets (`true`) or
-/// puts back the Dock and menu bar, `None` leaves them. They are on exactly
+/// puts back the Dock, `None` leaves it. They are on exactly
 /// while the full screen hotkey window is the key window, and only what the
 /// hotkey window set is ever put back, so options it never set (another
 /// window in native full screen) are left alone.
 fn presentation(presented: bool, hotkey_is_key: bool, fullscreen: bool) -> Option<bool> {
     let want = hotkey_is_key && fullscreen;
     (want != presented).then_some(want)
+}
+
+/// The full screen hotkey window's `(y, height)` on a screen, in AppKit's
+/// bottom-up coordinates: from the screen's bottom, over the Dock it hides,
+/// up to the top of `visibleFrame`, under the menu bar that screen shows.
+fn cover(frame_y: f64, visible_y: f64, visible_height: f64) -> (f64, f64) {
+    (frame_y, visible_y + visible_height - frame_y)
 }
 
 /// The workspace a launch or a Dock click reopens: never the hotkey window's.
@@ -333,7 +339,15 @@ mod tests {
     }
 
     #[test]
-    fn the_dock_and_menu_bar_follow_the_key_window() {
+    fn the_full_screen_window_stays_under_the_menu_bar_and_covers_the_dock() {
+        // 1000pt screen at y=0, 24pt menu bar, 70pt Dock at the bottom.
+        assert_eq!(cover(0.0, 70.0, 906.0), (0.0, 976.0));
+        // A second display above the first, no menu bar of its own.
+        assert_eq!(cover(1000.0, 1000.0, 800.0), (1000.0, 800.0));
+    }
+
+    #[test]
+    fn the_dock_follows_the_key_window() {
         assert_eq!(presentation(false, true, true), Some(true), "summoned");
         assert_eq!(presentation(true, true, true), None, "already set");
         assert_eq!(
