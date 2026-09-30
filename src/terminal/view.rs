@@ -1599,7 +1599,7 @@ impl TerminalView {
         view
     }
 
-    pub(super) fn with_terminal(
+    fn with_terminal(
         terminal: RemoteTerminal,
         pane_id: u64,
         window: &mut Window,
@@ -1731,7 +1731,7 @@ impl TerminalView {
         })
         .detach();
 
-        super::color_scheme::watch(cx, |view| &view.terminal);
+        super::color_scheme::watch(cx);
 
         let displayed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let entity_id = cx.entity().entity_id();
@@ -12248,6 +12248,112 @@ mod gpui_tests {
                 Err(e) => panic!("client socket failed before Input: {e}"),
             }
         }
+    }
+
+    /// What a pane types back to its daemon, collected off a reader thread so
+    /// the test can keep the executor running while it waits.
+    fn typed_back(daemon: &Stream) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let mut reader = daemon.try_clone().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            while let Ok(msg) = ClientMsg::read(&mut reader) {
+                if let ClientMsg::Input(bytes) = msg {
+                    let _ = tx.send(bytes);
+                }
+            }
+        });
+        rx
+    }
+
+    /// Everything typed back within `wait`, stopping early once it contains
+    /// `until`.
+    fn typed(
+        cx: &mut TestAppContext,
+        input: &std::sync::mpsc::Receiver<Vec<u8>>,
+        until: &str,
+        wait: std::time::Duration,
+    ) -> String {
+        let mut out = Vec::new();
+        let end = std::time::Instant::now() + wait;
+        while std::time::Instant::now() < end {
+            cx.run_until_parked();
+            while let Ok(bytes) = input.try_recv() {
+                out.extend(bytes);
+            }
+            if !until.is_empty() && String::from_utf8_lossy(&out).contains(until) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        String::from_utf8(out).unwrap()
+    }
+
+    #[gpui::test]
+    fn a_theme_change_reaches_only_the_panes_that_asked(cx: &mut TestAppContext) {
+        let set_background = |cx: &mut TestAppContext, bg: gpui::Hsla| {
+            cx.update(|cx| gpui_component::Theme::global_mut(cx).background = bg)
+        };
+        let (_asked_window, mut asked) = harness(cx);
+        let (_plain_window, plain) = harness(cx);
+        set_background(cx, gpui::white());
+        let asked_input = typed_back(&asked);
+        let plain_input = typed_back(&plain);
+        let wait = std::time::Duration::from_secs(5);
+        let quiet = std::time::Duration::from_millis(200);
+
+        DaemonMsg::Output(b"\x1b[?2031h\x1b[?996n".to_vec())
+            .encode(&mut asked)
+            .unwrap();
+        assert_eq!(
+            typed(cx, &asked_input, "997", wait),
+            "\x1b[?997;2n",
+            "996 answers the current scheme"
+        );
+
+        set_background(cx, gpui::black());
+        assert_eq!(typed(cx, &asked_input, "997", wait), "\x1b[?997;1n");
+        DaemonMsg::Output(b"\x1b]11;?\x07".to_vec())
+            .encode(&mut asked)
+            .unwrap();
+        assert!(
+            typed(cx, &asked_input, "rgb:", wait).contains("11;rgb:0000/0000/0000"),
+            "OSC 11 answers with the background the flip left"
+        );
+
+        set_background(cx, gpui::white());
+        assert_eq!(typed(cx, &asked_input, "997", wait), "\x1b[?997;2n");
+        assert_eq!(
+            typed(cx, &plain_input, "", quiet),
+            "",
+            "a pane that never set 2031 is not written to"
+        );
+
+        DaemonMsg::Output(b"\x1b[?2031l".to_vec())
+            .encode(&mut asked)
+            .unwrap();
+        let _ = typed(cx, &asked_input, "", std::time::Duration::from_millis(100));
+        set_background(cx, gpui::black());
+        assert_eq!(typed(cx, &asked_input, "", quiet), "", "2031 switched off");
+    }
+
+    #[gpui::test]
+    fn a_reattach_that_replays_2031_reports_the_scheme_once(cx: &mut TestAppContext) {
+        let (_window, mut daemon) = harness(cx);
+        cx.update(|cx| gpui_component::Theme::global_mut(cx).background = gpui::black());
+        let input = typed_back(&daemon);
+        DaemonMsg::Snapshot(b"\x1b[?2031h\x1b[?996n".to_vec())
+            .encode(&mut daemon)
+            .unwrap();
+        assert_eq!(
+            typed(cx, &input, "997", std::time::Duration::from_secs(5)),
+            "\x1b[?997;1n",
+            "the theme may have flipped while detached"
+        );
+        assert_eq!(
+            typed(cx, &input, "", std::time::Duration::from_millis(200)),
+            "",
+            "the replayed 996 is not answered again"
+        );
     }
 
     #[gpui::test]

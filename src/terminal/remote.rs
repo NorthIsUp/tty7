@@ -30,6 +30,7 @@ use crate::daemon::protocol::{
 };
 use crate::daemon::transport::{self, Stream};
 use gpui::EntityId;
+use tty7_core::core::term_modes::{COLOR_SCHEME_UPDATES, TerminalModes};
 
 use super::size::TermSize;
 
@@ -1252,7 +1253,7 @@ impl RemoteTerminal {
                 let mut prompt_break = PromptBreak::default();
                 // A new link replays the pane from scratch, 2031 included
                 // (`term_modes` restores it ahead of the ring).
-                let mut modes = tty7_core::core::term_modes::TerminalModes::new();
+                let mut modes = TerminalModes::new();
                 color_scheme_updates.store(false, Ordering::Relaxed);
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
@@ -1519,9 +1520,14 @@ impl RemoteTerminal {
                                     }
                                 });
                                 proxy.replaying.store(false, Ordering::Relaxed);
-                                // A replayed `?996n` was answered long ago.
+                                // A replayed `?996n` was answered long ago,
+                                // but the theme may have flipped while the pane
+                                // was detached, so say what it is now.
                                 super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
                                 modes.take_color_scheme_queries();
+                                if modes.is_on(COLOR_SCHEME_UPDATES) {
+                                    proxy.send_event(super::color_scheme::query_reply());
+                                }
                                 // The replay carries the pane's recent marks,
                                 // so reading it is what lets a reattached
                                 // window know whether the title it just
@@ -1846,6 +1852,10 @@ impl RemoteTerminal {
 
     pub(super) fn is_local_conpty(&self) -> bool {
         self.local_conpty.load(Ordering::Relaxed)
+    }
+
+    pub(super) fn color_scheme_updates(&self) -> bool {
+        self.color_scheme_updates.load(Ordering::Relaxed)
     }
 
     /// Queues a keystroke — or a paste, or a mouse report — for the link.
@@ -2708,12 +2718,6 @@ fn daemon_disconnected_before_spawn_reply(err: &anyhow::Error) -> bool {
             )
         })
     })
-}
-
-impl RemoteTerminal {
-    pub(super) fn color_scheme_updates(&self) -> bool {
-        self.color_scheme_updates.load(Ordering::Relaxed)
-    }
 }
 
 impl Drop for RemoteTerminal {
