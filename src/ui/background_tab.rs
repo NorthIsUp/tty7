@@ -90,6 +90,17 @@ impl Tty7App {
         out
     }
 
+    /// [`Self::in_background`] when the modifiers held ask for it
+    /// ([`wanted`]).
+    pub(crate) fn maybe_background<R>(
+        &mut self,
+        window: &mut Window,
+        open: impl FnOnce(&mut Self, &mut Window) -> R,
+    ) -> R {
+        let background = wanted(window);
+        self.in_background(background, |this| open(this, window))
+    }
+
     /// Insert a just-opened tab where `new_tab_position` says, and make it the
     /// active one unless [`Self::in_background`] asked otherwise. With no tab
     /// open there is nothing to stay on, so it is activated anyway.

@@ -13,6 +13,7 @@ pub mod editor_session;
 pub mod editor_text;
 pub mod file_copy;
 pub mod file_tree;
+pub mod first_prompt;
 pub mod forwards;
 pub mod github;
 pub mod github_session;

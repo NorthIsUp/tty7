@@ -657,6 +657,34 @@ impl Tty7App {
     }
 }
 
+impl Tty7App {
+    /// One of the three chords: open the palette on `tab`, switch to it from
+    /// another tab, or close the palette when it is already there. ⌘P's tabs
+    /// are the whole row, so walking it with Tab and pressing ⌘P still closes.
+    pub(crate) fn open_palette_on(
+        &mut self,
+        tab: SearchTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let showing = self.search.as_ref().map(|s| s.read(cx).tab());
+        let same = showing.is_some_and(|open| match tab {
+            SearchTab::All => !open.stands_alone(),
+            _ => open == tab,
+        });
+        if showing.is_some() {
+            self.close_search(window, cx);
+        }
+        if same {
+            return;
+        }
+        match tab {
+            SearchTab::NewTab => self.new_tab(window, cx),
+            _ => self.open_search(tab, "", window, cx),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::{TestAppContext, VisualTestContext};
