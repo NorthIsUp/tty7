@@ -125,7 +125,10 @@ impl OscTokenizer {
     }
 }
 
-pub fn parse_notification(payload: &[u8]) -> Option<(Option<String>, String)> {
+/// A desktop notification: its title, if it has one, and its body.
+pub type Note = (Option<String>, String);
+
+pub fn parse_notification(payload: &[u8]) -> Option<Note> {
     if let Some(rest) = payload.strip_prefix(b"9;") {
         let first = rest.split(|&b| b == b';').next().unwrap_or(rest);
         if first.len() == 1 && first[0].is_ascii_digit() {
@@ -155,8 +158,15 @@ pub fn parse_notification(payload: &[u8]) -> Option<(Option<String>, String)> {
 /// chunk without `d=0`. <https://sw.kovidgoyal.net/kitty/desktop-notifications/>
 #[derive(Default)]
 pub struct Notifications {
-    /// Unfinished OSC 99 notifications: id, title, body.
-    kitty: Vec<(String, String, String)>,
+    /// Unfinished OSC 99 notifications.
+    kitty: Vec<PendingKitty>,
+}
+
+#[derive(Default)]
+struct PendingKitty {
+    id: String,
+    title: String,
+    body: String,
 }
 
 /// Unfinished kitty notifications kept at once; a program that opens ids and
@@ -166,14 +176,14 @@ const MAX_PENDING_KITTY: usize = 8;
 impl Notifications {
     /// Reads one OSC payload, identifier included, and returns the
     /// notification it completes, as `(title, body)`.
-    pub fn parse(&mut self, payload: &[u8]) -> Option<(Option<String>, String)> {
+    pub fn parse(&mut self, payload: &[u8]) -> Option<Note> {
         match payload.strip_prefix(b"99;") {
             Some(rest) => self.kitty(rest),
             None => parse_notification(payload),
         }
     }
 
-    fn kitty(&mut self, rest: &[u8]) -> Option<(Option<String>, String)> {
+    fn kitty(&mut self, rest: &[u8]) -> Option<Note> {
         let split = rest.iter().position(|&b| b == b';');
         let (meta, data) = match split {
             Some(at) => (&rest[..at], &rest[at + 1..]),
@@ -197,21 +207,23 @@ impl Notifications {
                 .unwrap_or_default(),
             false => String::from_utf8_lossy(data).into_owned(),
         };
-        let at = match self.kitty.iter().position(|(i, ..)| i == id) {
+        let at = match self.kitty.iter().position(|p| p.id == id) {
             Some(at) => at,
             None => {
                 if self.kitty.len() == MAX_PENDING_KITTY {
                     self.kitty.remove(0);
                 }
-                self.kitty
-                    .push((id.to_string(), String::new(), String::new()));
+                self.kitty.push(PendingKitty {
+                    id: id.to_string(),
+                    ..Default::default()
+                });
                 self.kitty.len() - 1
             }
         };
-        let (_, title, body) = &mut self.kitty[at];
+        let pending = &mut self.kitty[at];
         let field = match part {
-            "title" => Some(title),
-            "body" => Some(body),
+            "title" => Some(&mut pending.title),
+            "body" => Some(&mut pending.body),
             _ => None,
         };
         if let Some(field) = field
@@ -222,7 +234,7 @@ impl Notifications {
         if !done {
             return None;
         }
-        let (_, title, body) = self.kitty.remove(at);
+        let PendingKitty { title, body, .. } = self.kitty.remove(at);
         match (title.is_empty(), body.is_empty()) {
             (true, true) => None,
             (false, true) => Some((None, title)),
@@ -576,7 +588,7 @@ mod tests {
         );
     }
 
-    fn notes(payloads: &[&[u8]]) -> Vec<(Option<String>, String)> {
+    fn notes(payloads: &[&[u8]]) -> Vec<Note> {
         let mut n = Notifications::default();
         payloads.iter().filter_map(|p| n.parse(p)).collect()
     }

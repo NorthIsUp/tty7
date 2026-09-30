@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 
 use crate::core::cli_agent::{AgentSessionState, AgentStatus, CLIAgent};
 use crate::core::config::CursorStyle as ConfigCursorStyle;
-use crate::core::osc::{OscTokenizer, TitleEffect, TitleLifetime};
+use crate::core::osc::{Note, OscTokenizer, TitleEffect, TitleLifetime};
 use crate::daemon::protocol::{
     AuthPromptKind, AuthResponse, ClientMsg, DaemonMsg, KnownHostEntry, KnownHostId,
     LoopbackForward, LoopbackForwardRequest, ManagedForward, NativeSshSpec, PaneProcs,
@@ -2005,7 +2005,7 @@ impl RemoteTerminal {
 
     /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
     /// first; the view decides whether each is shown.
-    pub fn take_osc_notes(&self) -> Vec<(Option<String>, String)> {
+    pub fn take_osc_notes(&self) -> Vec<Note> {
         self.osc_notes
             .lock()
             .map(|mut notes| notes.drain(..).collect())
@@ -3201,7 +3201,11 @@ mod notification_tests {
     }
 }
 
-type OscNotes = Arc<Mutex<VecDeque<(Option<String>, String)>>>;
+type OscNotes = Arc<Mutex<VecDeque<Note>>>;
+
+/// Notes queued for a view that has not polled; a pane nobody is drawing
+/// keeps only the newest.
+const MAX_OSC_NOTES: usize = 8;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
@@ -3218,10 +3222,15 @@ impl Default for OscNotifyScanner {
 }
 
 impl OscNotifyScanner {
-    fn feed<E: Extend<(Option<String>, String)>>(&mut self, bytes: &[u8], out: &mut E) {
+    fn feed(&mut self, bytes: &[u8], out: &mut VecDeque<Note>) {
         let notes = &mut self.notes;
         self.tok.feed(bytes, |payload| {
-            out.extend(parse_osc_notification(notes, payload));
+            if let Some(note) = parse_osc_notification(notes, payload) {
+                if out.len() >= MAX_OSC_NOTES {
+                    out.pop_front();
+                }
+                out.push_back(note);
+            }
         });
     }
 }
@@ -3229,7 +3238,7 @@ impl OscNotifyScanner {
 fn parse_osc_notification(
     notes: &mut crate::core::osc::Notifications,
     payload: &[u8],
-) -> Option<(Option<String>, String)> {
+) -> Option<Note> {
     if crate::core::cli_agent::parse_agent_event(payload).is_some() {
         return None;
     }
@@ -7103,15 +7112,25 @@ mod tests {
 
 #[cfg(test)]
 mod osc_tests {
-    use super::{OscNotifyScanner, parse_osc_notification};
+    use super::{MAX_OSC_NOTES, Note, OscNotifyScanner, VecDeque, parse_osc_notification};
 
-    fn scan(chunks: &[&[u8]]) -> Vec<(Option<String>, String)> {
+    fn scan(chunks: &[&[u8]]) -> Vec<Note> {
         let mut s = OscNotifyScanner::default();
-        let mut out = Vec::new();
+        let mut out = VecDeque::new();
         for c in chunks {
             s.feed(c, &mut out);
         }
-        out
+        out.into()
+    }
+
+    #[test]
+    fn an_unread_queue_keeps_only_the_newest_notes() {
+        let chunks: Vec<Vec<u8>> = (0..MAX_OSC_NOTES + 2)
+            .map(|n| format!("\x1b]9;note {n}\x07").into_bytes())
+            .collect();
+        let got = scan(&chunks.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        assert_eq!(got.len(), MAX_OSC_NOTES);
+        assert_eq!(got[0], (None, "note 2".to_string()));
     }
 
     #[test]

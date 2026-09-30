@@ -30,7 +30,7 @@ use crate::core::actions::{
     OpenLinkUnderPointer, OpenLinkWithDefaultApp, RevealLinkUnderPointer, SaveAgentLaunchArgs,
     SendBackTab, SendTab, SplitDown, SplitRight, ToggleMaximizePane,
 };
-use crate::core::config::{BellMode, Config, LinkFileOpen, MouseZoomModifier, NotifyMode};
+use crate::core::config::{BellMode, Config, LinkFileOpen, MouseZoomModifier};
 use crate::core::shell_quote::quote_for_shell;
 use crate::daemon::protocol::{RemoteContext, ShellSpec};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -746,24 +746,6 @@ fn compose_notification_title(
     }
 }
 
-/// Whether a notification a program wrote reaches the desktop. `Unfocused`
-/// holds it back only while the reader is looking at this very pane. A pane
-/// whose agent reports through tty7's hooks already gets its Waiting and Done
-/// notices from `poll_agent_status` whenever the setting lets those through,
-/// so the program's own copy would be a duplicate there.
-fn shows_program_note(
-    mode: NotifyMode,
-    window_active: bool,
-    pane_focused: bool,
-    hooked_agent: bool,
-) -> bool {
-    match mode {
-        NotifyMode::Never => false,
-        NotifyMode::Unfocused if window_active => !pane_focused,
-        NotifyMode::Unfocused | NotifyMode::Always => !hooked_agent,
-    }
-}
-
 /// The longest command line to put in a confirmation. The shell sends up to
 /// 512 bytes; a dialog asking whether to end your work should still read as a
 /// sentence.
@@ -848,17 +830,23 @@ impl TerminalView {
     /// Desktop notifications the program wrote (OSC 9, 99, 777), such as
     /// Claude Code's with its Notifications setting on `ghostty`, `kitty` or
     /// `iterm2`. The agent's Waiting mark on the tab is the daemon's doing.
-    fn show_program_notes(&self, window: &Window, cx: &mut Context<Self>) {
+    ///
+    /// `Unfocused` holds a note back only while the reader is looking at this
+    /// very pane. A pane whose agent reports through tty7's hooks already gets
+    /// its Waiting and Done notices from `poll_agent_status` whenever
+    /// `hooks_notify`, so the program's own copy would be a duplicate there.
+    fn show_program_notes(&self, hooks_notify: bool, window: &Window, cx: &mut Context<Self>) {
         let notes = self.terminal.take_osc_notes();
         if notes.is_empty() {
             return;
         }
-        let show = shows_program_note(
-            cx.global::<Config>().notify_on_command_finish,
-            window.is_window_active(),
-            self.focus_handle.is_focused(window),
-            self.terminal.agent_session().is_some_and(|s| s.rich),
-        );
+        let watched = window.is_window_active() && self.focus_handle.is_focused(window);
+        let hooked = self.terminal.agent_session().is_some_and(|s| s.rich);
+        let show = cx
+            .global::<Config>()
+            .notify_on_command_finish
+            .allows(watched)
+            && !(hooked && hooks_notify);
         log::debug!(
             "{} program notification(s) {}",
             notes.len(),
@@ -4025,12 +4013,11 @@ impl TerminalView {
             cx.notify();
         }
 
-        let notify_allowed = match cx.global::<Config>().notify_on_command_finish {
-            NotifyMode::Never => false,
-            NotifyMode::Unfocused => !window.is_window_active(),
-            NotifyMode::Always => true,
-        };
-        self.show_program_notes(window, cx);
+        let notify_allowed = cx
+            .global::<Config>()
+            .notify_on_command_finish
+            .allows(window.is_window_active());
+        self.show_program_notes(notify_allowed, window, cx);
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
@@ -8671,7 +8658,7 @@ mod tests {
         WheelRoute, clipboard_paths, compose_notification_title, cwd_is_on_host, display_width,
         link_path_style, loopback_plan, observe_typeahead_for_owner, typeahead_boundary,
     };
-    use super::{SCROLL_ANIM_FRAME, scroll_anim_step, shows_program_note};
+    use super::{SCROLL_ANIM_FRAME, scroll_anim_step};
     use super::{
         TitleSettle, files_cwd, local_path_for_pane, remote_paste_spec, settle_title,
         stages_clipboard_image, staging_cache, staging_dir_is_safe, wsl_path, wsl_share_distro,
@@ -8736,31 +8723,6 @@ mod tests {
             "Claude"
         );
         assert_eq!(compose_notification_title(None, None, None), "tty7");
-    }
-
-    #[test]
-    fn a_program_note_is_held_back_only_from_the_pane_being_watched() {
-        use crate::core::config::NotifyMode::*;
-        // (mode, window active, pane focused, hooked agent) -> shown
-        let cases = [
-            (Unfocused, true, true, false, false),
-            (Unfocused, true, false, false, true),
-            (Unfocused, false, true, false, true),
-            // Hooks already notify while the window is in the background.
-            (Unfocused, false, false, true, false),
-            // They stay quiet in a key window, so another tab's note shows.
-            (Unfocused, true, false, true, true),
-            (Always, true, true, false, true),
-            (Always, false, false, true, false),
-            (Never, false, false, false, false),
-        ];
-        for (mode, active, focused, hooked, shown) in cases {
-            assert_eq!(
-                shows_program_note(mode, active, focused, hooked),
-                shown,
-                "{mode:?} active={active} focused={focused} hooked={hooked}"
-            );
-        }
     }
 
     #[test]
