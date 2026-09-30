@@ -38,6 +38,9 @@ use crate::ui::i18n::{L10nKey, t, t_fmt};
 /// How long [`TerminalView::run_at_prompt`] waits for a prompt that a shell
 /// without integration never reports.
 const QUEUED_LINE_FALLBACK: std::time::Duration = std::time::Duration::from_secs(3);
+/// How long it waits for a shell whose integration will report one, however
+/// slow its startup files (nvm, conda): only a broken one takes this long.
+const QUEUED_LINE_CAP: std::time::Duration = std::time::Duration::from_secs(30);
 const GRID_PAD_X: f32 = 8.;
 const GRID_PAD_Y: f32 = 4.;
 
@@ -2323,12 +2326,39 @@ impl TerminalView {
     /// [`Self::run_command_line`] for a shell that may still be starting: a
     /// line written before the first prompt is typeahead, and a startup file
     /// that reads the terminal (a focus-reporting or colour query) swallows
-    /// it. Held until the shell reports a prompt, or [`QUEUED_LINE_FALLBACK`]
-    /// for a shell without integration, which never will.
+    /// it. Held until the shell reports a prompt: up to [`QUEUED_LINE_CAP`]
+    /// for a shell that will, [`QUEUED_LINE_FALLBACK`] for one without
+    /// integration, which never will.
     pub fn run_at_prompt(&mut self, cmd: String) {
         match self.terminal.at_prompt() {
             true => self.run_command_line(&cmd),
             false => self.queued_line = Some((cmd, std::time::Instant::now())),
+        }
+    }
+
+    /// How long a held line waits for the first prompt: long when this
+    /// pane's shell will report one (it already has, or it is a local shell
+    /// tty7 injects integration into), short when it never will.
+    fn queued_line_patience(&self, cx: &App) -> std::time::Duration {
+        let remote = self.workspace.is_some()
+            || self.ssh_spec.is_some()
+            || self.terminal.remote_context().is_some();
+        let own_args = |args: &[String], tty7s: bool| !args.is_empty() && !tty7s;
+        let integrates = match &self.shell_spec {
+            Some(spec) => {
+                !own_args(&spec.args, spec.args_are_tty7_defaults)
+                    && crate::daemon::shell_integrates(Some(&spec.program))
+            }
+            None => match cx.try_global::<Config>().and_then(|c| c.shell.clone()) {
+                Some(shell) if !shell.program.trim().is_empty() => {
+                    shell.args.is_empty() && crate::daemon::shell_integrates(Some(&shell.program))
+                }
+                _ => crate::daemon::shell_integrates(None),
+            },
+        };
+        match self.terminal.shell_active() || (!remote && integrates) {
+            true => QUEUED_LINE_CAP,
+            false => QUEUED_LINE_FALLBACK,
         }
     }
 
@@ -4017,7 +4047,7 @@ impl TerminalView {
         let at_prompt = self.terminal.at_prompt();
 
         if let Some((_, since)) = &self.queued_line
-            && (at_prompt || since.elapsed() >= QUEUED_LINE_FALLBACK)
+            && (at_prompt || since.elapsed() >= self.queued_line_patience(cx))
             && let Some((line, _)) = self.queued_line.take()
         {
             self.run_command_line(&line);
@@ -12353,6 +12383,119 @@ mod gpui_tests {
                 Err(e) => panic!("client socket failed before Input: {e}"),
             }
         }
+    }
+
+    fn report_prompt(
+        window: &gpui::WindowHandle<TerminalView>,
+        daemon: &mut Stream,
+        cx: &mut TestAppContext,
+    ) {
+        use std::io::Write as _;
+        DaemonMsg::Prompt {
+            active: true,
+            at_prompt: true,
+            last_exit: None,
+        }
+        .encode(daemon)
+        .unwrap();
+        daemon.flush().unwrap();
+        for _ in 0..200 {
+            if window
+                .update(cx, |view, _, _| view.terminal.at_prompt())
+                .unwrap()
+            {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the prompt report never arrived");
+    }
+
+    /// Runs `line` at the prompt of a pane whose shell is `program`, with the
+    /// held line's clock moved back by `waited`, and polls once.
+    fn run_held(
+        window: &gpui::WindowHandle<TerminalView>,
+        program: &str,
+        waited: std::time::Duration,
+        cx: &mut TestAppContext,
+    ) {
+        window
+            .update(cx, |view, window, cx| {
+                view.shell_spec = Some(ShellSpec {
+                    program: program.into(),
+                    args: Vec::new(),
+                    args_are_tty7_defaults: false,
+                });
+                view.run_at_prompt("claude".into());
+                if let Some((_, since)) = view.queued_line.as_mut() {
+                    *since -= waited;
+                }
+                view.poll_foreground(window, cx);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn a_line_run_at_prompt_waits_for_the_first_prompt(cx: &mut TestAppContext) {
+        let (window, mut daemon) = harness(cx);
+        run_held(&window, "/bin/zsh", std::time::Duration::ZERO, cx);
+        assert_eq!(
+            next_input_until_timeout(&mut daemon),
+            None,
+            "a shell still starting would take the line as typeahead"
+        );
+        report_prompt(&window, &mut daemon, cx);
+        window
+            .update(cx, |view, window, cx| view.poll_foreground(window, cx))
+            .unwrap();
+        assert_eq!(
+            next_input_until_timeout(&mut daemon).as_deref(),
+            Some(&b"claude\r"[..])
+        );
+    }
+
+    #[gpui::test]
+    fn a_line_run_at_prompt_goes_out_without_shell_integration(cx: &mut TestAppContext) {
+        let (window, mut daemon) = harness(cx);
+        run_held(&window, "/bin/sh", QUEUED_LINE_FALLBACK, cx);
+        assert_eq!(
+            next_input_until_timeout(&mut daemon).as_deref(),
+            Some(&b"claude\r"[..])
+        );
+    }
+
+    /// A slow startup file (nvm, conda) outlasts the short fallback; a shell
+    /// with integration is waited on until it prompts, up to the cap.
+    #[gpui::test]
+    fn an_integrated_shell_is_waited_on_past_the_fallback(cx: &mut TestAppContext) {
+        let (window, mut daemon) = harness(cx);
+        run_held(&window, "/bin/zsh", QUEUED_LINE_FALLBACK, cx);
+        assert_eq!(next_input_until_timeout(&mut daemon), None);
+        window
+            .update(cx, |view, window, cx| {
+                if let Some((_, since)) = view.queued_line.as_mut() {
+                    *since -= QUEUED_LINE_CAP;
+                }
+                view.poll_foreground(window, cx);
+            })
+            .unwrap();
+        assert_eq!(
+            next_input_until_timeout(&mut daemon).as_deref(),
+            Some(&b"claude\r"[..])
+        );
+    }
+
+    #[gpui::test]
+    fn a_line_run_at_a_prompt_goes_out_at_once(cx: &mut TestAppContext) {
+        let (window, mut daemon) = harness(cx);
+        report_prompt(&window, &mut daemon, cx);
+        window
+            .update(cx, |view, _, _| view.run_at_prompt("claude".into()))
+            .unwrap();
+        assert_eq!(
+            next_input_until_timeout(&mut daemon).as_deref(),
+            Some(&b"claude\r"[..])
+        );
     }
 
     #[gpui::test]

@@ -32,6 +32,7 @@ pub mod transport;
 pub(crate) const DETECTED_SHELL_ENV: &str = "TTY7_DETECTED_SHELL";
 
 pub(crate) mod shell_integration;
+pub use shell_integration::integrates as shell_integrates;
 
 #[cfg(windows)]
 pub(crate) mod winproc;
