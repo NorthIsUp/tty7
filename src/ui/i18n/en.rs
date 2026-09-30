@@ -2326,10 +2326,12 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubNoDescription => "No description provided.",
         L10nKey::GitHubFilterByLabel => "Show only this label",
         L10nKey::GitHubClearLabel => "Clear label filter",
-        L10nKey::GitHubThisSession => "This session",
-        L10nKey::GitHubNoSessionPulls => "No PRs mentioned in this session",
-        L10nKey::GitHubShowAllPulls => "Show all",
-        L10nKey::GitHubMoreMentioned => "{count} more mentioned in this session",
+        L10nKey::GitHubSession => "Session",
+        L10nKey::GitHubAll => "All",
+        L10nKey::GitHubNoSessionMentions => {
+            "This session hasn't mentioned an issue or pull request"
+        }
+        L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
         L10nKey::GitHubImage => "image",
         L10nKey::GitHubComments => "{count} comments",
         L10nKey::GitHubCommits => "{count} commits",
