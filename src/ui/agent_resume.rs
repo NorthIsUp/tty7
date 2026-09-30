@@ -5,7 +5,6 @@
 //! and dialog copy, and the line a restored agent pane types.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 
 use gpui::{AnyElement, App, Context, Entity, Global, IntoElement as _, Window};
 
@@ -13,15 +12,14 @@ use crate::core::config::Config;
 use crate::core::session::{SessionPane, SessionTab, WorkspaceStore};
 use crate::terminal::PaneWorkspace;
 use crate::terminal::view::TerminalView;
-use crate::ui::agent_launch::type_at_first_prompt;
 use crate::ui::app::{Tty7App, join_shell_args};
+use crate::ui::first_prompt::{on_this_machine, type_at_first_prompt};
 use crate::ui::host_ops::HostOps;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::claude_background::ResumePlan;
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::machine::TabId;
-use tty7_core::daemon::pane::integrates;
 use tty7_core::host::HostId;
 
 /// An agent session a restored pane reopens once its shell is up.
@@ -63,11 +61,61 @@ impl Resume {
 }
 
 impl Resume {
+    /// What a restored pane that ran `agent` reopens: nothing when session
+    /// restore is off, no session id was captured, or the agent cannot resume
+    /// it (an id unsafe to type).
+    pub(crate) fn restored(
+        agent: &Option<CLIAgent>,
+        session_id: Option<&str>,
+        launch_argv: Option<&[String]>,
+        cx: &App,
+    ) -> Option<Resume> {
+        if !cx.global::<Config>().restore_agent_sessions {
+            return None;
+        }
+        let agent = agent.as_ref()?;
+        let Some(session_id) = session_id else {
+            log::info!(
+                "{}'s pane had no captured session id; it comes back as a plain shell",
+                agent.display_name()
+            );
+            return None;
+        };
+        agent.resume_command(session_id, launch_argv)?;
+        Some(Resume {
+            agent: *agent,
+            session_id: session_id.to_string(),
+            launch_argv: launch_argv.map(<[String]>::to_vec),
+            prompt: wake_prompt(cx),
+        })
+    }
+
     /// For a pane that was still connecting when its wake ran: the prompt it
     /// carried here in `PendingSpawn::agent_prompt`.
     pub(crate) fn landing(self, prompt: Option<String>) -> AtPrompt {
         AtPrompt::Resume(Resume { prompt, ..self })
     }
+}
+
+/// `line` with a fresh `--session-id` for Claude, so the pane knows which
+/// conversation it is from the first keystroke — no hook, no transcript. A
+/// line that already names a session, or starts none of its own, is left be.
+pub(crate) fn with_minted_session(agent: CLIAgent, line: String) -> String {
+    const NAMED: &[&str] = &[
+        "--session-id",
+        "--resume",
+        "-r",
+        "--continue",
+        "-c",
+        "--from-pr",
+    ];
+    let names_one = line
+        .split_whitespace()
+        .any(|t| NAMED.contains(&t.split('=').next().unwrap_or(t)));
+    if agent != CLIAgent::Claude || names_one {
+        return line;
+    }
+    format!("{line} --session-id {}", uuid::Uuid::new_v4())
 }
 
 /// The prompt a wake in progress sends each agent it resumes, set only for
@@ -124,35 +172,6 @@ impl AtPrompt {
                 },
             )
         });
-    }
-}
-
-/// Whether `view`'s shell, and so its agent session, runs on this machine:
-/// not a remote workspace's pane, not SSH (native or typed), not WSL.
-fn on_this_machine(view: &TerminalView) -> bool {
-    view.pane_route().is_local() && view.ssh_spec().is_none() && view.remote_context().is_none()
-}
-
-/// How long a new shell may take to reach a prompt that is coming: its
-/// startup files can be slow (nvm, conda).
-const PROMPT_CAP: Duration = Duration::from_secs(30);
-/// How long to give one that will never report a prompt: no integration.
-const PROMPT_WAIT: Duration = Duration::from_secs(3);
-
-/// How long [`type_at_first_prompt`] waits on `view`: up to [`PROMPT_CAP`]
-/// when a prompt report is coming (the shell has reported already, or it is
-/// a local shell the daemon gives integration), [`PROMPT_WAIT`] otherwise.
-pub(crate) fn prompt_patience(view: &Entity<TerminalView>, cx: &App) -> Duration {
-    let view = view.read(cx);
-    let local = on_this_machine(view);
-    let configured = cx
-        .global::<Config>()
-        .shell
-        .clone()
-        .map(|s| (s.program, s.args));
-    match view.terminal.shell_active() || (local && integrates(view.shell_spec(), configured)) {
-        true => PROMPT_CAP,
-        false => PROMPT_WAIT,
     }
 }
 
@@ -435,7 +454,7 @@ pub(crate) fn layout_has_live_pane(
 mod tests {
     use super::{
         RestoredDead, Resume, ResumePlan, Wake, agent_tabs, launch_wake, layout_has_live_pane,
-        record_restores_asleep, restart_wakes, take_restored,
+        record_restores_asleep, restart_wakes, take_restored, with_minted_session,
     };
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
@@ -594,6 +613,23 @@ mod tests {
         assert!(!layout_has_live_pane(&leaf(Some(1)), Some(&alive)));
         assert!(!layout_has_live_pane(&leaf(None), Some(&alive)));
         assert!(!layout_has_live_pane(&split, Some(&Default::default())));
+    }
+
+    #[test]
+    fn a_claude_launch_mints_the_session_it_will_resume() {
+        let line = with_minted_session(CLIAgent::Claude, "claude --model opus".into());
+        let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+        assert!(
+            CLIAgent::Claude.session_id_in_argv(&argv).is_some(),
+            "{line}"
+        );
+        for kept in ["claude --continue", "claude -r", "claude --session-id=x"] {
+            assert_eq!(with_minted_session(CLIAgent::Claude, kept.into()), kept);
+        }
+        assert_eq!(
+            with_minted_session(CLIAgent::Codex, "codex".into()),
+            "codex"
+        );
     }
 
     #[test]

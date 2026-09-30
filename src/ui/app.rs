@@ -4194,7 +4194,7 @@ impl Tty7App {
         let resume = (!restored)
             .then(|| {
                 let spawn = &pending.read(cx).spawn;
-                agent_resume_command(
+                crate::ui::agent_resume::Resume::restored(
                     &spawn.agent,
                     spawn.agent_session_id.as_deref(),
                     spawn.agent_launch_argv.as_deref(),
@@ -6843,8 +6843,9 @@ impl Tty7App {
             // is: a split beside the focused pane instead of a tab.
             LaunchAgent(agent) => {
                 let at = SpawnWhere::from_modifiers(window.modifiers());
-                let background = crate::ui::background_tab::wanted(window);
-                self.in_background(background, |this| this.launch_agent(agent, at, window, cx))
+                self.maybe_background(window, |this, window| {
+                    this.launch_agent(agent, at, window, cx)
+                })
             }
             CopyAgentSessionId => self.copy_agent_session_id(self.active, window, cx),
             RenameWorkspace => self.start_workspace_rename(window, cx),
@@ -6959,14 +6960,14 @@ impl Tty7App {
                 agent,
                 session_id,
                 cwd,
-            } => self.in_background(crate::ui::background_tab::wanted(window), |this| {
+            } => self.maybe_background(window, |this, window| {
                 this.resume_session(agent, &session_id, cwd, false, window, cx)
             }),
             ForkSession {
                 agent,
                 session_id,
                 cwd,
-            } => self.in_background(crate::ui::background_tab::wanted(window), |this| {
+            } => self.maybe_background(window, |this, window| {
                 this.resume_session(agent, &session_id, cwd, true, window, cx)
             }),
             CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
@@ -10344,32 +10345,6 @@ fn tab_to_session(tab: &Tab, cx: &App) -> SessionTab {
     }
 }
 
-fn agent_resume_command(
-    agent: &Option<crate::core::cli_agent::CLIAgent>,
-    session_id: Option<&str>,
-    launch_argv: Option<&[String]>,
-    cx: &App,
-) -> Option<crate::ui::agent_resume::Resume> {
-    if !cx.global::<Config>().restore_agent_sessions {
-        return None;
-    }
-    let agent = agent.as_ref()?;
-    let Some(session_id) = session_id else {
-        log::info!(
-            "{}'s pane had no captured session id; it comes back as a plain shell",
-            agent.display_name()
-        );
-        return None;
-    };
-    agent.resume_command(session_id, launch_argv)?;
-    Some(crate::ui::agent_resume::Resume {
-        agent: *agent,
-        session_id: session_id.to_string(),
-        launch_argv: launch_argv.map(<[String]>::to_vec),
-        prompt: crate::ui::agent_resume::wake_prompt(cx),
-    })
-}
-
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
     match pane {
         Pane::Leaf(PaneSlot::Connecting(pending)) => {
@@ -10757,7 +10732,7 @@ fn session_to_pane(
             };
             match &view {
                 PaneSlot::Ready(terminal) if !terminal.read(cx).restored() => {
-                    if let Some(resume) = agent_resume_command(
+                    if let Some(resume) = crate::ui::agent_resume::Resume::restored(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),

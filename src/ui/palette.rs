@@ -66,6 +66,12 @@ fn edits_text(ks: &Keystroke) -> bool {
         }
 }
 
+fn recording_a_shortcut(app: &Entity<Tty7App>, cx: &App) -> bool {
+    app.read(cx)
+        .active_settings()
+        .is_some_and(|s| s.recording.is_some())
+}
+
 fn intercept(ev: &KeystrokeEvent, window: &mut Window, cx: &mut App) {
     let Some(view) = window
         .root::<gpui_component::Root>()
@@ -82,12 +88,8 @@ fn intercept(ev: &KeystrokeEvent, window: &mut Window, cx: &mut App) {
     let Ok(app) = view.downcast::<Tty7App>() else {
         return;
     };
-    // Recording a keybinding takes every key, these three included.
-    if app
-        .read(cx)
-        .active_settings()
-        .is_some_and(|s| s.recording.is_some())
-    {
+    // Recording a keybinding takes every key, the palette's included.
+    if recording_a_shortcut(&app, cx) {
         return;
     }
     if let Some(tab) = chord_tab(ks, cx) {
@@ -144,14 +146,7 @@ fn from_settings(settings: &Entity<SettingsWindow>, ks: &Keystroke, cx: &mut App
     let Some(app) = settings.read(cx).app.upgrade() else {
         return;
     };
-    if app
-        .read(cx)
-        .active_settings()
-        .is_some_and(|s| s.recording.is_some())
-    {
-        return;
-    }
-    let Some(tab) = chord_tab(ks, cx) else {
+    let Some(tab) = chord_tab(ks, cx).filter(|_| !recording_a_shortcut(&app, cx)) else {
         return;
     };
     let Some((_, owner)) = app.read(cx).settings_window else {
@@ -164,34 +159,6 @@ fn from_settings(settings: &Entity<SettingsWindow>, ks: &Keystroke, cx: &mut App
             app.update(cx, |app, cx| app.open_palette_on(tab, window, cx));
         });
     });
-}
-
-impl Tty7App {
-    /// One of the three chords: open the palette on `tab`, switch to it from
-    /// another tab, or close the palette when it is already there. ⌘P's tabs
-    /// are the whole row, so walking it with Tab and pressing ⌘P still closes.
-    pub(crate) fn open_palette_on(
-        &mut self,
-        tab: SearchTab,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let showing = self.search.as_ref().map(|s| s.read(cx).tab());
-        let same = showing.is_some_and(|open| match tab {
-            SearchTab::All => !open.stands_alone(),
-            _ => open == tab,
-        });
-        if showing.is_some() {
-            self.close_search(window, cx);
-        }
-        if same {
-            return;
-        }
-        match tab {
-            SearchTab::NewTab => self.new_tab(window, cx),
-            _ => self.open_search(tab, "", window, cx),
-        }
-    }
 }
 
 #[cfg(test)]
