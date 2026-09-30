@@ -18,7 +18,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSRect};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use super::carbon::{self, carbon_chord};
+use super::carbon::{self, Plan, carbon_chord};
 use super::{Stack, Toggle, above, configured, toggle};
 use crate::core::config::{Config, config_path, write_atomic};
 use crate::core::session::WorkspaceId;
@@ -67,13 +67,13 @@ impl PartialEq for Lifted {
 }
 
 #[derive(Default)]
-pub(super) struct HotkeyWindow {
+struct HotkeyWindow {
     registered: Option<(String, carbon::HotKey)>,
     /// A chord macOS refused, not asked again until the config names another.
     refused: Option<String>,
     /// Settings is recording a new chord (its keystrokes, and Settings
     /// closing): the hotkey is off meanwhile.
-    pub(super) recording: Option<[Subscription; 2]>,
+    recording: Option<[Subscription; 2]>,
     saved: Vec<Saved>,
     window: Option<AnyWindowHandle>,
     workspace: Option<WorkspaceId>,
@@ -148,7 +148,12 @@ pub(super) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
     if let Some((handle, ns)) = hotkey_window(cx) {
         release(cx, handle, &ns);
         if id.is_some() && ns.isVisible() {
-            hide(cx, ns, false);
+            // Out at once, not faded: a fade of a window no longer the
+            // hotkey window's could be cut short by the next press and leave
+            // it on screen half transparent.
+            next_generation(cx);
+            ns.orderOut(None);
+            ns.setAlphaValue(1.0);
         }
     }
     save(id);
@@ -164,6 +169,11 @@ pub(super) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
 fn release(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
+    restore_saved(hk, handle, ns);
+}
+
+/// Puts back what a full screen summon changed on `handle`'s window.
+fn restore_saved(hk: &mut HotkeyWindow, handle: AnyWindowHandle, ns: &NSWindow) {
     if let Some(ix) = hk.saved.iter().position(|s| s.window == handle) {
         let s = hk.saved.remove(ix);
         ns.setLevel(s.level);
@@ -194,10 +204,24 @@ fn observe_appkit() {
     }
 }
 
+/// Whether Settings is recording a chord.
+pub(super) fn recording(cx: &App) -> bool {
+    cx.try_global::<HotkeyWindow>()
+        .is_some_and(|hk| hk.recording.is_some())
+}
+
+/// Starts (`Some`: its keystroke and window-closed subscriptions) or ends
+/// recording a chord, and registers what that leaves wanted.
+pub(super) fn set_recording(cx: &mut App, recording: Option<[Subscription; 2]>) {
+    cx.global_mut::<HotkeyWindow>().recording = recording;
+    sync(cx);
+}
+
 /// Registers the configured chord if it is not the one already held. Off
 /// while Settings records a new one, or pressing it would fire it. A chord
-/// macOS refused is not asked for again until the config names another.
-pub(super) fn sync(cx: &mut App) {
+/// macOS refused is not asked for again until the hotkey is turned off or
+/// another is configured.
+fn sync(cx: &mut App) {
     let want = {
         let hk = cx.global::<HotkeyWindow>();
         if hk.recording.is_some() {
@@ -207,15 +231,22 @@ pub(super) fn sync(cx: &mut App) {
         }
     };
     let hk = cx.global_mut::<HotkeyWindow>();
-    if hk.registered.as_ref().map(|(s, _)| s) == want.as_ref() || hk.refused == want {
+    let registered = hk.registered.as_ref().map(|(s, _)| s.as_str());
+    let plan = carbon::plan(registered, hk.refused.as_deref(), want.as_deref());
+    if plan == Plan::Keep {
         return;
     }
     if let Some((spec, hotkey)) = hk.registered.take() {
         drop(hotkey);
         log::info!("global hotkey: unregistered {spec}");
     }
+    let (Plan::Register, Some(spec)) = (plan, want) else {
+        if plan == Plan::Off {
+            hk.refused = None;
+        }
+        return;
+    };
     hk.refused = None;
-    let Some(spec) = want else { return };
     let Some((code, modifiers)) = carbon_chord(&spec) else {
         log::warn!("global hotkey: {spec:?} is not a single chord macOS can register");
         hk.refused = Some(spec);
@@ -275,11 +306,18 @@ fn open_hotkey_window(cx: &mut App) -> Option<(AnyWindowHandle, Retained<NSWindo
     let handle = match saved.and_then(|id| WindowRegistry::window_for(cx, id)) {
         Some(handle) => handle,
         None => {
+            // A fresh workspace's id is minted in there, so the new window
+            // is the one the registry did not have before. None when the
+            // open failed, rather than some other window.
+            let before: Vec<WorkspaceId> = WindowRegistry::open_windows(cx)
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             crate::ui::windows::open(cx, saved);
-            // A fresh workspace's id is minted in there; the registry lists
-            // windows in the order they opened.
-            let (opened, _) = WindowRegistry::open_windows(cx).pop()?;
-            WindowRegistry::window_for(cx, saved.unwrap_or(opened))?
+            let (opened, _) = WindowRegistry::open_windows(cx)
+                .into_iter()
+                .find(|(id, _)| !before.contains(id))?;
+            WindowRegistry::window_for(cx, opened)?
         }
     };
     let (ns, workspace) = handle
@@ -432,17 +470,11 @@ async fn fade(cx: &AsyncApp, ns: &NSWindow, from: f64, to: f64, ms: u64, generat
 fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
     let hk = cx.global_mut::<HotkeyWindow>();
-    let at = hk.saved.iter().position(|s| s.window == handle);
     if !fullscreen {
-        if let Some(ix) = at {
-            let s = hk.saved.remove(ix);
-            ns.setLevel(s.level);
-            ns.setCollectionBehavior(s.behavior);
-            ns.setFrame_display(s.frame, true);
-        }
+        restore_saved(hk, handle, ns);
         return;
     }
-    if at.is_none() {
+    if !hk.saved.iter().any(|s| s.window == handle) {
         hk.saved.push(Saved {
             window: handle,
             frame: ns.frame(),

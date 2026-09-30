@@ -7,7 +7,7 @@ use gpui::{
 };
 use gpui_component::h_flex;
 
-use super::appkit::{HotkeyWindow, sync};
+use super::appkit::{recording, set_recording};
 use super::carbon::carbon_chord;
 use super::configured;
 use crate::core::config::Config;
@@ -28,20 +28,18 @@ impl Tty7App {
             cfg.fork.global_hotkey_hide_on_blur,
             cfg.fork.global_hotkey_fade_ms,
         );
-        let recording = cx
-            .try_global::<HotkeyWindow>()
-            .is_some_and(|hk| hk.recording.is_some());
+        let listening = recording(cx);
         let on = self.settings_switch("hotkey-on", spec.is_some(), cx, |this, on, _, cx| {
             this.update_config(cx, |c| {
                 c.fork.global_hotkey = on.then(|| "alt-space".to_string())
             })
         });
-        let ring = if recording {
+        let ring = if listening {
             vec![kit::ring(tk.fg, 1., true)]
         } else {
             vec![kit::ring(tk.k15, 0.5, true)]
         };
-        let shown = match (&spec, recording) {
+        let shown = match (&spec, listening) {
             (_, true) => div()
                 .text_size(fs(12.))
                 .text_color(tk.k45)
@@ -125,8 +123,8 @@ impl Tty7App {
     /// Click the keys, press a chord: Esc keeps the old one, Backspace
     /// turns the hotkey off.
     fn toggle_hotkey_recording(&mut self, cx: &mut Context<Self>) {
-        if cx.global_mut::<HotkeyWindow>().recording.take().is_some() {
-            sync(cx);
+        if recording(cx) {
+            set_recording(cx, None);
             cx.notify();
             return;
         }
@@ -145,28 +143,24 @@ impl Tty7App {
                     Some(Some(spec))
                 }
             };
-            cx.global_mut::<HotkeyWindow>().recording = None;
             let _ = this.update(cx, |this, cx| match picked {
                 Some(spec) => this.update_config(cx, |c| c.fork.global_hotkey = spec),
                 None => cx.notify(),
             });
-            sync(cx);
+            set_recording(cx, None);
         });
         // Closing Settings mid-recording keeps the old chord, and gives the
         // keyboard back.
         let this = cx.weak_entity();
         let closed = cx.on_window_closed(move |cx, _| {
-            if this
+            if !this
                 .read_with(cx, |this, _| this.has_settings())
                 .unwrap_or(false)
             {
-                return;
+                set_recording(cx, None);
             }
-            cx.global_mut::<HotkeyWindow>().recording = None;
-            sync(cx);
         });
-        cx.global_mut::<HotkeyWindow>().recording = Some([keys, closed]);
-        sync(cx);
+        set_recording(cx, Some([keys, closed]));
         cx.notify();
     }
 }

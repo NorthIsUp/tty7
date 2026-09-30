@@ -7,7 +7,7 @@ use gpui::Keystroke;
 /// A keymap chord (`alt-space`) as Carbon's virtual key code and modifier
 /// mask. `None` for a chord Carbon cannot register: a sequence, or a key off
 /// the table.
-pub(crate) fn carbon_chord(spec: &str) -> Option<(u32, u32)> {
+pub(super) fn carbon_chord(spec: &str) -> Option<(u32, u32)> {
     if spec.split_whitespace().count() != 1 {
         return None;
     }
@@ -104,6 +104,31 @@ fn carbon_key_code(key: &str) -> Option<u32> {
         "up" => 0x7E,
         _ => return None,
     })
+}
+
+/// What to do with the registered hot key, given the chord held now, the
+/// last one macOS refused, and the chord wanted (`None`: off, or Settings is
+/// recording one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Plan {
+    /// It is already the one wanted.
+    Keep,
+    /// Nothing wanted: unregister, and give a refused chord another try
+    /// next time it is asked for.
+    Off,
+    /// Wanted, but refused last time: unregister the old one, skip asking.
+    Refused,
+    /// Unregister the old one and register the wanted one.
+    Register,
+}
+
+pub(super) fn plan(registered: Option<&str>, refused: Option<&str>, want: Option<&str>) -> Plan {
+    match want {
+        _ if registered == want && registered.is_some() => Plan::Keep,
+        None => Plan::Off,
+        Some(_) if refused == want => Plan::Refused,
+        Some(_) => Plan::Register,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -225,5 +250,33 @@ mod ffi {
             0 => Ok(HotKey(hotkey)),
             refused => Err(refused),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_chord_maps_to_carbon_key_code_and_modifiers() {
+        assert_eq!(carbon_chord("alt-space"), Some((0x31, 0x0800)));
+        assert_eq!(carbon_chord("cmd-shift-t"), Some((0x11, 0x0100 | 0x0200)));
+        assert_eq!(carbon_chord("ctrl-`"), Some((0x32, 0x1000)));
+        assert_eq!(carbon_chord("f12"), Some((0x6F, 0)));
+        assert_eq!(carbon_chord("ctrl-b x"), None);
+        assert_eq!(carbon_chord("alt-nosuchkey"), None);
+    }
+
+    #[test]
+    fn the_registered_chord_follows_what_is_wanted_and_a_refusal_is_not_retried() {
+        let (x, y) = (Some("alt-space"), Some("cmd-shift-t"));
+        assert_eq!(plan(x, None, x), Plan::Keep);
+        assert_eq!(plan(x, None, None), Plan::Off, "turned off, or recording");
+        assert_eq!(plan(None, None, x), Plan::Register);
+        assert_eq!(plan(x, None, y), Plan::Register, "a new chord");
+        assert_eq!(plan(None, y, y), Plan::Refused, "refused: not asked again");
+        assert_eq!(plan(x, y, y), Plan::Refused, "the old one still goes");
+        assert_eq!(plan(None, y, None), Plan::Off, "off forgets the refusal");
+        assert_eq!(plan(None, None, y), Plan::Register, "so on again retries");
     }
 }

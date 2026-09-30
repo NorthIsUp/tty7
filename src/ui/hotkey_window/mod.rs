@@ -18,9 +18,6 @@ mod carbon;
 #[cfg(target_os = "macos")]
 mod settings;
 
-#[cfg(test)]
-use carbon::carbon_chord;
-
 use gpui::{
     AnyElement, App, InteractiveElement as _, IntoElement as _, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _, WeakEntity, div,
@@ -33,7 +30,7 @@ use crate::ui::i18n::{L10nKey, t};
 
 /// What a hotkey press does, from where the hotkey window stands.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum Toggle {
+enum Toggle {
     /// Ordered out, or not open yet: bring it back, faded in.
     Show,
     /// On screen but not what has focus: raise it, no fade.
@@ -47,7 +44,7 @@ pub(crate) enum Toggle {
 /// activation: a window that was up before the hotkey window stays under it,
 /// one opened or clicked while it is up goes above it, and focusing the
 /// hotkey window again puts it back on top.
-pub(crate) struct Stack<W> {
+struct Stack<W> {
     floating: bool,
     lifted: Vec<W>,
 }
@@ -63,13 +60,13 @@ impl<W> Default for Stack<W> {
 
 impl<W: PartialEq> Stack<W> {
     /// The hotkey window took focus: what was lifted over it goes back down.
-    pub(crate) fn summoned(&mut self, floating: bool) -> Vec<W> {
+    fn summoned(&mut self, floating: bool) -> Vec<W> {
         self.floating = floating;
         std::mem::take(&mut self.lifted)
     }
 
     /// Another window took focus: true when it has to go above.
-    pub(crate) fn activated(&mut self, window: W) -> bool {
+    fn activated(&mut self, window: W) -> bool {
         if !self.floating || self.lifted.contains(&window) {
             return false;
         }
@@ -78,17 +75,17 @@ impl<W: PartialEq> Stack<W> {
     }
 
     /// Hidden, or dropped to the normal level: everything goes back down.
-    pub(crate) fn dismissed(&mut self) -> Vec<W> {
+    fn dismissed(&mut self) -> Vec<W> {
         self.summoned(false)
     }
 
-    pub(crate) fn lifted(&self) -> &[W] {
+    fn lifted(&self) -> &[W] {
         &self.lifted
     }
 }
 
 /// The level a window activated over a floating hotkey window takes.
-pub(crate) fn above(hotkey_level: isize) -> isize {
+fn above(hotkey_level: isize) -> isize {
     hotkey_level + 1
 }
 
@@ -116,10 +113,7 @@ pub(crate) fn workspace(cx: &App) -> Option<WorkspaceId> {
 
 /// The switcher row menu's hotkey item for `row`: its label and the hotkey
 /// workspace picking it leaves.
-pub(crate) fn pick(
-    hotkey: Option<WorkspaceId>,
-    row: WorkspaceId,
-) -> (L10nKey, Option<WorkspaceId>) {
+fn pick(hotkey: Option<WorkspaceId>, row: WorkspaceId) -> (L10nKey, Option<WorkspaceId>) {
     match hotkey == Some(row) {
         true => (L10nKey::SwitcherUnsetHotkeyWorkspace, None),
         false => (L10nKey::SwitcherSetHotkeyWorkspace, Some(row)),
@@ -128,11 +122,7 @@ pub(crate) fn pick(
 
 /// The chord a workspace list shows next to the hotkey workspace, if `row`
 /// is it and the hotkey is on.
-pub(crate) fn badge(
-    spec: &Option<String>,
-    hotkey: Option<WorkspaceId>,
-    row: WorkspaceId,
-) -> Option<&str> {
+fn badge(spec: &Option<String>, hotkey: Option<WorkspaceId>, row: WorkspaceId) -> Option<&str> {
     configured(spec).filter(|_| hotkey == Some(row))
 }
 
@@ -195,14 +185,14 @@ pub(crate) fn menu_item(
 /// Makes `id` the hotkey workspace (`None`: none, so the next press opens a
 /// fresh one). The hotkey window it replaces goes back to a plain window,
 /// hidden when another workspace takes over.
-pub(crate) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
+fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
     #[cfg(target_os = "macos")]
     appkit::set_workspace(cx, id);
     #[cfg(not(target_os = "macos"))]
     let _ = (cx, id);
 }
 
-pub(crate) fn toggle(hidden: bool, frontmost: bool) -> Toggle {
+fn toggle(hidden: bool, frontmost: bool) -> Toggle {
     match (hidden, frontmost) {
         (true, _) => Toggle::Show,
         (false, true) => Toggle::Hide,
@@ -211,7 +201,7 @@ pub(crate) fn toggle(hidden: bool, frontmost: bool) -> Toggle {
 }
 
 /// The configured chord, or `None` when it is off (`null` or `""`).
-pub(crate) fn configured(spec: &Option<String>) -> Option<&str> {
+fn configured(spec: &Option<String>) -> Option<&str> {
     spec.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
 
@@ -260,16 +250,6 @@ mod tests {
         assert_eq!(configured(&set.fork.global_hotkey), Some("cmd-shift-t"));
         assert!(set.fork.global_hotkey_fullscreen);
         assert_eq!(set.fork.global_hotkey_fade_ms, 0);
-    }
-
-    #[test]
-    fn a_chord_maps_to_carbon_key_code_and_modifiers() {
-        assert_eq!(carbon_chord("alt-space"), Some((0x31, 0x0800)));
-        assert_eq!(carbon_chord("cmd-shift-t"), Some((0x11, 0x0100 | 0x0200)));
-        assert_eq!(carbon_chord("ctrl-`"), Some((0x32, 0x1000)));
-        assert_eq!(carbon_chord("f12"), Some((0x6F, 0)));
-        assert_eq!(carbon_chord("ctrl-b x"), None);
-        assert_eq!(carbon_chord("alt-nosuchkey"), None);
     }
 
     #[test]
