@@ -244,6 +244,43 @@ impl Notifications {
     }
 }
 
+/// How many of a pane's notes reach the desktop per [`NOTE_WINDOW`].
+pub const NOTES_PER_WINDOW: usize = 5;
+pub const NOTE_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// A pane's notification rate limit. Pane output is untrusted, and capping
+/// the queue between polls still lets a flood through a few notes per poll.
+/// At most [`NOTES_PER_WINDOW`] notes are shown per [`NOTE_WINDOW`]; the rest
+/// are dropped and said as one note when the window turns over, which takes
+/// a slot. A tumbling window: a burst straddling its edge can show twice the
+/// limit in quick succession.
+#[derive(Default)]
+pub struct NoteBudget {
+    since: Option<std::time::Instant>,
+    shown: usize,
+    dropped: usize,
+}
+
+impl NoteBudget {
+    /// Of `wanted` notes at `now`: how many to show, and whether notes were
+    /// dropped earlier and are now due to be said as one.
+    pub fn admit(&mut self, now: std::time::Instant, wanted: usize) -> (usize, bool) {
+        let mut due = false;
+        if self
+            .since
+            .is_none_or(|s| now.duration_since(s) >= NOTE_WINDOW)
+        {
+            due = std::mem::take(&mut self.dropped) > 0;
+            self.since = Some(now);
+            self.shown = usize::from(due);
+        }
+        let show = wanted.min(NOTES_PER_WINDOW.saturating_sub(self.shown));
+        self.shown += show;
+        self.dropped += wanted - show;
+        (show, due)
+    }
+}
+
 /// What a sequence did to the title a pane is showing — see
 /// [`TitleLifetime`].
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -345,6 +382,33 @@ impl TitleLifetime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_flood_shows_a_few_per_window_and_one_note_for_the_rest() {
+        let mut budget = NoteBudget::default();
+        let t0 = Instant::now();
+        // Three notes a poll, every 300ms, for ten seconds.
+        let mut shown = 0;
+        for poll in 0..33 {
+            let (show, due) = budget.admit(t0 + Duration::from_millis(300 * poll), 3);
+            shown += show;
+            assert!(!due);
+        }
+        assert_eq!(shown, NOTES_PER_WINDOW);
+        assert_eq!(budget.admit(t0 + NOTE_WINDOW, 3), (3, true), "said once");
+        assert_eq!(
+            budget.admit(t0 + NOTE_WINDOW, 3),
+            (NOTES_PER_WINDOW - 4, false),
+            "the note took a slot"
+        );
+        assert_eq!(
+            budget.admit(t0 + NOTE_WINDOW * 2, 0),
+            (0, true),
+            "said even when the flood stopped"
+        );
+        assert_eq!(budget.admit(t0 + NOTE_WINDOW * 3, 0), (0, false));
+    }
 
     fn collect(ids: &'static [&'static [u8]], chunks: &[&[u8]]) -> Vec<Vec<u8>> {
         let mut tok = OscTokenizer::new(ids);

@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 
 use crate::core::cli_agent::{AgentSessionState, AgentStatus, CLIAgent};
 use crate::core::config::CursorStyle as ConfigCursorStyle;
-use crate::core::osc::{Note, OscTokenizer, TitleEffect, TitleLifetime};
+use crate::core::osc::{Note, NoteBudget, OscTokenizer, TitleEffect, TitleLifetime};
 use crate::daemon::protocol::{
     AuthPromptKind, AuthResponse, ClientMsg, DaemonMsg, KnownHostEntry, KnownHostId,
     LoopbackForward, LoopbackForwardRequest, ManagedForward, NativeSshSpec, PaneProcs,
@@ -625,6 +625,9 @@ pub struct RemoteTerminal {
     images: crate::terminal::images::ImageStore,
     clipboard_writes: Arc<Mutex<VecDeque<tty7_core::core::clipboard::ClipboardWrite>>>,
     osc_notes: OscNotes,
+    /// On the pane rather than its view so it survives a relink; only the
+    /// view's poll touches it.
+    note_budget: Mutex<NoteBudget>,
     clipboard_write_busy: Arc<AtomicBool>,
     /// Who runs this pane at their own size — a phone, by the name it paired
     /// under — while the daemon says so. See [`Self::take_back`].
@@ -1141,6 +1144,7 @@ impl RemoteTerminal {
             images,
             clipboard_writes,
             osc_notes,
+            note_budget: Mutex::default(),
             clipboard_write_busy,
             lease,
             route: PaneRoute::Local,
@@ -2010,6 +2014,21 @@ impl RemoteTerminal {
             .lock()
             .map(|mut notes| notes.drain(..).collect())
             .unwrap_or_default()
+    }
+
+    /// Of `notes` about to be shown, the ones this pane's [`NoteBudget`] lets
+    /// through, and whether notes it dropped earlier are due to be said.
+    pub fn pace_osc_notes(
+        &self,
+        mut notes: Vec<Note>,
+        now: std::time::Instant,
+    ) -> (Vec<Note>, bool) {
+        let Ok(mut budget) = self.note_budget.lock() else {
+            return (notes, false);
+        };
+        let (show, dropped) = budget.admit(now, notes.len());
+        notes.truncate(show);
+        (notes, dropped)
     }
 
     pub fn pop_clipboard_write(&self) -> Option<tty7_core::core::clipboard::ClipboardWrite> {
