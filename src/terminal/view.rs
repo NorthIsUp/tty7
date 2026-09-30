@@ -30,10 +30,12 @@ use crate::core::actions::{
     OpenLinkUnderPointer, OpenLinkWithDefaultApp, RevealLinkUnderPointer, SaveAgentLaunchArgs,
     SendBackTab, SendTab, SplitDown, SplitRight, ToggleMaximizePane,
 };
-use crate::core::config::{BellMode, Config, LinkFileOpen, MouseZoomModifier, NotifyMode};
+use crate::core::config::{BellMode, Config, LinkFileOpen, MouseZoomModifier};
 use crate::core::shell_quote::quote_for_shell;
 use crate::daemon::protocol::{RemoteContext, ShellSpec};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+
+mod program_notes;
 
 const GRID_PAD_X: f32 = 8.;
 const GRID_PAD_Y: f32 = 4.;
@@ -746,18 +748,6 @@ fn compose_notification_title(
     }
 }
 
-/// Whether a notification about this pane reaches the desktop: an agent's
-/// Waiting and Done notices from its hooks, and notifications the program
-/// wrote itself. `Unfocused` holds one back only while the reader is looking
-/// at this very pane.
-fn shows_notification(mode: NotifyMode, window_active: bool, pane_focused: bool) -> bool {
-    match mode {
-        NotifyMode::Never => false,
-        NotifyMode::Unfocused => !(window_active && pane_focused),
-        NotifyMode::Always => true,
-    }
-}
-
 /// The longest command line to put in a confirmation. The shell sends up to
 /// 512 bytes; a dialog asking whether to end your work should still read as a
 /// sentence.
@@ -837,43 +827,6 @@ impl TerminalView {
     fn notify_pane(&self, lead: Option<&str>, body: &str, cx: &mut Context<Self>) {
         let title = self.notification_title(lead, cx);
         super::remote::notify_desktop_for_pane(Some(&title), body, Some(cx.entity_id()));
-    }
-
-    /// Desktop notifications the program wrote (OSC 9, 99, 777), such as
-    /// Claude Code's with its Notifications setting on `ghostty`, `kitty` or
-    /// `iterm2`. The agent's Waiting mark on the tab is the daemon's doing.
-    fn show_program_notes(&self, window: &Window, cx: &mut Context<Self>) {
-        let notes = self.terminal.take_osc_notes();
-        if notes.is_empty() {
-            return;
-        }
-        // An agent reporting through tty7's hooks gets its notices from
-        // `poll_agent_status` under the same rule; its own copy would repeat them.
-        let show = !self.terminal.agent_session().is_some_and(|s| s.rich)
-            && shows_notification(
-                cx.global::<Config>().notify_on_command_finish,
-                window.is_window_active(),
-                self.focus_handle.is_focused(window),
-            );
-        log::debug!(
-            "{} program notification(s) {}",
-            notes.len(),
-            if show { "shown" } else { "held back" }
-        );
-        if !show {
-            return;
-        }
-        let agent = self.terminal.foreground_agent().map(|a| a.display_name());
-        for (title, body) in notes {
-            match title {
-                Some(title) => super::remote::notify_desktop_for_pane(
-                    Some(&title),
-                    &body,
-                    Some(cx.entity_id()),
-                ),
-                None => self.notify_pane(agent, &body, cx),
-            }
-        }
     }
 
     fn notification_title(&self, lead: Option<&str>, cx: &App) -> String {
@@ -4015,6 +3968,7 @@ impl TerminalView {
     }
 
     fn poll_foreground(&mut self, window: &Window, cx: &mut Context<Self>) {
+        program_notes::show(self, window, cx);
         if self.terminal.exited {
             return;
         }
@@ -4045,17 +3999,7 @@ impl TerminalView {
             cx.notify();
         }
 
-        let notify_allowed = match cx.global::<Config>().notify_on_command_finish {
-            NotifyMode::Never => false,
-            NotifyMode::Unfocused => !window.is_window_active(),
-            NotifyMode::Always => true,
-        };
-        self.show_program_notes(window, cx);
-        let agent_notify_allowed = shows_notification(
-            cx.global::<Config>().notify_on_command_finish,
-            window.is_window_active(),
-            self.focus_handle.is_focused(window),
-        );
+        let notify_allowed = program_notes::allowed(self, window, cx);
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
@@ -4093,7 +4037,7 @@ impl TerminalView {
 
         self.poll_agent_detection(at_prompt, cx);
 
-        let turn_finished = self.poll_agent_status(agent_notify_allowed, window, cx);
+        let turn_finished = self.poll_agent_status(notify_allowed, window, cx);
 
         let session = self.terminal.agent_session();
         let tool_activity = match session.as_ref().map(|s| s.activity) {
@@ -8696,7 +8640,7 @@ mod tests {
         WheelRoute, clipboard_paths, compose_notification_title, cwd_is_on_host, display_width,
         link_path_style, loopback_plan, observe_typeahead_for_owner, typeahead_boundary,
     };
-    use super::{SCROLL_ANIM_FRAME, scroll_anim_step, shows_notification};
+    use super::{SCROLL_ANIM_FRAME, scroll_anim_step};
     use super::{
         TitleSettle, files_cwd, local_path_for_pane, remote_paste_spec, settle_title,
         stages_clipboard_image, staging_cache, staging_dir_is_safe, wsl_path, wsl_share_distro,
@@ -8761,31 +8705,6 @@ mod tests {
             "Claude"
         );
         assert_eq!(compose_notification_title(None, None, None), "tty7");
-    }
-
-    #[test]
-    fn a_notification_is_held_back_only_from_the_pane_being_watched() {
-        use crate::core::config::NotifyMode::*;
-        // (mode, window active, pane focused) -> shown; hook notices and
-        // program notes both go through this.
-        let cases = [
-            (Unfocused, true, true, false),
-            // Another tab in the key window still hears about this one.
-            (Unfocused, true, false, true),
-            (Unfocused, false, true, true),
-            (Unfocused, false, false, true),
-            (Always, true, true, true),
-            (Always, false, false, true),
-            (Never, false, false, false),
-            (Never, true, false, false),
-        ];
-        for (mode, active, focused, shown) in cases {
-            assert_eq!(
-                shows_notification(mode, active, focused),
-                shown,
-                "{mode:?} active={active} focused={focused}"
-            );
-        }
     }
 
     #[test]
