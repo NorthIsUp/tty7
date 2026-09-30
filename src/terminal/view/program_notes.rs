@@ -10,23 +10,14 @@
 use gpui::{Context, Window};
 
 use super::TerminalView;
-use crate::core::config::{Config, NotifyMode};
-
-fn shows(mode: NotifyMode, window_active: bool, pane_focused: bool) -> bool {
-    match mode {
-        NotifyMode::Never => false,
-        NotifyMode::Unfocused => !(window_active && pane_focused),
-        NotifyMode::Always => true,
-    }
-}
+use crate::core::config::Config;
 
 /// Whether a notice about `view` reaches the desktop now.
 pub(super) fn allowed(view: &TerminalView, window: &Window, cx: &Context<TerminalView>) -> bool {
-    shows(
-        cx.global::<Config>().notify_on_command_finish,
-        window.is_window_active(),
-        view.focus_handle.is_focused(window),
-    )
+    let watched = window.is_window_active() && view.focus_handle.is_focused(window);
+    cx.global::<Config>()
+        .notify_on_command_finish
+        .allows(watched)
 }
 
 /// Shows what the program wrote since the last poll. Drained even from a
@@ -82,7 +73,7 @@ mod tests {
         ];
         for (mode, active, focused, shown) in cases {
             assert_eq!(
-                shows(mode, active, focused),
+                mode.allows(active && focused),
                 shown,
                 "{mode:?} active={active} focused={focused}"
             );
