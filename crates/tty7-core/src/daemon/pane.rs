@@ -754,6 +754,8 @@ struct PaneState {
     agent: Option<crate::core::cli_agent::CLIAgent>,
     agent_argv: Option<Vec<String>>,
     agent_session: Option<crate::core::cli_agent::AgentSessionState>,
+    /// See [`crate::core::claude_background::adopt_argv_session`].
+    argv_session_miss: Option<Vec<String>>,
     agent_clock: AgentClock,
     alive: bool,
     exit_code: Option<i32>,
@@ -1789,6 +1791,7 @@ impl DaemonPane {
                 agent: None,
                 agent_session: None,
                 agent_argv: None,
+                argv_session_miss: None,
                 agent_clock: AgentClock::default(),
                 alive: true,
                 exit_code: None,
@@ -2024,6 +2027,7 @@ impl DaemonPane {
                 agent: carried.agent,
                 agent_session: carried.agent_session,
                 agent_argv: carried.agent_argv,
+                argv_session_miss: None,
                 agent_clock: AgentClock::default(),
                 alive: true,
                 exit_code: None,
@@ -2082,6 +2086,7 @@ impl DaemonPane {
             agent: None,
             agent_session: None,
             agent_argv: None,
+            argv_session_miss: None,
             agent_clock: AgentClock::default(),
             alive: true,
             exit_code: None,
@@ -3578,36 +3583,16 @@ fn apply_agent(
     adopt_argv_session(st);
 }
 
-/// Take the session id the agent's own command line names, for a pane no hook
-/// has spoken for yet — what lets a reboot resume Claude without its hooks.
 fn adopt_argv_session(st: &mut PaneState) {
-    let (Some(agent), Some(argv)) = (st.agent, &st.agent_argv) else {
-        return;
-    };
-    if st
-        .agent_session
-        .as_ref()
-        .is_some_and(|s| s.session_id.is_some())
-    {
-        return;
+    let (agent, argv) = (st.agent, st.agent_argv.as_deref());
+    if crate::core::claude_background::adopt_argv_session(
+        agent,
+        argv,
+        &mut st.agent_session,
+        &mut st.argv_session_miss,
+    ) {
+        notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
     }
-    // `claude attach <job>` names only its job; the session file maps it back.
-    // ponytail: rereads the dir each foreground poll until it maps; cache the
-    // miss per argv if an unmappable attach ever shows up in a profile.
-    let Some(id) = agent.session_id_in_argv(argv).or_else(|| {
-        let job = crate::core::claude_background::attached_job(argv)?;
-        crate::core::claude_background::session_for_job(
-            &crate::core::claude_background::sessions_dir()?,
-            job,
-        )
-    }) else {
-        return;
-    };
-    let argv = argv.clone();
-    let sess = st.agent_session.get_or_insert_with(Default::default);
-    sess.session_id = Some(id);
-    sess.launch_argv.get_or_insert(argv);
-    notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
 }
 
 fn stamp_launch_argv(st: &mut PaneState, argv: Option<Vec<String>>) {
@@ -5575,6 +5560,7 @@ mod tests {
             agent: None,
             agent_session: None,
             agent_argv: None,
+            argv_session_miss: None,
             agent_clock: AgentClock::default(),
             alive,
             exit_code: None,

@@ -38,7 +38,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
-| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep |
+| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `Resume`/`AtPrompt`, the one command a restored agent pane types |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/palette.rs` | ⌘T / ⌘P / ⌘K open Search Everywhere on New Tab / All / Agents wherever focus is (the Settings window too), and an open palette keeps every key: a keystroke interceptor, ahead of all bindings |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands |
@@ -54,7 +54,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/daemon/procstat.rs` | per-process RSS, CPU time and start stamp for Info → Processes; `compact_bytes` |
 | `src/ui/proc_usage.rs` | CPU% from two samples, the Processes row's CPU / memory / pid cells and its Total line |
 | `src/terminal/element/osc8_underline.rs` | an OSC 8 link's resting faint dotted underline (iTerm2's), solid under the pointer; an SGR underline keeps its own |
-| `crates/tty7-core/src/core/claude_background.rs` | Claude sessions running in the background: session ↔ job id from `sessions/<pid>.json`, and a resume line turned into `claude attach <job>` |
+| `crates/tty7-core/src/core/claude_background.rs` | Claude sessions running in the background: session ↔ job id from `sessions/<pid>.json`; `resume_plan` (attach, resume, or start fresh when nothing was saved); `adopt_argv_session`, the session id an agent's argv names, with the miss cached per argv |
 | `src/ui/hotkey_window.rs` | the global hotkey (`global_hotkey`, ⌥Space): Carbon `RegisterEventHotKey`, one dedicated hotkey window (its workspace saved in `hotkey-window`, picked from a switcher row's menu) shown / focused / ordered out with a fade, the full screen modal, windows activated over it lifted above it, hide on focus loss, and its Settings rows (macOS; a no-op elsewhere) |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 
@@ -74,7 +74,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`, `github_panel_session_filter`, `github_panel_prefer_origin`, `github_panel_default_list`, `global_hotkey`, `global_hotkey_fullscreen`, `global_hotkey_hide_on_blur`, `global_hotkey_fade_ms`; `GroupColorSource`, `GroupBackgroundScope` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
-| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks; `claude attach <job>` maps back through `claude_background` |
+| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → `adopt_argv_session`, `PaneState::argv_session_miss` (+ test) | `claude_background::adopt_argv_session`, so Claude resumes without hooks |
 | `crates/tty7-core/src/daemon/mod.rs` | module list | `pub(crate) mod nice`, `pub mod procstat` |
 | `crates/tty7-core/Cargo.toml` | `windows-sys` features | `Win32_System_ProcessStatus` for `procstat`'s working set |
 | `crates/tty7-core/src/daemon/protocol.rs` | `ProcEntry` | `rss`, `cpu_ns`, `started` (serde default), `Default` derive |
@@ -91,7 +91,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/panel_github.rs` | test `the_tab_lists_and_opens_an_issue_without_touching_the_network`, test imports | `github_panel_prefer_origin = false`: it checks upstream's own remote order |
 | `src/ui/github/mod.rs` | `github_target_for` | `github_session::remote_pick`: `origin` before `upstream` unless the user picked one |
 | `src/ui/panel_github.rs` | `render_panel_github` body, `github_switch_row` state group, `switch_cell` / `github_item_row` made `pub(crate)`, `host.clone()` into `github_branch_pull` | `github_session_body` before the plain list; the This session chip |
-| `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::claude_background_job` (default `None`; the local host reads `claude_background`) | the resume line checks for a background session off the UI thread |
+| `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::resume_plan` (default `Resume`; the local host runs `claude_background::resume_plan`) | a resume picks attach, resume or a fresh start off the UI thread |
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`; `github` from `github_session::panel_state` (`github_panel_default_list`) |
 | `src/main.rs` | `main`, after `keymap::init` | `hotkey_window::init` |
@@ -104,14 +104,14 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/theme.rs` | `window_menu_items` | `hotkey_window::menu_label`: the chord after the hotkey workspace in the Workspaces menu |
 | `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
-| `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
+| `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `agent_resume::AtPrompt`, which asks `Host::resume_plan` and holds the line for the first prompt |
 | `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
-| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` (takes `cx`) + `queue_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead; a resume of a background Claude session becomes `claude attach` |
+| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
 | `src/ui/app.rs` | `render` | `on_action` for `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
 | `src/ui/app.rs` | `wake_tab` → `wake_tab_with` | wake with a prompt for the resumed agent |
-| `src/ui/app.rs` | `agent_resume_command`, `session_to_pane`, `land_pane`, `reopen_closed_tab` | thread `prompt` through to the resume command line |
+| `src/ui/app.rs` | `agent_resume_command`, `session_to_pane`, `land_pane`, `reopen_closed_tab` | return an `agent_resume::Resume` (agent, id, argv, `prompt`) instead of a command line |
 | `src/ui/app.rs` | `tabs_from_session` | restore a tab with no live pane asleep (`restore_asleep`) |
 | `src/ui/app.rs` | test `PendingSpawn` literals | `agent_prompt: None` |
 | `src/ui/agent_launch.rs` | `with_minted_session`, `launch_agent` split into `launch_agent_in` / `start_agent_in` (+ test) | mint Claude's `--session-id` at launch; launch into an explicit cwd for the new tab page |

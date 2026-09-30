@@ -3924,15 +3924,18 @@ impl Tty7App {
                     &spawn.agent,
                     spawn.agent_session_id.as_deref(),
                     spawn.agent_launch_argv.as_deref(),
-                    view.read(cx),
                     spawn.agent_prompt.as_deref(),
                     cx,
                 )
-                .or_else(|| spawn.run_on_land.clone())
+                .map(crate::ui::agent_resume::AtPrompt::Resume)
+                .or_else(|| {
+                    let line = spawn.run_on_land.clone();
+                    line.map(crate::ui::agent_resume::AtPrompt::Line)
+                })
             })
             .flatten();
-        if let Some(cmd) = resume {
-            view.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
+        if let Some(at) = resume {
+            view.update(cx, |view, cx| at.run(view, cx));
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -9865,10 +9868,9 @@ fn agent_resume_command(
     agent: &Option<crate::core::cli_agent::CLIAgent>,
     session_id: Option<&str>,
     launch_argv: Option<&[String]>,
-    view: &TerminalView,
     prompt: Option<&str>,
     cx: &App,
-) -> Option<String> {
+) -> Option<crate::ui::agent_resume::Resume> {
     if !cx.global::<Config>().restore_agent_sessions {
         return None;
     }
@@ -9880,39 +9882,12 @@ fn agent_resume_command(
         );
         return None;
     };
-    let line = agent.restore_command(
-        session_id,
-        launch_argv,
-        pane_shell_program(view, cx).as_deref(),
-    )?;
-    // The prompt rides on the resume only; a fresh start after `||` has no
-    // conversation to continue.
-    Some(
-        match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
-            Some(p) => {
-                let resume = agent.resume_command(session_id, launch_argv)?;
-                let prompted = format!("{resume} {}", join_shell_args(&[p.to_string()]));
-                line.replacen(&resume, &prompted, 1)
-            }
-            None => line,
-        },
-    )
-}
-
-/// The shell `view` is running, for deciding what a line typed into it may
-/// use. A pane spawned without an explicit shell got the configured one or,
-/// failing that, the login shell — but only a local pane got this machine's;
-/// a workspace pane's default lives on its host, so it stays unknown.
-fn pane_shell_program(view: &TerminalView, cx: &App) -> Option<String> {
-    if let Some(spec) = view.shell_spec() {
-        return Some(spec.program);
-    }
-    if view.workspace().is_some() || view.ssh_spec().is_some() || view.remote_context().is_some() {
-        return None;
-    }
-    Some(match &cx.global::<Config>().shell {
-        Some(shell) if !shell.program.trim().is_empty() => shell.program.clone(),
-        _ => crate::core::shells::login_shell(),
+    agent.resume_command(session_id, launch_argv)?;
+    Some(crate::ui::agent_resume::Resume {
+        agent: *agent,
+        session_id: session_id.to_string(),
+        launch_argv: launch_argv.map(<[String]>::to_vec),
+        prompt: prompt.map(str::to_string),
     })
 }
 
@@ -10295,15 +10270,15 @@ fn session_to_pane(
             };
             match &view {
                 PaneSlot::Ready(terminal) if !terminal.read(cx).restored() => {
-                    if let Some(cmd) = agent_resume_command(
+                    if let Some(resume) = agent_resume_command(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),
-                        terminal.read(cx),
                         prompt,
                         cx,
                     ) {
-                        terminal.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
+                        let at = crate::ui::agent_resume::AtPrompt::Resume(resume);
+                        terminal.update(cx, |view, cx| at.run(view, cx));
                     }
                 }
                 PaneSlot::Ready(_) => {}
