@@ -1378,6 +1378,7 @@ impl Tty7App {
                             false => mark.into_any_element(),
                             true => mark
                                 .id(("sidebar-group-unpin", group_ix))
+                                .debug_selector(|| "sidebar-group-unpin".into())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(cx.theme().foreground))
                                 .tooltip(|window, cx| {
@@ -3885,6 +3886,45 @@ mod fold_tests {
             assert_eq!(app.tabs[0].group.get(), Some(group.id));
             assert_eq!(app.tabs[1].group.get(), Some(group.id));
             assert_eq!(app.tabs[2].group.get(), None, "beta stays auto");
+        });
+    }
+
+    /// A click on a folder group's pin mark unpins it: the group goes, and
+    /// its tab falls back to auto grouping without closing.
+    #[gpui::test]
+    fn clicking_a_folder_groups_pin_unpins_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update(&mut vcx, |app, cx| {
+            cx.global_mut::<Config>().fork.animations = false;
+            cx.global_mut::<Config>().tab_bar_position = crate::core::config::TabBarPosition::Left;
+            let id = folder(app, "/w/alpha", cx);
+            app.set_tab_group(0, Some(id), cx);
+        });
+        vcx.run_until_parked();
+
+        let mark = vcx
+            .debug_bounds("sidebar-group-unpin")
+            .expect("a folder group draws its pin mark");
+        // As a pointer does it: arrive, dwell long enough for the tooltip,
+        // then press and let go.
+        let at = mark.center();
+        vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        vcx.run_until_parked();
+        vcx.executor()
+            .advance_clock(std::time::Duration::from_secs(2));
+        vcx.run_until_parked();
+        vcx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+        vcx.run_until_parked();
+        vcx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, _| {
+            assert!(
+                app.sidebar_groups.pinned.is_empty(),
+                "the group is unpinned"
+            );
+            assert_eq!(app.tabs.len(), 2, "its tab is not closed");
+            assert_eq!(app.tabs[0].group.get(), None, "and is back to auto");
         });
     }
 
