@@ -745,7 +745,7 @@ fn real_user_zdotdir() -> Option<String> {
         .filter(|z| !z.is_empty() && !is_our_zdotdir(z))
 }
 
-enum ShellKind {
+pub(crate) enum ShellKind {
     Zsh,
     Bash,
     Fish,
@@ -773,6 +773,16 @@ fn shell_kind(program: Option<&str>) -> Option<ShellKind> {
         "wsl" => Some(ShellKind::Wsl),
         _ => None,
     }
+}
+
+/// The shell [`setup`] injects integration into for `program` (`None`: the
+/// login shell), or `None` when it injects none: the user's own arguments
+/// come first, and WSL has integration only on Windows.
+pub(crate) fn integrated_kind(program: Option<&str>, has_custom_args: bool) -> Option<ShellKind> {
+    if has_custom_args {
+        return None;
+    }
+    shell_kind(program).filter(|k| cfg!(windows) || !matches!(k, ShellKind::Wsl))
 }
 
 pub(crate) fn wsl_distro(args: &[String]) -> Option<String> {
@@ -1247,10 +1257,7 @@ pub fn setup(program: Option<&str>, args: &[String], has_custom_args: bool) -> O
     // files run. Arguments tty7's own detection supplied (Git Bash's `-i -l`,
     // a WSL row's `--distribution`) are not user-authored and never land here;
     // `daemon::pane::has_custom_args` is where that line is drawn.
-    if has_custom_args {
-        return None;
-    }
-    let mut injection = match shell_kind(program)? {
+    let mut injection = match integrated_kind(program, has_custom_args)? {
         ShellKind::Zsh => setup_zsh(),
         ShellKind::Fish => setup_fish(),
         ShellKind::Bash => setup_bash(),

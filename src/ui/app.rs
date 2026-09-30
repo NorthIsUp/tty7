@@ -3938,7 +3938,7 @@ impl Tty7App {
             })
             .flatten();
         if let Some(at) = resume {
-            view.update(cx, |view, cx| at.run(view, cx));
+            at.run(&view, cx);
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -10264,7 +10264,7 @@ fn session_to_pane(
                         cx,
                     ) {
                         let at = crate::ui::agent_resume::AtPrompt::Resume(resume);
-                        terminal.update(cx, |view, cx| at.run(view, cx));
+                        at.run(terminal, cx);
                     }
                 }
                 PaneSlot::Ready(_) => {}
