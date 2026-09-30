@@ -12,14 +12,14 @@ use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationOptions, NSApplicationDidResignActiveNotification,
     NSApplicationPresentationOptions, NSEvent, NSNormalWindowLevel, NSRunningApplication, NSScreen,
-    NSView, NSWindow, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel,
-    NSWorkspace,
+    NSView, NSWindow, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification,
+    NSWindowDidResignKeyNotification, NSWindowLevel, NSWorkspace,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSRect, NSUserDefaults, ns_string};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::carbon::{self, Plan, carbon_chord};
-use super::{Dock, LEVEL, Stack, Toggle, above, configured, dock, toggle};
+use super::{Dock, LEVEL, Stack, Toggle, above, configured, dock, presentation, toggle};
 use crate::core::config::{Config, config_path, write_atomic};
 use crate::core::session::WorkspaceId;
 use crate::ui::windows::WindowRegistry;
@@ -32,6 +32,8 @@ const WORKSPACE_FILE: &str = "hotkey-window";
 enum Event {
     Pressed,
     KeyWindow,
+    /// A window gave up key, closing included.
+    ResignedKey,
     Resigned,
 }
 
@@ -84,6 +86,8 @@ struct HotkeyWindow {
     /// Bumped by every show and hide, so a fade still running from the
     /// last one stops rather than fighting this one.
     generation: u64,
+    /// The presentation options are the hotkey window's (see [`presentation`]).
+    presented: bool,
 }
 
 impl Global for HotkeyWindow {}
@@ -115,6 +119,7 @@ pub(super) fn init(cx: &mut App) {
             cx.update(|cx| match event {
                 Event::Pressed => pressed(cx),
                 Event::KeyWindow => key_window_changed(cx),
+                Event::ResignedKey => follow_key(cx),
                 Event::Resigned => resigned(cx),
             });
         }
@@ -170,7 +175,7 @@ fn release(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
     restore_saved(hk, handle, ns);
-    present(false);
+    unpresent(cx);
 }
 
 /// Puts back what a full screen summon changed on `handle`'s window.
@@ -191,6 +196,7 @@ fn observe_appkit() {
     let names = unsafe {
         [
             (NSWindowDidBecomeKeyNotification, Event::KeyWindow),
+            (NSWindowDidResignKeyNotification, Event::ResignedKey),
             (NSApplicationDidResignActiveNotification, Event::Resigned),
         ]
     };
@@ -378,6 +384,7 @@ fn show(cx: &mut App, handle: AnyWindowHandle, ns: Retained<NSWindow>, fade_in: 
         ns.setAlphaValue(0.0);
     }
     ns.makeKeyAndOrderFront(None);
+    follow_key(cx);
     // Only the key and main windows come forward, where NSApp's
     // activate would bring every tty7 window along.
     #[allow(deprecated)]
@@ -407,7 +414,7 @@ fn hide(cx: &mut App, ns: Retained<NSWindow>, give_back: bool) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
     let previous = hk.previous.take();
-    present(false);
+    unpresent(cx);
     cx.spawn(async move |cx| {
         // A show that took over mid-fade owns the alpha now.
         if fade(cx, &ns, ns.alphaValue(), 0.0, ms, generation).await {
@@ -473,7 +480,6 @@ async fn fade(cx: &AsyncApp, ns: &NSWindow, from: f64, to: f64, ms: u64, generat
 fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
     let hk = cx.global_mut::<HotkeyWindow>();
-    present(fullscreen);
     if !fullscreen {
         restore_saved(hk, handle, ns);
         return;
@@ -510,6 +516,34 @@ fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     ns.setFrame_display(screen.frame(), true);
 }
 
+/// Sets or puts back the presentation options as the key window says: on
+/// while the full screen hotkey window is key in the active app.
+fn follow_key(cx: &mut App) {
+    let key = MainThreadMarker::new()
+        .map(NSApplication::sharedApplication)
+        .filter(|app| app.isActive())
+        .and_then(|app| app.keyWindow());
+    let hotkey_is_key = match (key, hotkey_window(cx)) {
+        (Some(key), Some((_, hot))) => Retained::as_ptr(&key) == Retained::as_ptr(&hot),
+        _ => false,
+    };
+    let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
+    set_presented(cx, hotkey_is_key, fullscreen);
+}
+
+/// The hotkey window is hidden, released or tty7 inactive: put back what it set.
+fn unpresent(cx: &mut App) {
+    set_presented(cx, false, false);
+}
+
+fn set_presented(cx: &mut App, hotkey_is_key: bool, fullscreen: bool) {
+    let hk = cx.global_mut::<HotkeyWindow>();
+    if let Some(on) = presentation(hk.presented, hotkey_is_key, fullscreen) {
+        present(on);
+        hk.presented = on;
+    }
+}
+
 /// Gets the Dock and menu bar out of the full screen hotkey window's way
 /// while tty7 is active, or (`false`) puts them back.
 fn present(fullscreen: bool) {
@@ -538,6 +572,7 @@ fn present(fullscreen: bool) {
 /// The hotkey window taking focus goes back on top; any other tty7
 /// window taking focus while it floats goes above it.
 fn key_window_changed(cx: &mut App) {
+    follow_key(cx);
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -573,6 +608,7 @@ fn key_window_changed(cx: &mut App) {
 /// or at least drop it back to the normal level so the app switched to
 /// is not stuck underneath it.
 fn resigned(cx: &mut App) {
+    unpresent(cx);
     let Some((_, ns)) = hotkey_window(cx) else {
         return;
     };
@@ -587,6 +623,5 @@ fn resigned(cx: &mut App) {
     if ns.level() > NSNormalWindowLevel {
         ns.setLevel(NSNormalWindowLevel);
     }
-    present(false);
     lower(cx.global_mut::<HotkeyWindow>().stack.dismissed());
 }
