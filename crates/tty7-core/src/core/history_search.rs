@@ -9,12 +9,11 @@
 //! kept in memory by path, size and modification time, so a second query
 //! reads only the sessions that moved since.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde::Deserialize;
@@ -27,6 +26,7 @@ use crate::core::cli_agent::CLIAgent;
 use crate::core::git::git_output;
 use crate::core::github::RepoSlug;
 use crate::core::github::remote::github_remotes;
+use crate::core::history_cache::{forget_all_but, with_transcript};
 
 /// ponytail: a query stops after this long and shows what it found; the
 /// next one starts where the cache is warm. A persistent index if a cold
@@ -36,10 +36,6 @@ const TIME_BUDGET: Duration = Duration::from_secs(3);
 /// ponytail: stop at this many matching sessions, newest first, so an older
 /// session with a better match can be missed.
 const MAX_SESSIONS: usize = 100;
-
-/// ponytail: the cache stops growing at this much text; files past it are
-/// read again on every query. An on-disk index if histories get that big.
-const MAX_CACHED_BYTES: usize = 256 * 1024 * 1024;
 
 /// How much of a message a snippet shows around the match.
 const BEFORE_CHARS: usize = 40;
@@ -69,16 +65,8 @@ pub fn search(roots: &Roots, query: &str) -> Vec<HistoryHit> {
     if needle.is_empty() {
         return Vec::new();
     }
-    let mut files = claude_files(&roots.claude.join("projects"), CLIAgent::Claude);
-    files.extend(claude_files(
-        &roots.qoder.join("projects"),
-        CLIAgent::QoderCLI,
-    ));
-    files.extend(claude_files(
-        &roots.qoder_cn.join("projects"),
-        CLIAgent::QoderCLICn,
-    ));
-    files.extend(codex_files(&roots.codex));
+    let mut files: Vec<Found> = SEARCHED.iter().flat_map(|&a| files_for(roots, a)).collect();
+    forget_all_but(&files);
     files.sort_by_key(|f| std::cmp::Reverse(f.modified));
 
     let started = Instant::now();
@@ -136,14 +124,28 @@ fn checkout_of(cwd: &Path, repo: &RepoSlug) -> bool {
         })
 }
 
-fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
-    let files = match agent {
+/// The agents whose history is searched.
+const SEARCHED: [CLIAgent; 4] = [
+    CLIAgent::Claude,
+    CLIAgent::QoderCLI,
+    CLIAgent::QoderCLICn,
+    CLIAgent::Codex,
+];
+
+/// `agent`'s transcript files under `roots`; none for an agent not in
+/// [`SEARCHED`].
+fn files_for(roots: &Roots, agent: CLIAgent) -> Vec<Found> {
+    match agent {
         CLIAgent::Claude => claude_files(&roots.claude.join("projects"), agent),
         CLIAgent::QoderCLI => claude_files(&roots.qoder.join("projects"), agent),
         CLIAgent::QoderCLICn => claude_files(&roots.qoder_cn.join("projects"), agent),
         CLIAgent::Codex => codex_files(&roots.codex),
-        _ => return None,
-    };
+        _ => Vec::new(),
+    }
+}
+
+fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
+    let files = files_for(roots, agent);
     let rollout = format!("-{id}");
     files
         .into_iter()
@@ -211,7 +213,7 @@ fn rank(hits: &mut [HistoryHit]) {
 
 /// What one transcript says, as far as a search cares.
 #[derive(Default)]
-struct Transcript {
+pub(super) struct Transcript {
     id: Option<String>,
     cwd: Option<PathBuf>,
     messages: Vec<Message>,
@@ -224,7 +226,7 @@ struct Message {
 }
 
 impl Transcript {
-    fn push(&mut self, from_user: bool, text: &str) {
+    pub(super) fn push(&mut self, from_user: bool, text: &str) {
         let text = text.trim();
         if !text.is_empty() {
             self.messages.push(Message {
@@ -235,7 +237,7 @@ impl Transcript {
         }
     }
 
-    fn bytes(&self) -> usize {
+    pub(super) fn bytes(&self) -> usize {
         self.messages
             .iter()
             .map(|m| m.text.len() + m.lower.len())
@@ -309,42 +311,7 @@ fn snippet(m: &Message, at: usize, len: usize) -> String {
     out
 }
 
-struct Cached {
-    len: u64,
-    modified: SystemTime,
-    transcript: Transcript,
-}
-
-static CACHE: LazyLock<Mutex<HashMap<PathBuf, Cached>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// `f` over `file`'s transcript, from the cache while the file is unchanged.
-fn with_transcript<T>(file: &Found, f: impl FnOnce(&Transcript) -> T) -> Option<T> {
-    let fresh = |c: &Cached| c.len == file.len && c.modified == file.modified;
-    {
-        let cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(c) = cache.get(&file.path).filter(|c| fresh(c)) {
-            return Some(f(&c.transcript));
-        }
-    }
-    let transcript = read(&file.path, file.agent)?;
-    let answer = f(&transcript);
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    let used: usize = cache.values().map(|c| c.transcript.bytes()).sum();
-    if used + transcript.bytes() <= MAX_CACHED_BYTES {
-        cache.insert(
-            file.path.clone(),
-            Cached {
-                len: file.len,
-                modified: file.modified,
-                transcript,
-            },
-        );
-    }
-    Some(answer)
-}
-
-fn read(path: &Path, agent: CLIAgent) -> Option<Transcript> {
+pub(super) fn read(path: &Path, agent: CLIAgent) -> Option<Transcript> {
     read_as::<IgnoredAny>(path, agent)
 }
 
@@ -876,7 +843,7 @@ mod tests {
         for query in ["worktree", "worktree", "zzqxj-no-such"] {
             let t = Instant::now();
             let found = search(&roots, query);
-            let cached: usize = CACHE.lock().unwrap().len();
+            let cached: usize = super::super::history_cache::cached_files();
             println!(
                 "query#{} {:?}: {} sessions, {} cached files",
                 query.len(),

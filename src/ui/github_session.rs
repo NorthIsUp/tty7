@@ -1,6 +1,6 @@
 //! The GitHub tab's "This session" filter: its Pull Requests narrowed to the
 //! ones the focused pane's agent session mentions
-//! ([`Host::agent_session_mentions`](tty7_core::host::Host::agent_session_mentions)).
+//! ([`ForkHost::agent_session_mentions`](tty7_core::core::fork_host::ForkHost::agent_session_mentions)).
 //!
 //! The list is the fetched pages intersected with the mentions. A mentioned
 //! pull request that is not on them (merged, closed, older than the page)
@@ -206,7 +206,8 @@ impl Tty7App {
                 host.clone(),
                 cx,
                 move |h| {
-                    h.agent_session_mentions(asked.agent, &asked.id, &asked.slug)
+                    h.fork()
+                        .agent_session_mentions(asked.agent, &asked.id, &asked.slug)
                         .unwrap_or_default()
                 },
                 move |this, mentions, cx| {
