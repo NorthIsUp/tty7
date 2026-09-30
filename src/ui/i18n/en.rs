@@ -2054,6 +2054,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "This ends every shell on this computer. Your tabs and layout are kept and reopen with fresh shells, and every agent picks its conversation back up."
         }
         L10nKey::ProgramNotesDropped => "More notifications from this pane weren't shown",
+        L10nKey::SidebarDeleteGroupTitle => "Delete the group “{name}”?",
+        L10nKey::SidebarDeleteGroupBody => {
+            "Its name goes with it. Its tabs stay open and go back to their automatic groups."
+        }
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"

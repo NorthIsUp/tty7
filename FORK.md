@@ -48,7 +48,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached (`history_cache`); `session_mentions`, one session's issue and PR references (`#N`, `owner/repo#N`, `/pull/N` and `/issues/N` links), tool output included; only the shown repo's, a bare `#N` only when the session ran in a checkout of it, never a colour like `#333333` or `#0` |
 | `.github/workflows/tag-on-bump.yml` | on a `main-niu` push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
 | `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) and its swatch |
-| `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows |
+| `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows; `pin_clicked`, the pin's click (unpin a folder group, delete a label group after a confirm) |
 | `src/ui/github_session.rs` | the GitHub tab's Session list, its default: every issue and pull request the focused pane's agent session mentions, latest first, rows from the lists, details and a capped one-at-a-time lookup; a mention shows only once a real item answers it (nothing above the highest number held is looked up, a 404 drops it); `remote_pick`, the fork before upstream |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 | `crates/tty7-core/src/daemon/procstat.rs` | per-process RSS, CPU time and start stamp for Info → Processes; `compact_bytes` |
@@ -71,7 +71,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/osc.rs` | `Notifications` (+ tests) | OSC 99 (kitty) notifications, chunked by `i=`, beside OSC 9/777; offered upstream as `upstream/osc-notifications` |
 | `crates/tty7-core/src/daemon/pane.rs` | `OscSniffer` (+ test) | read OSC 99 too, so a hookless agent's kitty notification marks it Waiting |
 | `src/ui/tab_strip.rs`, `src/ui/tab_sidebar.rs`, `src/ui/i18n/{mod,en,zh,ja}.rs` | `tab_context_menu` (Move to Group submenu), `move_targets`, `move_tab_to`, `pin_auto_group_with` (+ tests); `SidebarRemoveFromGroup` | Move to Group lists every sidebar group, auto ones too (picking one pins it), and Remove from Group, its check on the right so the labels line up with the tab menu; offered upstream as `upstream/move-to-group-submenu` |
-| `src/ui/tab_sidebar.rs` | header pin mark (clickable on label groups too, `debug_selector`), tests `clicking_a_{folder,label}_groups_pin_unpins_it` | a click on any pinned group's pin unpins it; the label-group half offered upstream as `upstream/label-group-unpin` |
+| `src/ui/tab_sidebar.rs` | header pin mark (clickable on label groups too, `debug_selector`, click → `group_header`'s `pin_clicked`), tests `clicking_a_folder_groups_pin_unpins_it`, `clicking_a_label_groups_pin_deletes_it_once_confirmed` | a click on a folder group's pin unpins it; on a label group's it deletes the group, name and hand-picked members, after a confirm. The label-group click (without the confirm) is offered upstream as `upstream/label-group-unpin` |
 | `src/terminal/remote.rs` | `OscNotifyScanner` (+ tests) | OSC 99 and a note's multi-part state (`osc::Notifications`); `feed` extends any queue |
 | `src/terminal/view.rs` | `mod program_notes`; `poll_foreground` (first line, and `notify_allowed`); `NotifyMode` import | `program_notes::show` and `::allowed`: one rule for every notice about a pane, held back only from the focused pane of the key window |
 | `docs/agents/status.mdx` | Notifications | program notifications and Claude Code's `/config` channel |
@@ -83,6 +83,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/bin/tty7-updater.rs` | `install_inner`, `extract_archive` → `unpacked_app` (+ test) | find the unpacked `.app` rather than name `tty7.app`, since the fork's is `tty7-niu.app` |
 | `.github/scripts/bundle-macos.sh` | top, Info.plist, signing, notarization, after the sweep | `TTY7_APP_NAME`, `TTY7_BUNDLE_ID`, `TTY7_BIN_DIR`, `TTY7_DIST`, `TTY7_LOCAL_BUILD_ID`, `TTY7_BUNDLE_ONLY`; sign with a keychain identity when no cert is imported (no timestamp); notarize with an ASC API key (`ASC_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`) |
 | `.github/workflows/ci.yml` | `on.push.branches`, the three `save-if`s; `build` matrix, `server-musl` `if` | `main-niu`, not `main`; macOS only, Windows, Linux and musl commented out |
+| `.github/workflows/nightly.yml` | `plan` job `if` | runs only on `l0ng-ai/tty7`, so a re-enabled workflow on the fork publishes nothing |
 | `.github/workflows/release.yml` | `Bundle macOS DMG` env; `draft-release` last step | build `tty7-niu.app` (`com.northisup.tty7-niu`) with the ASC notarization key; publish the draft on NorthIsUp/tty7 |
 | `crates/tty7-core/src/core/config.rs` | `Config::fork` (`#[serde(flatten)]`), `Default` | every fork setting lives in `fork_config::ForkConfig`, at the top level of `config.json` as before |
 | `crates/tty7-core/src/core/config.rs` | `NotifyMode::allows` (+ test) | the notice policy `view/program_notes.rs` applies; identical to upstream/osc-notifications |
@@ -112,12 +113,13 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
 | `src/ui/settings/pages.rs` | `render_settings_general`, Startup & Restore group | chain `resume_agents_setting` (Resume agents on restart) |
 | `src/ui/app.rs` | `quit_stop_sessions`, `restart_daemon` | body from `agent_resume::quit_stop_body` / `restart_body`, which say whether agents resume; `agent_resume::arm_restart_wake` before a confirmed restart |
-| `src/ui/i18n/{mod,en,zh,ja}.rs` | after `SettingsHotkeyFadeDesc` | `SettingsResumeAgents`(`Desc`), `QuitStopServerBodyResume`, `AppRestartServerBodyResume`, `ProgramNotesDropped` |
+| `src/ui/i18n/{mod,en,zh,ja}.rs` | after `SettingsHotkeyFadeDesc` | `SettingsResumeAgents`(`Desc`), `QuitStopServerBodyResume`, `AppRestartServerBodyResume`, `ProgramNotesDropped`, `SidebarDeleteGroupTitle`, `SidebarDeleteGroupBody` |
 | `Cargo.toml` | macOS deps | `raw-window-handle`, for the hotkey window's NSWindow; `block2`, for its AppKit notification observers |
 | `src/ui/windows.rs` | `WindowRegistry::most_recent`, `most_recent_local` | skip `hotkey_window::workspace`, so the Dock, the tray and the CLI never land in the hotkey window |
 | `.github/scripts/check-host-boundary.sh` | `ALLOW` | `hotkey_window/appkit.rs` reads its saved workspace id from the local config dir |
 | `src/core/session.rs` | `WorkspaceStore::restore_one` | `hotkey_window::to_restore`: a launch or a Dock click never reopens the hotkey window as a plain one |
 | `src/ui/switcher.rs` | `row_menu` (one line after the workspace verbs), `render_row` (after the slot number) | `hotkey_window::menu_item` (Set as / Unset Hotkey Workspace) and `row_badge` (the chord's keycaps on the hotkey workspace's row) |
+| `src/ui/presets.rs` | `load_iterm_theme` colour component (+ test) | read `<integer>` components, which iTerm2 and plistlib write for exact 0 and 1; offered upstream as `upstream/itermcolors-integer` |
 | `src/ui/theme.rs` | `window_menu_items` | `hotkey_window::menu_label`: the chord after the hotkey workspace in the Workspaces menu |
 | `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
@@ -145,9 +147,8 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `first_prompt`, `github_session`, `group_color`, `group_header`, `hotkey_window`, `new_tab_page`, `palette` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
-| `src/ui/palette.rs` | imports; `chord_tab` (was `is_palette_chord`) and its two call sites, the new tab page's keys in `intercept` (+ tests); `recording_a_shortcut` is upstream's, unchanged | upstream's since #1026, for ⌘P; the fork adds ⌘T (New Tab) and ⌘K (Agents) as tabs the same chord logic opens, and the new tab page's own keys ahead of the modal rule |
+| `src/ui/palette.rs` | module doc, imports; `chord_tab` (was `is_palette_chord`) and its two call sites, the new tab page's keys in `intercept` (+ tests); `recording_a_shortcut` is upstream's, unchanged | upstream's since #1026, for ⌘P; the fork adds ⌘T (New Tab) and ⌘K (Agents) as tabs the same chord logic opens, and the new tab page's own keys ahead of the modal rule |
 | `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `background_tab::bind_shift_enter` first, so the base snapshot keeps it; the palette takes ⌘K first on macOS |
-| `src/ui/settings_window.rs` | `SettingsWindow::app` | `pub(crate)`, so a palette chord in Settings opens the palette over its workspace |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents`, `SearchAgents` in Search Everywhere |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `SearchText` (Search Text in Files…) |
 | `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list, `CARD_MAX_W` re-export (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `Agents` and `NewTab` tabs, off the row |

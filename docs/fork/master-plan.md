@@ -26,7 +26,8 @@ Spec: `docs/fork/spec.md`. Integration branch: `feat/new-tab-page`.
 ## Shared Contracts (landed in 76892ab6, read-only for tasks)
 
 ```rust
-// crates/tty7-core/src/core/config.rs — Config
+// crates/tty7-core/src/core/fork_config.rs — ForkConfig, flattened into Config
+// (read as `cfg.fork.new_tab_page`)
 pub new_tab_page: bool,                            // default true
 pub dir_roots: Vec<String>,                        // default ["~/src","~/code","~/projects"]
 pub dir_frecency: HashMap<String, ProfileUsage>,   // key: absolute path
@@ -66,12 +67,15 @@ Tty7App::update_config(cx, |cfg| ..)                               // persists c
 
 ## Sections / tasks
 
-| id | file | scope | touches |
-|---|---|---|---|
-| T1 | docs/fork/plan/T1-new-tab-page.md | F1 | new `src/ui/new_tab_page.rs`; hooks in `app.rs` (new_tab, render, field), `agent_launch.rs` (launch with explicit cwd), `ui/mod.rs`; i18n en/zh/ja/mod; `docs/window/` page |
-| T2 | docs/fork/plan/T2-group-colors.md | F2 | new `src/ui/group_color.rs`; hook in `tab_sidebar.rs` header; `ui/mod.rs` |
-| T3 | docs/fork/plan/T3-pane-nice.md | F3 | `crates/tty7-core/src/daemon/pane.rs` (a call after spawn) + a small fn in a new `daemon/nice.rs` |
-| T4 | docs/fork/plan/T4-fork-upkeep.md | F4 | `FORK.md`, `mise.toml`; runs last, so it lists T1–T3's hooks |
+The per-task plans (`docs/fork/plan/`) and the run log were one-shot and
+are deleted; git history has them.
+
+| id | scope | touches |
+|---|---|---|
+| T1 | F1 | new `src/ui/new_tab_page.rs`; hooks in `app.rs` (new_tab, render, field), `agent_launch.rs` (launch with explicit cwd), `ui/mod.rs`; i18n en/zh/ja/mod; `docs/window/` page |
+| T2 | F2 | new `src/ui/group_color.rs`; hook in `tab_sidebar.rs` header; `ui/mod.rs` |
+| T3 | F3 | `crates/tty7-core/src/daemon/pane.rs` (a call after spawn) + a small fn in a new `daemon/nice.rs` |
+| T4 | F4 | `FORK.md`, `mise.toml`; runs last, so it lists T1–T3's hooks |
 
 Hot files: `src/ui/mod.rs` (T1 and T2 each add one `pub mod` line; a trivial
 merge). Waves: [T1, T2, T3], then [T4].

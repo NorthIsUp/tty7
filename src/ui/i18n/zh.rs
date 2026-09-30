@@ -1903,6 +1903,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
             "这会结束这台电脑上的所有 shell。标签页和布局会保留，并以新的 shell 重新打开，每个 agent 会接着原来的对话继续。"
         }
         L10nKey::ProgramNotesDropped => "此窗格的其他通知未显示",
+        L10nKey::SidebarDeleteGroupTitle => "删除分组“{name}”？",
+        L10nKey::SidebarDeleteGroupBody => {
+            "分组名称也会一起删除。其中的标签页保持打开，回到自动分组。"
+        }
         L10nKey::AppAgentLaunchSaved => "{name} 以后将以此命令启动：{command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} 未报告其启动参数",
         L10nKey::AppCmdShellTitle => "Shell：{title}",

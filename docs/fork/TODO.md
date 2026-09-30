@@ -14,13 +14,6 @@
 - **Why:** the spawn reports failure asynchronously, and a stray count is harmless.
 - **Fix:** bump it from `land_pane` for a pane opened by the page.
 
-## 2026-09-28 — fork CI is off
-
-- **Where:** github.com/NorthIsUp/tty7/actions
-- **What:** GitHub does not run workflows on a fork until someone clicks "enable workflows" in the UI; no API does it.
-- **Why:** it needs a human click.
-- **Fix:** click it; `ci.yml` then runs on PRs. Leave `nightly.yml` and `release.yml` disabled, since they publish upstream's artifacts.
-
 ## 2026-09-30 — new tab page keeps its own list
 
 - **Where:** src/ui/new_tab_page.rs, drawn by `SearchView` in place of its list
@@ -42,3 +35,10 @@
 - **What:** a launch or restart wake that finds the window empty parks in `continue_when_tabs_land`. If the rebuild it waited for brings no tabs, it stays parked and fires on the next `adopt_workspace`, e.g. switching the window to another workspace.
 - **Why:** the harm is small: it wakes only tabs that restore just recorded as dead, which that adopt would have restored asleep.
 - **Fix:** clear the parked wake when an adopt lands with no tabs, or tie it to the workspace it was asked for.
+
+## 2026-09-30 — Nightly is disabled on the fork
+
+- **Where:** github.com/NorthIsUp/tty7/actions, `.github/workflows/nightly.yml`
+- **What:** the Nightly workflow is disabled (`gh workflow disable Nightly`), and its `plan` job, which every other job needs, runs only on `l0ng-ai/tty7`.
+- **Why:** it publishes upstream's rolling `nightly` prerelease; the fork ships through `tag-on-bump.yml` and `release.yml`.
+- **Fix:** none needed; a fork nightly channel would need its own version scheme and release tag first.

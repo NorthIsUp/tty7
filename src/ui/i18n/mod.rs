@@ -1709,6 +1709,8 @@ l10n_keys! {
     QuitStopServerBodyResume,
     AppRestartServerBodyResume,
     ProgramNotesDropped,
+    SidebarDeleteGroupTitle,
+    SidebarDeleteGroupBody,
     AppAgentLaunchSaved,
     AppAgentLaunchArgsUnknown,
     AppCmdShellTitle,
