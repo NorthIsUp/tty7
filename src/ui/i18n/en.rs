@@ -1693,6 +1693,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "The jump host was left out — a saved host reaches its jump through another saved host."
         }
         L10nKey::SwitcherOpenInNewWindow => "Open in New Window",
+        L10nKey::SwitcherSetHotkeyWorkspace => "Set as Hotkey Workspace",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "Unset Hotkey Workspace",
+        L10nKey::SwitcherHotkeyWorkspace => "Hotkey workspace",
         L10nKey::SwitcherRename => "Rename…",
         L10nKey::SwitcherPickAWorkspace => "Pick a workspace to see its tabs.",
         L10nKey::SwitcherNoTabs => "No tabs in this workspace.",
