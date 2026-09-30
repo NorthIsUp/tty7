@@ -12,6 +12,7 @@ pub mod git;
 pub mod github;
 pub mod gitignore;
 pub mod group_key;
+pub mod history_cache;
 pub mod history_search;
 #[allow(dead_code)]
 pub mod keychain;

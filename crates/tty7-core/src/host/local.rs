@@ -351,8 +351,8 @@ impl Host for LocalHost {
         Ok(Roots::local().map_or_else(Vec::new, |roots| scan(&roots, known_dirs)))
     }
 
-    fn fork(&self) -> Option<&dyn crate::core::fork_host::ForkHost> {
-        Some(self)
+    fn fork(&self) -> &dyn crate::core::fork_host::ForkHost {
+        self
     }
 
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {

@@ -12,7 +12,6 @@ use std::path::Path;
 
 use crate::core::history_search::HistoryHit;
 use gpui::{Context, Window};
-use tty7_core::core::fork_host::ForkCalls as _;
 
 use super::SearchTab;
 use super::command::{Avatar, CommandKind, Item};
@@ -99,7 +98,7 @@ impl Tty7App {
                     host,
                     window,
                     cx,
-                    move |h| h.search_agent_history(&pattern),
+                    move |h| h.fork().search_agent_history(&pattern),
                     move |app, found, window, cx| {
                         let found = found.unwrap_or_else(|e| {
                             log::debug!("palette history search: {e}");

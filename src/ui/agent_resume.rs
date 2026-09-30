@@ -16,7 +16,6 @@ use crate::ui::host_ops::HostOps;
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::claude_background::ResumePlan;
 use tty7_core::core::cli_agent::CLIAgent;
-use tty7_core::core::fork_host::ForkCalls as _;
 use tty7_core::core::machine::TabId;
 use tty7_core::daemon::pane::integrates;
 
@@ -102,7 +101,11 @@ impl AtPrompt {
             HostOps::run(
                 host,
                 cx,
-                move |h| h.resume_plan(agent, &id).unwrap_or(ResumePlan::Resume),
+                move |h| {
+                    h.fork()
+                        .resume_plan(agent, &id)
+                        .unwrap_or(ResumePlan::Resume)
+                },
                 move |_, plan, cx| {
                     if let Some(line) = resume.line(plan) {
                         type_at_first_prompt(&cx.entity(), line, cx);

@@ -15,7 +15,6 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
-use tty7_core::core::fork_host::ForkCalls as _;
 use tty7_core::core::github::{Item, Kind, RepoSlug};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
@@ -207,7 +206,8 @@ impl Tty7App {
                 host.clone(),
                 cx,
                 move |h| {
-                    h.agent_session_mentions(asked.agent, &asked.id, &asked.slug)
+                    h.fork()
+                        .agent_session_mentions(asked.agent, &asked.id, &asked.slug)
                         .unwrap_or_default()
                 },
                 move |this, mentions, cx| {
