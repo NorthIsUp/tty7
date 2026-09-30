@@ -2527,7 +2527,8 @@ impl Tty7App {
                                     .text_size(gpui::rems(11. / 16.))
                                     .text_color(muted)
                                     .child((slot + 1).to_string())
-                            })),
+                            }))
+                            .children(crate::ui::hotkey_window::row_badge(cx, row.id)),
                     )
                     .child(
                         h_flex()
@@ -2588,8 +2589,8 @@ impl Tty7App {
                                 .xsmall(),
                         )
                         .tooltip(t(L10nKey::TabTooltipMore))
-                        .dropdown_menu(move |menu, _window, _cx| {
-                            row_menu(menu, &menu_ref, &menu_host, app.clone())
+                        .dropdown_menu(move |menu, _window, cx| {
+                            row_menu(menu, &menu_ref, &menu_host, app.clone(), cx)
                         }),
                     ),
             )
@@ -2621,8 +2622,8 @@ impl Tty7App {
                 )
                 .into_any_element(),
             false => line
-                .context_menu(move |menu, _window, _cx| {
-                    row_menu(menu, &ctx_ref, &ctx_host, app2.clone())
+                .context_menu(move |menu, _window, cx| {
+                    row_menu(menu, &ctx_ref, &ctx_host, app2.clone(), cx)
                 })
                 .into_any_element(),
         }
@@ -3277,6 +3278,7 @@ fn row_menu(
     row: &RowRef,
     host: &GroupRef,
     app: gpui::WeakEntity<Tty7App>,
+    cx: &gpui::App,
 ) -> gpui_component::menu::PopupMenu {
     let (a1, a2, a3, a4) = (app.clone(), app.clone(), app.clone(), app.clone());
     let (id, adopt) = (row.id, row.adopt.is_some());
@@ -3287,12 +3289,12 @@ fn row_menu(
     // them work, the way the tab pane already says it for the same rows.
     let menu = match adopt {
         true => menu.item(PopupMenuItem::label(t(L10nKey::SwitcherOpenToManage))),
-        false => menu
-            .item(
-                PopupMenuItem::new(t(L10nKey::SwitcherRename)).on_click(move |_, window, cx| {
+        false => crate::ui::hotkey_window::menu_item(
+            menu.item(PopupMenuItem::new(t(L10nKey::SwitcherRename)).on_click(
+                move |_, window, cx| {
                     let _ = a1.update(cx, |this, cx| this.switcher_rename(id, window, cx));
-                }),
-            )
+                },
+            ))
             .item(
                 PopupMenuItem::new(t(L10nKey::SwitcherOpenInNewWindow)).on_click(
                     move |_, window, cx| {
@@ -3302,28 +3304,32 @@ fn row_menu(
                         });
                     },
                 ),
-            )
-            .separator()
-            .item(
-                PopupMenuItem::new(t(L10nKey::AppMenuStopWorkspace))
-                    .disabled(!stoppable)
-                    .on_click(move |_, window, cx| {
-                        let _ = a3.update(cx, |this, cx| {
-                            this.close_switcher(window, cx);
-                            this.stop_workspace(id, window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(t(L10nKey::AppMenuDeleteWorkspace)).on_click(
-                    move |_, window, cx| {
-                        let _ = a4.update(cx, |this, cx| {
-                            this.close_switcher(window, cx);
-                            this.delete_workspace(id, window, cx);
-                        });
-                    },
-                ),
             ),
+            id,
+            app.clone(),
+            cx,
+        )
+        .separator()
+        .item(
+            PopupMenuItem::new(t(L10nKey::AppMenuStopWorkspace))
+                .disabled(!stoppable)
+                .on_click(move |_, window, cx| {
+                    let _ = a3.update(cx, |this, cx| {
+                        this.close_switcher(window, cx);
+                        this.stop_workspace(id, window, cx);
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(t(L10nKey::AppMenuDeleteWorkspace)).on_click(
+                move |_, window, cx| {
+                    let _ = a4.update(cx, |this, cx| {
+                        this.close_switcher(window, cx);
+                        this.delete_workspace(id, window, cx);
+                    });
+                },
+            ),
+        ),
     };
     host_menu(menu, host, app)
 }
