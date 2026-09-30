@@ -67,19 +67,28 @@ impl WindowRegistry {
 
     pub fn most_recent(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
+        let hotkey = crate::ui::hotkey_window::workspace(cx);
         let active = WorkspaceStore::all(cx).active;
         let registry = cx.global::<Self>();
         active
-            .filter(|id| registry.windows.iter().any(|w| w.workspace == *id))
-            .or_else(|| registry.windows.first().map(|w| w.workspace))
+            .filter(|id| Some(*id) != hotkey && registry.windows.iter().any(|w| w.workspace == *id))
+            .or_else(|| {
+                registry
+                    .windows
+                    .iter()
+                    .map(|w| w.workspace)
+                    .find(|id| Some(*id) != hotkey)
+            })
     }
 
     pub fn most_recent_local(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
+        let hotkey = crate::ui::hotkey_window::workspace(cx);
         let views = WorkspaceStore::all(cx);
         let registry = cx.global::<Self>();
         let is_open_local = |id: WorkspaceId| {
-            registry.windows.iter().any(|window| window.workspace == id)
+            Some(id) != hotkey
+                && registry.windows.iter().any(|window| window.workspace == id)
                 && views.get(id).is_some_and(|view| !view.is_remote())
         };
         views.active.filter(|id| is_open_local(*id)).or_else(|| {
