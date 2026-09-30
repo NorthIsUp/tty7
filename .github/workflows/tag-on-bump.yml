@@ -5,7 +5,7 @@ name: Tag on bump
 # pushed with GITHUB_TOKEN does not fire release.yml's `push: tags` trigger.
 on:
   push:
-    branches: [main]
+    branches: [main-niu]
     paths: [Cargo.toml]
   workflow_dispatch:
 
