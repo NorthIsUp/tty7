@@ -2022,6 +2022,16 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
         L10nKey::SettingsHotkeyFade => "Fade",
         L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
+        L10nKey::SettingsResumeAgents => "Resume agents on restart",
+        L10nKey::SettingsResumeAgentsDesc => {
+            "When tty7 restarts, resume every agent session that was open."
+        }
+        L10nKey::QuitStopServerBodyResume => {
+            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, and every agent picks its conversation back up right away; other tabs start when you open them. (Closing the window only retires tty7 to the tray — the shells keep running.)"
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "This ends every shell on this computer. Your tabs and layout are kept and reopen with fresh shells, and every agent picks its conversation back up."
+        }
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"

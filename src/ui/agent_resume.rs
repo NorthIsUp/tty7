@@ -1,23 +1,26 @@
 //! The fork's agent-resume features, kept out of `app.rs` so rebasing on
 //! upstream touches as little of it as possible: which restored tabs sleep,
 //! waking their agents (`--continue`, the palette command, and
-//! `resume_agents_on_launch`), and the line a restored agent pane types.
+//! `resume_agents_on_launch`, also after Restart Server), its Settings row
+//! and dialog copy, and the line a restored agent pane types.
 
 use std::time::Duration;
 
-use gpui::{App, Context, Entity, Global, Window};
+use gpui::{AnyElement, App, Context, Entity, Global, IntoElement as _, Window};
 
 use crate::core::config::Config;
-use crate::core::session::SessionPane;
+use crate::core::session::{SessionPane, WorkspaceStore};
 use crate::terminal::view::TerminalView;
 use crate::ui::agent_launch::type_at_first_prompt;
 use crate::ui::app::{Tty7App, join_shell_args};
 use crate::ui::host_ops::HostOps;
+use crate::ui::i18n::{L10nKey, t};
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::claude_background::ResumePlan;
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::machine::TabId;
 use tty7_core::daemon::pane::integrates;
+use tty7_core::host::HostId;
 
 /// An agent session a restored pane reopens once its shell is up.
 #[derive(Clone, Debug, PartialEq)]
@@ -261,6 +264,61 @@ pub fn wake_launch_window(cx: &mut App, continue_flag: bool) {
     });
 }
 
+/// Restart Server's agent wake. A restart that kills the shells brings every
+/// local window's tabs back asleep, so with `resume_agents_on_launch` each
+/// window wakes its agent tabs once the rebuild lands them, as a launch would.
+/// An in-place handoff kills nothing and wakes nothing.
+pub(crate) fn arm_restart_wake(in_place: bool, cx: &mut App) {
+    if !restart_wakes(in_place, cx.global::<Config>()) {
+        return;
+    }
+    for (ws, app) in WindowRegistry::open_windows(cx) {
+        if WorkspaceStore::host_of(cx, ws) != HostId::LOCAL {
+            continue;
+        }
+        if let Some(app) = app.upgrade() {
+            app.update(cx, |this, _| this.continue_when_tabs_land = Some(None));
+        }
+    }
+}
+
+fn restart_wakes(in_place: bool, cfg: &Config) -> bool {
+    !in_place && cfg.fork.resume_agents_on_launch
+}
+
+/// Quit and Stop's body: whether agents come back on their own next launch.
+pub(crate) fn quit_stop_body(cx: &App) -> L10nKey {
+    match cx.global::<Config>().fork.resume_agents_on_launch {
+        true => L10nKey::QuitStopServerBodyResume,
+        false => L10nKey::QuitStopServerBody,
+    }
+}
+
+/// Restart Server's body where the shells die: whether agents resume after.
+pub(crate) fn restart_body(cx: &App) -> L10nKey {
+    match cx.global::<Config>().fork.resume_agents_on_launch {
+        true => L10nKey::AppRestartServerBodyResume,
+        false => L10nKey::AppRestartServerBody,
+    }
+}
+
+impl Tty7App {
+    /// The Startup & Restore row for `resume_agents_on_launch`.
+    pub(crate) fn resume_agents_setting(&self, cx: &mut Context<Self>) -> AnyElement {
+        let on = cx.global::<Config>().fork.resume_agents_on_launch;
+        let switch = self.settings_switch("resume-agents", on, cx, |this, on, _, cx| {
+            this.update_config(cx, |c| c.fork.resume_agents_on_launch = on)
+        });
+        self.settings_row(
+            t(L10nKey::SettingsResumeAgents),
+            t(L10nKey::SettingsResumeAgentsDesc),
+            switch,
+            cx,
+        )
+        .into_any_element()
+    }
+}
+
 pub(crate) fn layout_has_agent_session(pane: &SessionPane) -> bool {
     match pane {
         SessionPane::Leaf {
@@ -290,7 +348,7 @@ pub(crate) fn layout_has_live_pane(
 
 #[cfg(test)]
 mod tests {
-    use super::{Resume, ResumePlan, agent_tabs, launch_wake, layout_has_live_pane};
+    use super::{Resume, ResumePlan, agent_tabs, launch_wake, layout_has_live_pane, restart_wakes};
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
     use tty7_core::core::cli_agent::CLIAgent;
@@ -331,6 +389,20 @@ mod tests {
         cfg.fork.resume_agents_on_launch = false;
         assert_eq!(launch_wake(true, &cfg), Some(Some("go".into())));
         assert_eq!(launch_wake(false, &cfg), None);
+    }
+
+    #[test]
+    fn with_resume_off_launch_and_restart_leave_agent_tabs_asleep() {
+        let mut cfg = Config::default();
+        assert_eq!(launch_wake(false, &cfg), Some(None));
+        assert!(restart_wakes(false, &cfg));
+        assert!(
+            !restart_wakes(true, &cfg),
+            "a handoff kills nothing to resume"
+        );
+        cfg.fork.resume_agents_on_launch = false;
+        assert_eq!(launch_wake(false, &cfg), None);
+        assert!(!restart_wakes(false, &cfg));
     }
 
     #[test]
