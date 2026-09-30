@@ -72,17 +72,22 @@ pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> Res
     if let Some(job) = job_for_session(&claude_root.join("sessions"), session_id) {
         return ResumePlan::Attach(job);
     }
+    // Fresh only on a clean read that finds nothing: an unreadable projects
+    // dir (or a pane whose Claude kept its files elsewhere) says nothing about
+    // whether the session was saved, and a resume that finds it loses nothing.
+    let Ok(projects) = std::fs::read_dir(claude_root.join("projects")) else {
+        return ResumePlan::Resume;
+    };
     let file = format!("{session_id}.jsonl");
-    let saved = std::fs::read_dir(claude_root.join("projects"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .any(|project| project.path().join(&file).is_file());
-    if saved {
-        ResumePlan::Resume
-    } else {
-        ResumePlan::Fresh
+    for project in projects {
+        let Ok(project) = project else {
+            return ResumePlan::Resume;
+        };
+        if project.path().join(&file).is_file() {
+            return ResumePlan::Resume;
+        }
     }
+    ResumePlan::Fresh
 }
 
 /// Fill in the session id `argv` names for a pane no hook has spoken for
@@ -195,10 +200,16 @@ mod tests {
     fn a_session_attaches_resumes_or_starts_fresh() {
         let root = tempfile::tempdir().unwrap();
         let plan = |id: &str| resume_plan(root.path(), CLIAgent::Claude, id);
-        assert_eq!(plan(ID), ResumePlan::Fresh, "nothing saved yet");
+        assert_eq!(
+            plan(ID),
+            ResumePlan::Resume,
+            "no projects dir to read: can't say it was never saved"
+        );
 
         let project = root.path().join("projects").join("-Users-me-src");
         std::fs::create_dir_all(&project).unwrap();
+        assert_eq!(plan(ID), ResumePlan::Fresh, "read, and nothing saved");
+
         std::fs::write(project.join(format!("{ID}.jsonl")), "{}").unwrap();
         assert_eq!(plan(ID), ResumePlan::Resume);
 

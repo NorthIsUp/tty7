@@ -515,6 +515,10 @@ impl Tty7App {
             .get(self.workspace)
             .is_some_and(|w| w.is_remote());
 
+        // A reveal whose row is not drawn this frame (folded away, or the tab
+        // gone) is dropped, so it cannot fire when the row turns up later.
+        let reveal = self.sidebar_reveal.get();
+        let mut reveal_drawn = false;
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             if n == first_unpinned && show_divider {
                 list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));
@@ -608,6 +612,7 @@ impl Tty7App {
             for (slot, i) in visible.into_iter().enumerate() {
                 let badge_pos = badge_pos[i];
                 let tab = &self.tabs[i];
+                reveal_drawn |= reveal == Some(tab.tree_id.get());
                 let is_active = i == active;
                 let ssh_dot = self.tab_ssh_dot(tab, cx);
                 let asleep = tab.is_asleep();
@@ -1056,6 +1061,7 @@ impl Tty7App {
                                 let by_tab = self.sidebar_slots.clone();
                                 let reveal = self.sidebar_reveal.clone();
                                 let scroll = self.sidebar_scroll.clone();
+                                let id = tab.tree_id.get();
                                 move |bounds, window, _cx| {
                                     if let Some(s) = slots.borrow_mut().get_mut(slot) {
                                         *s = bounds;
@@ -1063,7 +1069,7 @@ impl Tty7App {
                                     if let Some(s) = by_tab.borrow_mut().get_mut(i) {
                                         *s = bounds;
                                     }
-                                    if reveal.get() == Some(i) {
+                                    if reveal.get() == Some(id) {
                                         reveal.set(None);
                                         let view = scroll.bounds();
                                         let shift = reveal_shift(
@@ -1689,6 +1695,9 @@ impl Tty7App {
                 }
                 _ => block.into_any_element(),
             });
+        }
+        if !reveal_drawn {
+            self.sidebar_reveal.set(None);
         }
         if show_divider && !divider_drawn {
             list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));
@@ -3029,16 +3038,6 @@ impl Section {
     }
 }
 
-/// The sidebar's sections, top to bottom: every pinned group in the user's
-/// order — an empty one too, since a kept group stays until it is deleted —
-/// then the auto groups in the order their first tab appears, then
-/// Ungrouped.
-///
-/// Ungrouped only draws a header beside other groups below the divider. With
-/// no auto group to set it apart from — grouping off, or nothing resolved
-/// yet — it is just the list, and a header over the whole of it would be a
-/// label on nothing. The same goes for a sidebar with no groups at all, which
-/// comes out as one headerless section holding every tab.
 /// How far to move the sidebar's scroll offset so a newly active row shows.
 /// A row with any part in view stays put — clicking a row must not move the
 /// list under the pointer; one out of view comes in at the nearest edge.
@@ -3053,6 +3052,16 @@ fn reveal_shift(row: (Pixels, Pixels), view: (Pixels, Pixels)) -> Pixels {
     }
 }
 
+/// The sidebar's sections, top to bottom: every pinned group in the user's
+/// order — an empty one too, since a kept group stays until it is deleted —
+/// then the auto groups in the order their first tab appears, then
+/// Ungrouped.
+///
+/// Ungrouped only draws a header beside other groups below the divider. With
+/// no auto group to set it apart from — grouping off, or nothing resolved
+/// yet — it is just the list, and a header over the whole of it would be a
+/// label on nothing. The same goes for a sidebar with no groups at all, which
+/// comes out as one headerless section holding every tab.
 fn sidebar_sections(keys: &[Option<GroupKey>], groups: &WorkspaceGroups) -> Vec<Section> {
     let members = |key: &GroupKey| -> Vec<usize> {
         (0..keys.len())

@@ -70,7 +70,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/daemon/pane.rs` | `OscSniffer` (+ test) | read OSC 99 too, so a hookless agent's kitty notification marks it Waiting |
 | `src/ui/tab_strip.rs`, `src/ui/tab_sidebar.rs`, `src/ui/i18n/{mod,en,zh,ja}.rs` | `tab_context_menu` (Move to Group submenu), `move_targets`, `move_tab_to`, `pin_auto_group_with` (+ tests); `SidebarRemoveFromGroup` | Move to Group lists every sidebar group, auto ones too (picking one pins it), and Remove from Group; offered upstream as `upstream/move-to-group-submenu` |
 | `src/ui/tab_sidebar.rs` | header pin mark (clickable on label groups too, `debug_selector`), tests `clicking_a_{folder,label}_groups_pin_unpins_it` | a click on any pinned group's pin unpins it; the label-group half offered upstream as `upstream/label-group-unpin` |
-| `src/terminal/remote.rs` | `OscNotifyScanner`, `osc_notes` queue, `take_osc_notes` (+ test) | program notifications go to the view instead of straight to the desktop |
+| `src/terminal/remote.rs` | `OscNotifyScanner`, `osc_notes` queue (capped at `OSC_NOTES_KEPT`), `take_osc_notes` (the newest `OSC_NOTES_SHOWN`) (+ tests) | program notifications go to the view instead of straight to the desktop; a flood shows as a few |
 | `src/terminal/view.rs` | `poll_foreground` → `show_program_notes`, `shows_notification` (+ test), the flag `poll_agent_status` gets | one rule for hook notices and program notes: the policy, held back only from the focused pane of the key window; clickable, agent-named |
 | `docs/agents/status.mdx` | Notifications | program notifications and Claude Code's `/config` channel |
 | `src/terminal/element.rs` | `mod osc8_underline`, `RenderCell::osc8_dots`, end of `snapshot_cell`, `flag_hovered_link`; test `test_colors` made `pub(super)` | `osc8_underline::mark` / `unmark` |
@@ -162,6 +162,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `docs/docs.json` | "The window" pages | `window/new-tab-page`, `window/hotkey-window` |
 | `crates/tty7-core/src/core/term_modes.rs` | `TRACKED`, `COLOR_SCHEME_UPDATES`, `feed`'s `n` arm, `take_color_scheme_queries` (+ test) | track 2031 (a reattach restores it) and count `?996n` queries |
 | `crates/tty7-core/src/daemon/pane.rs` | `INPUT_MODE_RESETS` | `?2031l`: a restored pane's new shell never asked for theme reports |
-| `src/terminal/remote.rs` | `ReaderSignals`, `RemoteTerminal` field + `color_scheme_updates()`, `spawn_reader` `Snapshot` / `Output` arms | `color_scheme::fold`; answer a live `?996n` with `color_scheme::query_reply` |
+| `src/terminal/remote.rs` | `ReaderSignals`, `RemoteTerminal` field + `color_scheme_updates()`, `spawn_reader` `Snapshot` / `Output` arms, `report_scheme` and the drained-buffer arm of its frame loop | `color_scheme::fold`; answer a live `?996n` with `color_scheme::query_reply`; one 997 after a replay that leaves 2031 on |
+| `src/ui/app.rs`, `src/ui/tab_sidebar.rs` | `Tty7App::sidebar_reveal` (by `TabId`), `activate`; `tab_sidebar` row canvas and the undrawn-reveal clear, `reveal_shift` (+ test) | selecting a tab scrolls its row in only when it is out of view, at the nearest edge; identical to upstream/sidebar-scroll-nearest |
 | `src/terminal/view.rs` | `with_terminal` (made `pub(super)` for the test) | `color_scheme::watch` |
 | `src/terminal/mod.rs` | module list | `mod color_scheme` |
