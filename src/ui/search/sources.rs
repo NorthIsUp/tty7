@@ -103,16 +103,8 @@ pub(crate) struct Catalog {
     /// Asked with every query the Symbols tab is given; its answer comes
     /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
-    /// The Text tab's rows for the last query it asked (`text`).
-    pub text: Vec<Item>,
-    /// Asked with every query the Text tab is given; its answer comes back
-    /// through `SearchView::set_text_hits`.
-    pub text_query: Option<LiveQuery>,
-    /// The History tab's rows for the last query it asked (`history_text`).
-    pub history: Vec<Item>,
-    /// Asked with every query the History tab is given; `None` where the
-    /// window's workspace is on another machine.
-    pub history_query: Option<LiveQuery>,
+    /// The tabs the window answers as they are typed in (`text::LiveTab`).
+    pub live: Vec<super::text::LiveTab>,
     /// Agent session ids open in some pane, which the Agents tab lists as
     /// their tab instead of as a session to resume.
     pub open_agent_sessions: Vec<String>,
@@ -142,10 +134,7 @@ impl Catalog {
             locations: Vec::new(),
             project_symbols: Vec::new(),
             live_query: None,
-            text: Vec::new(),
-            text_query: None,
-            history: Vec::new(),
-            history_query: None,
+            live: Vec::new(),
             open_agent_sessions: Vec::new(),
         }
     }
@@ -163,11 +152,7 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
-            SearchTab::Text => Some(Box::new(super::text::Text(&self.text, SearchTab::Text))),
-            SearchTab::History => Some(Box::new(super::text::Text(
-                &self.history,
-                SearchTab::History,
-            ))),
+            SearchTab::Text | SearchTab::History => self.live_source(tab),
             SearchTab::Agents => Some(Box::new(super::agents::Agents {
                 terminals: &self.terminals,
                 sessions: &self.sessions,

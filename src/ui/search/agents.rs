@@ -2,7 +2,7 @@
 //! session not already open in one. Both halves are the Terminals and
 //! Sessions tabs' own rows, so Enter focuses or resumes exactly as there.
 
-use gpui::{App, Context, Window};
+use gpui::App;
 
 use super::SearchTab;
 use super::command::{CommandKind, Item};
@@ -80,17 +80,6 @@ impl Tty7App {
             .flat_map(|machine| machine.panes.iter())
             .filter_map(|pane| pane.agent.as_ref()?.session_id.clone());
         here.chain(mirrored).collect()
-    }
-
-    /// ⌘K: the search on its Agents tab, or closed when that is showing.
-    pub(crate) fn toggle_agents_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let showing = self.search.as_ref().map(|s| s.read(cx).tab());
-        if showing.is_some() {
-            self.close_search(window, cx);
-        }
-        if showing != Some(SearchTab::Agents) {
-            self.open_search(SearchTab::Agents, "", window, cx);
-        }
     }
 }
 
