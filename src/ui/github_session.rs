@@ -8,15 +8,17 @@
 //! number: a list page, a detail, or an earlier lookup. The Session tab reads
 //! the repository's `state=all` issue and pull request lists (two requests),
 //! then looks up the newest [`MAX_LOOKUPS`] still unknown one at a time on a
-//! single worker. Anything past that shows as a bare `#N` under All.
+//! single worker. A mention shows only once a real issue or pull request
+//! of the repository answers it: one above the highest number the panel
+//! holds is never looked up (`#333333` is a colour), and a 404 drops it.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use gpui::{AnyElement, Context, SharedString, Window, div, prelude::*, px, rems};
-use gpui_component::{ActiveTheme as _, h_flex, v_flex};
+use gpui::{AnyElement, Context, Window, prelude::*, px};
+use gpui_component::v_flex;
 
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::github::api::{self, ListQuery};
@@ -28,10 +30,9 @@ use crate::ui::app::{CONTENT_INSET, Tty7App};
 use crate::ui::github::{STALE_AFTER, off_ui};
 use crate::ui::host_ops::{HostOps, SharedHost};
 use crate::ui::i18n::{L10nKey, t};
-use crate::ui::right_panel::{META, ROW_FILL_RADIUS, ROW_INSET};
 
 /// ponytail: mentions past the newest this many are never looked up one by
-/// one; they stay `#N` under All unless a list page or a detail has them.
+/// one; they stay hidden unless a list page or a detail has them.
 const MAX_LOOKUPS: usize = 30;
 
 /// Which session's mentions, of which repository.
@@ -115,44 +116,39 @@ pub(crate) fn remote_pick(pick: Option<&str>, prefer_origin: bool) -> Option<&st
     pick.or(prefer_origin.then_some("origin"))
 }
 
-/// A Session row: the item, or just its number while nothing says more.
-#[derive(Debug, PartialEq)]
-enum Row<'a> {
-    Known(&'a Item),
-    Unknown(u64),
-}
-
-/// `numbers` (latest mention first) as rows, those `state` and `label` keep.
-/// An unknown number has no state or labels to go by, so only All with no
-/// label shows it.
+/// `numbers` (latest mention first) as the rows `state` and `label` keep; a
+/// number with no row is not shown.
 fn session_rows<'a>(
     numbers: &[u64],
     known: &HashMap<u64, &'a Item>,
     state: StateFilter,
     label: Option<&str>,
-) -> Vec<Row<'a>> {
+) -> Vec<&'a Item> {
     numbers
         .iter()
-        .filter_map(|n| match known.get(n) {
-            Some(&item) => (state.admits(item.state)
-                && label.is_none_or(|l| item.labels.iter().any(|x| x.name == l)))
-            .then_some(Row::Known(item)),
-            None => (state == StateFilter::All && label.is_none()).then_some(Row::Unknown(*n)),
+        .filter_map(|n| known.get(n).copied())
+        .filter(|item| {
+            state.admits(item.state)
+                && label.is_none_or(|l| item.labels.iter().any(|x| x.name == l))
         })
         .collect()
 }
 
-/// The first [`MAX_LOOKUPS`] mentions nothing has a row for yet.
+/// The first [`MAX_LOOKUPS`] mentions nothing has a row for yet, skipping
+/// any above the highest number held. ponytail: the lists are sorted by
+/// update, so a brand-new item missing from their first page hides a
+/// mention of it until a refresh.
 fn to_look_up(
     numbers: &[u64],
     known: &HashMap<u64, &Item>,
     tried: impl Fn(u64) -> bool,
 ) -> Vec<u64> {
+    let max = known.keys().copied().max().unwrap_or(0);
     numbers
         .iter()
         .take(MAX_LOOKUPS)
         .copied()
-        .filter(|n| !known.contains_key(n) && !tried(*n))
+        .filter(|&n| n <= max && !known.contains_key(&n) && !tried(n))
         .collect()
 }
 
@@ -221,11 +217,8 @@ impl Tty7App {
         } else {
             let now = crate::ui::github::now_unix();
             let mut list = v_flex().px(px(CONTENT_INSET));
-            for row in rows {
-                list = list.child(match row {
-                    Row::Known(item) => self.github_item_row(slug, item, now, cx),
-                    Row::Unknown(n) => self.github_unknown_row(slug, n, cx),
-                });
+            for item in rows {
+                list = list.child(self.github_item_row(slug, item, now, cx));
             }
             v_flex().pb(px(12.)).child(list).into_any_element()
         };
@@ -356,39 +349,6 @@ impl Tty7App {
         .detach();
     }
 
-    /// A mention with no row yet: its number, opening its detail on click.
-    fn github_unknown_row(
-        &self,
-        slug: &RepoSlug,
-        number: u64,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let sf = cx.global::<crate::ui::presets::Surfaces>().sidebar;
-        let slug = slug.clone();
-        h_flex()
-            .id(SharedString::from(format!(
-                "panel-github-mentioned-{number}"
-            )))
-            .items_center()
-            .h(px(26.))
-            .w_full()
-            .px(px(ROW_INSET))
-            .rounded(ROW_FILL_RADIUS)
-            .cursor_pointer()
-            .hover(|s| s.bg(gpui::rgb(sf.hover)))
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                this.github_open_detail(slug.clone(), number, cx);
-            }))
-            .child(
-                div()
-                    .text_size(rems(META))
-                    .font_family(cx.theme().mono_font_family.clone())
-                    .text_color(cx.theme().muted_foreground)
-                    .child(format!("#{number}")),
-            )
-            .into_any_element()
-    }
-
     /// The focused pane's agent session, if it has one.
     fn github_session_key(
         &self,
@@ -516,32 +476,26 @@ mod tests {
         let items = [closed, issue, open];
         let known: HashMap<u64, &Item> = items.iter().map(|i| (i.number, i)).collect();
         let numbers = [9, 4, 3, 5];
-        let shown = |state, label| -> Vec<String> {
+        let shown = |state, label| -> Vec<u64> {
             session_rows(&numbers, &known, state, label)
                 .into_iter()
-                .map(|r| match r {
-                    Row::Known(i) => i.number.to_string(),
-                    Row::Unknown(n) => format!("?{n}"),
-                })
+                .map(|i| i.number)
                 .collect()
         };
         assert_eq!(
             shown(StateFilter::All, None),
-            ["?9", "4", "3", "5"],
-            "latest mention first, issues and pull requests mixed"
+            [4, 3, 5],
+            "latest mention first, issues and pull requests mixed, no row for #9"
         );
-        assert_eq!(shown(StateFilter::Open, None), ["3", "5"]);
-        assert_eq!(shown(StateFilter::Closed, None), ["4"]);
-        assert!(
-            shown(StateFilter::All, Some("bug")).is_empty(),
-            "an unknown number has no labels"
-        );
+        assert_eq!(shown(StateFilter::Open, None), [3, 5]);
+        assert_eq!(shown(StateFilter::Closed, None), [4]);
+        assert!(shown(StateFilter::All, Some("bug")).is_empty());
     }
 
     #[test]
     fn only_the_newest_unknown_mentions_are_looked_up() {
-        let known_item = item(2);
-        let known: HashMap<u64, &Item> = [(2, &known_item)].into();
+        let (known_item, top) = (item(2), item(1000));
+        let known: HashMap<u64, &Item> = [(2, &known_item), (1000, &top)].into();
         let numbers: Vec<u64> = (1..=MAX_LOOKUPS as u64 + 10).collect();
         let missing = to_look_up(&numbers, &known, |n| n == 3);
         assert_eq!(missing.len(), MAX_LOOKUPS - 2);
@@ -549,6 +503,11 @@ mod tests {
             &missing[..2],
             &[1, 4],
             "known and already tried ones skipped"
+        );
+        assert_eq!(
+            to_look_up(&[333333, 1001, 7], &known, |_| false),
+            [7],
+            "nothing above the highest number held"
         );
     }
 
@@ -585,6 +544,8 @@ mod gpui_tests {
         lists_fail: bool,
         /// `/issues/N` waits while this is set.
         hold: AtomicBool,
+        /// `/issues/N` 404s for these.
+        gone: Vec<u64>,
     }
 
     impl Transport for Fake {
@@ -603,6 +564,9 @@ mod gpui_tests {
                      "head": {"ref": "x"}, "base": {"ref": "main"}}]"#
                     .to_string()
             } else if let Some(n) = path.strip_prefix("/repos/acme/widgets/issues/") {
+                if self.gone.iter().any(|g| g.to_string() == n) {
+                    return Err(ApiError::NotFound);
+                }
                 while self.hold.load(Ordering::SeqCst) {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
@@ -701,16 +665,46 @@ mod gpui_tests {
         app.update_in(&mut vcx, |app, _, _| {
             app.github.session.looked_up.insert((slug(), 5), Some(old));
         });
-        // Until 9 is looked up, the lists have landed.
+        // Until 3 is looked up, the lists have landed.
         for _ in 0..200 {
-            passes(&app, &mut vcx, &[9, 5], 1);
+            passes(&app, &mut vcx, &[3, 5], 1);
             if lookups(&fake) > 0 {
                 break;
             }
         }
         let state = app.update_in(&mut vcx, |app, _, _| app.github_known(&slug())[&5].state);
         assert_eq!(state, ItemState::Merged);
-        assert_eq!(lookups(&fake), 1, "5 was not looked up again, 9 was");
+        assert_eq!(lookups(&fake), 1, "5 was not looked up again, 3 was");
+    }
+
+    #[gpui::test]
+    fn only_real_numbers_up_to_the_highest_are_looked_up_and_shown(cx: &mut TestAppContext) {
+        let fake = Arc::new(Fake {
+            gone: vec![4],
+            ..Default::default()
+        });
+        let (app, mut vcx) = setup(cx, fake.clone());
+        let numbers = [333333, 4, 3];
+        for _ in 0..200 {
+            passes(&app, &mut vcx, &numbers, 1);
+            if lookups(&fake) >= 2 {
+                break;
+            }
+        }
+        passes(&app, &mut vcx, &numbers, 3);
+        let asked: Vec<String> = fake.asked.lock().unwrap().clone();
+        assert!(
+            !asked.iter().any(|p| p.ends_with("/issues/333333")),
+            "above #5, the highest held: {asked:?}"
+        );
+        assert_eq!(lookups(&fake), 2);
+        let shown = app.update_in(&mut vcx, |app, _, _| {
+            session_rows(&numbers, &app.github_known(&slug()), StateFilter::All, None)
+                .into_iter()
+                .map(|i| i.number)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(shown, [3], "#4 404'd");
     }
 
     #[gpui::test]
@@ -719,19 +713,19 @@ mod gpui_tests {
         fake.hold.store(true, Ordering::SeqCst);
         let (app, mut vcx) = setup(cx, fake.clone());
         for _ in 0..200 {
-            passes(&app, &mut vcx, &[9, 10], 1);
+            passes(&app, &mut vcx, &[3, 4], 1);
             if lookups(&fake) > 0 {
                 break;
             }
         }
-        assert_eq!(lookups(&fake), 1, "the worker is holding on #9");
+        assert_eq!(lookups(&fake), 1, "the worker is holding on #3");
         app.update_in(&mut vcx, |app, _, _| mark_due(&mut app.github.session));
         fake.hold.store(false, Ordering::SeqCst);
         for _ in 0..20 {
             vcx.background_executor.run_until_parked();
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert_eq!(lookups(&fake), 1, "it stopped before #10");
+        assert_eq!(lookups(&fake), 1, "it stopped before #4");
         let kept = app.update_in(&mut vcx, |app, _, _| {
             (
                 app.github.session.looked_up.len(),
