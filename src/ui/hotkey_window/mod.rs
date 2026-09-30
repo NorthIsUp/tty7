@@ -117,6 +117,16 @@ fn dock(autohides: bool) -> Dock {
     }
 }
 
+/// How the app's presentation options change: `Some(on)` sets (`true`) or
+/// puts back the Dock and menu bar, `None` leaves them. They are on exactly
+/// while the full screen hotkey window is the key window, and only what the
+/// hotkey window set is ever put back, so options it never set (another
+/// window in native full screen) are left alone.
+fn presentation(presented: bool, hotkey_is_key: bool, fullscreen: bool) -> Option<bool> {
+    let want = hotkey_is_key && fullscreen;
+    (want != presented).then_some(want)
+}
+
 /// The workspace a launch or a Dock click reopens: never the hotkey window's.
 pub(crate) fn to_restore(views: &WindowViews, hotkey: Option<WorkspaceId>) -> Option<WorkspaceId> {
     let Some(hotkey) = hotkey else {
@@ -320,6 +330,23 @@ mod tests {
     fn an_auto_hiding_dock_slides_over_the_hotkey_window_and_a_fixed_one_hides() {
         assert_eq!(dock(true), Dock::AutoHide);
         assert_eq!(dock(false), Dock::Hide);
+    }
+
+    #[test]
+    fn the_dock_and_menu_bar_follow_the_key_window() {
+        assert_eq!(presentation(false, true, true), Some(true), "summoned");
+        assert_eq!(presentation(true, true, true), None, "already set");
+        assert_eq!(
+            presentation(true, false, true),
+            Some(false),
+            "another tty7 window is key, or the hotkey window closed"
+        );
+        assert_eq!(presentation(false, true, false), None, "window style");
+        assert_eq!(
+            presentation(false, false, true),
+            None,
+            "never set, never touched"
+        );
     }
 
     #[test]
