@@ -3,7 +3,7 @@
 ## 2026-09-28 — pane nice rechecked on a timer
 
 - **Where:** crates/tty7-core/src/daemon/nice.rs `apply`
-- **What:** after `setpriority`, the value is checked again at 1s and 5s and reapplied if something reset it.
+- **What:** after `setpriority`, the value is checked again at 1s and 5s and reapplied if something reset it, while the pid is still the daemon's child (it may have exited and been reused).
 - **Why:** on macOS, shells spawned in the daemon's first moments (restored panes) were read back at 0; later spawns kept the value. The cause is outside tty7, probably a task policy applied after the daemon disclaims responsibility, and it was not pinned down.
 - **Fix:** find what resets it (run `fs_usage`/dtrace on the daemon at launch) and apply at the right moment, or set the priority in the child before exec if portable-pty ever grows a pre_exec hook.
 
