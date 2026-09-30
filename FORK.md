@@ -82,7 +82,8 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
 | `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → `adopt_argv_session`, `PaneState::argv_session_miss` (+ test) | `claude_background::adopt_argv_session`, so Claude resumes without hooks |
-| `crates/tty7-core/src/daemon/mod.rs` | module list | `pub(crate) mod nice`, `pub mod procstat` |
+| `crates/tty7-core/src/daemon/mod.rs` | module list; after `mod shell_integration` | `pub(crate) mod nice`, `pub mod procstat`; `pub use shell_integration::integrates as shell_integrates` |
+| `crates/tty7-core/src/daemon/shell_integration.rs` | `integrates` | whether `setup` injects integration for a shell, so `run_at_prompt` knows a prompt is coming |
 | `crates/tty7-core/Cargo.toml` | `windows-sys` features | `Win32_System_ProcessStatus` for `procstat`'s working set |
 | `crates/tty7-core/src/daemon/protocol.rs` | `ProcEntry` | `rss`, `cpu_ns`, `started` (serde default), `Default` derive |
 | `crates/tty7-core/src/daemon/procinfo.rs` | `snapshot`, `walk` | `procstat::fill` on the trimmed list; `..Default::default()` in `ProcEntry` literals |
@@ -113,7 +114,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `agent_resume::AtPrompt`, which asks `Host::resume_plan` and holds the line for the first prompt |
 | `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
-| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
+| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `queued_line_patience` + `poll_foreground` (+ tests) | hold a line until the shell's first prompt (30s for a shell with integration, 3s for one without); startup files that read the terminal swallow typeahead |
 | `src/ui/app.rs` | `render` | `on_action` for `ContinueAllAgents`, `SearchAgents` (→ `palette::open_palette_on`) |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
