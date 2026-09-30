@@ -20,3 +20,10 @@
 - **What:** GitHub does not run workflows on a fork until someone clicks "enable workflows" in the UI; no API does it.
 - **Why:** it needs a human click.
 - **Fix:** click it; `ci.yml` then runs on PRs. Leave `nightly.yml` and `release.yml` disabled, since they publish upstream's artifacts.
+
+## 2026-09-30 — new tab page keeps its own list
+
+- **Where:** src/ui/new_tab_page.rs, drawn by `SearchView` in place of its list
+- **What:** the page draws its own rows, selection, scroll, kind chips and highlights instead of being an ordinary palette `Source`. Accepted divergence.
+- **Why:** gpui-component's `List` has no hook for a header row (the kind chips) or for the page's ranking and highlights (a bare word against the directory name, a typed path first). Converting would add upstream hunks in `search/view.rs`, not remove them.
+- **Fix:** revisit if `List` gains header and ranking hooks.
