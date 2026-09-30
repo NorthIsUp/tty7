@@ -351,44 +351,8 @@ impl Host for LocalHost {
         Ok(Roots::local().map_or_else(Vec::new, |roots| scan(&roots, known_dirs)))
     }
 
-    fn search_agent_history(
-        &self,
-        query: &str,
-    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
-        guard_off_ui();
-        Ok(
-            crate::core::agent_history::Roots::local().map_or_else(Vec::new, |roots| {
-                crate::core::history_search::search(&roots, query)
-            }),
-        )
-    }
-
-    fn agent_session_mentions(
-        &self,
-        agent: crate::core::cli_agent::CLIAgent,
-        id: &str,
-        repo: &crate::core::github::RepoSlug,
-    ) -> io::Result<crate::core::history_search::Mentions> {
-        guard_off_ui();
-        Ok(
-            crate::core::agent_history::Roots::local().map_or_else(Default::default, |roots| {
-                crate::core::history_search::session_mentions(&roots, agent, id, repo)
-            }),
-        )
-    }
-
-    fn resume_plan(
-        &self,
-        agent: crate::core::cli_agent::CLIAgent,
-        session_id: &str,
-    ) -> crate::core::claude_background::ResumePlan {
-        guard_off_ui();
-        match crate::core::agent_history::Roots::local() {
-            Some(roots) => {
-                crate::core::claude_background::resume_plan(&roots.claude, agent, session_id)
-            }
-            None => crate::core::claude_background::ResumePlan::Resume,
-        }
+    fn fork(&self) -> Option<&dyn crate::core::fork_host::ForkHost> {
+        Some(self)
     }
 
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {

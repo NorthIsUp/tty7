@@ -16,6 +16,7 @@ use crate::ui::host_ops::HostOps;
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::claude_background::ResumePlan;
 use tty7_core::core::cli_agent::CLIAgent;
+use tty7_core::core::fork_host::ForkCalls as _;
 use tty7_core::core::machine::TabId;
 use tty7_core::daemon::pane::integrates;
 
@@ -84,7 +85,7 @@ pub(crate) enum AtPrompt {
 
 impl AtPrompt {
     /// Type it into `view` at its first prompt. A resume asks the pane's host
-    /// how first ([`tty7_core::host::Host::resume_plan`]), off the UI thread.
+    /// how first ([`tty7_core::core::fork_host::ForkHost::resume_plan`]), off the UI thread.
     pub(crate) fn run(self, view: &Entity<TerminalView>, cx: &mut App) {
         let resume = match self {
             AtPrompt::Line(line) => return type_at_first_prompt(view, line, cx),
@@ -101,7 +102,7 @@ impl AtPrompt {
             HostOps::run(
                 host,
                 cx,
-                move |h| h.resume_plan(agent, &id),
+                move |h| h.resume_plan(agent, &id).unwrap_or(ResumePlan::Resume),
                 move |_, plan, cx| {
                     if let Some(line) = resume.line(plan) {
                         type_at_first_prompt(&cx.entity(), line, cx);

@@ -37,8 +37,8 @@ const TIME_BUDGET: Duration = Duration::from_secs(3);
 /// session with a better match can be missed.
 const MAX_SESSIONS: usize = 100;
 
-/// ponytail: the cache stops growing at this much text; files past it are
-/// read again on every query. An on-disk index if histories get that big.
+/// ponytail: the cache holds at most this much text, dropping the least
+/// recently read past it. An on-disk index if histories get that big.
 const MAX_CACHED_BYTES: usize = 256 * 1024 * 1024;
 
 /// How much of a message a snippet shows around the match.
@@ -69,16 +69,8 @@ pub fn search(roots: &Roots, query: &str) -> Vec<HistoryHit> {
     if needle.is_empty() {
         return Vec::new();
     }
-    let mut files = claude_files(&roots.claude.join("projects"), CLIAgent::Claude);
-    files.extend(claude_files(
-        &roots.qoder.join("projects"),
-        CLIAgent::QoderCLI,
-    ));
-    files.extend(claude_files(
-        &roots.qoder_cn.join("projects"),
-        CLIAgent::QoderCLICn,
-    ));
-    files.extend(codex_files(&roots.codex));
+    let mut files: Vec<Found> = SEARCHED.iter().flat_map(|&a| files_for(roots, a)).collect();
+    forget_all_but(&files);
     files.sort_by_key(|f| std::cmp::Reverse(f.modified));
 
     let started = Instant::now();
@@ -136,14 +128,28 @@ fn checkout_of(cwd: &Path, repo: &RepoSlug) -> bool {
         })
 }
 
-fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
-    let files = match agent {
+/// The agents whose history is searched.
+const SEARCHED: [CLIAgent; 4] = [
+    CLIAgent::Claude,
+    CLIAgent::QoderCLI,
+    CLIAgent::QoderCLICn,
+    CLIAgent::Codex,
+];
+
+/// `agent`'s transcript files under `roots`; none for an agent not in
+/// [`SEARCHED`].
+fn files_for(roots: &Roots, agent: CLIAgent) -> Vec<Found> {
+    match agent {
         CLIAgent::Claude => claude_files(&roots.claude.join("projects"), agent),
         CLIAgent::QoderCLI => claude_files(&roots.qoder.join("projects"), agent),
         CLIAgent::QoderCLICn => claude_files(&roots.qoder_cn.join("projects"), agent),
         CLIAgent::Codex => codex_files(&roots.codex),
-        _ => return None,
-    };
+        _ => Vec::new(),
+    }
+}
+
+fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
+    let files = files_for(roots, agent);
     let rollout = format!("-{id}");
     files
         .into_iter()
@@ -312,35 +318,104 @@ fn snippet(m: &Message, at: usize, len: usize) -> String {
 struct Cached {
     len: u64,
     modified: SystemTime,
+    bytes: usize,
+    /// When it was last read, for evicting the least recently used.
+    used: u64,
     transcript: Transcript,
 }
 
-static CACHE: LazyLock<Mutex<HashMap<PathBuf, Cached>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Transcripts by path, at most [`MAX_CACHED_BYTES`] of text.
+#[derive(Default)]
+struct Cache {
+    entries: HashMap<PathBuf, Cached>,
+    bytes: usize,
+    clock: u64,
+}
+
+impl Cache {
+    fn get(&mut self, file: &Found) -> Option<&Transcript> {
+        self.clock += 1;
+        let c = self.entries.get_mut(&file.path)?;
+        if c.len != file.len || c.modified != file.modified {
+            return None;
+        }
+        c.used = self.clock;
+        Some(&c.transcript)
+    }
+
+    /// Keeps `transcript` for `file` in place of whatever was kept for its
+    /// path, then drops the least recently used past the cap. One bigger
+    /// than the whole cap is not kept.
+    fn put(&mut self, file: &Found, transcript: Transcript, bytes: usize, cap: usize) {
+        self.remove(&file.path);
+        if bytes > cap {
+            return;
+        }
+        self.clock += 1;
+        self.bytes += bytes;
+        let entry = Cached {
+            len: file.len,
+            modified: file.modified,
+            bytes,
+            used: self.clock,
+            transcript,
+        };
+        self.entries.insert(file.path.clone(), entry);
+        while self.bytes > cap {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, c)| c.used)
+                .map(|(p, _)| p.clone());
+            match oldest {
+                Some(path) => self.remove(&path),
+                None => break,
+            }
+        }
+    }
+
+    fn remove(&mut self, path: &Path) {
+        if let Some(old) = self.entries.remove(path) {
+            self.bytes -= old.bytes;
+        }
+    }
+
+    /// Drops every path not in `files`: deleted since.
+    fn retain(&mut self, files: &[Found]) {
+        let live: std::collections::HashSet<&Path> =
+            files.iter().map(|f| f.path.as_path()).collect();
+        let gone: Vec<PathBuf> = self
+            .entries
+            .keys()
+            .filter(|p| !live.contains(p.as_path()))
+            .cloned()
+            .collect();
+        for path in gone {
+            self.remove(&path);
+        }
+    }
+}
+
+static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
+
+fn cache() -> std::sync::MutexGuard<'static, Cache> {
+    CACHE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Forgets transcripts of files no longer listed.
+fn forget_all_but(files: &[Found]) {
+    cache().retain(files);
+}
 
 /// `f` over `file`'s transcript, from the cache while the file is unchanged.
 fn with_transcript<T>(file: &Found, f: impl FnOnce(&Transcript) -> T) -> Option<T> {
-    let fresh = |c: &Cached| c.len == file.len && c.modified == file.modified;
-    {
-        let cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(c) = cache.get(&file.path).filter(|c| fresh(c)) {
-            return Some(f(&c.transcript));
-        }
+    if let Some(t) = cache().get(file) {
+        return Some(f(t));
     }
     let transcript = read(&file.path, file.agent)?;
     let answer = f(&transcript);
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    let used: usize = cache.values().map(|c| c.transcript.bytes()).sum();
-    if used + transcript.bytes() <= MAX_CACHED_BYTES {
-        cache.insert(
-            file.path.clone(),
-            Cached {
-                len: file.len,
-                modified: file.modified,
-                transcript,
-            },
-        );
-    }
+    let bytes = transcript.bytes();
+    cache().put(file, transcript, bytes, MAX_CACHED_BYTES);
     Some(answer)
 }
 
@@ -581,6 +656,46 @@ fn codex_line<'a, Tools: Deserialize<'a> + ToolText>(line: &'a [u8], t: &mut Tra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn found(name: &str, len: u64) -> Found {
+        Found {
+            agent: CLIAgent::Claude,
+            path: PathBuf::from(format!("/h/{name}.jsonl")),
+            len,
+            modified: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn the_cache_keeps_a_running_total_and_drops_the_least_recently_read() {
+        let mut cache = Cache::default();
+        let (a, b, c) = (found("a", 1), found("b", 1), found("c", 1));
+        cache.put(&a, Transcript::default(), 40, 100);
+        cache.put(&b, Transcript::default(), 40, 100);
+        assert!(cache.get(&a).is_some(), "a read now, so b is the oldest");
+        cache.put(&c, Transcript::default(), 40, 100);
+        assert_eq!(cache.bytes, 80);
+        assert!(cache.get(&b).is_none(), "evicted past the cap");
+        assert!(cache.get(&a).is_some() && cache.get(&c).is_some());
+
+        cache.put(&found("huge", 1), Transcript::default(), 101, 100);
+        assert_eq!(cache.bytes, 80, "bigger than the cap: not kept");
+    }
+
+    #[test]
+    fn a_changed_file_replaces_its_entry_and_a_deleted_one_is_forgotten() {
+        let mut cache = Cache::default();
+        let a = found("a", 1);
+        cache.put(&a, Transcript::default(), 30, 100);
+        let grown = found("a", 2);
+        assert!(cache.get(&grown).is_none(), "changed since it was read");
+        cache.put(&grown, Transcript::default(), 50, 100);
+        assert_eq!((cache.entries.len(), cache.bytes), (1, 50));
+
+        cache.put(&found("b", 1), Transcript::default(), 10, 100);
+        cache.retain(&[found("b", 1)]);
+        assert_eq!((cache.entries.len(), cache.bytes), (1, 10));
+    }
 
     fn roots(home: &Path) -> Roots {
         Roots::under(home)
@@ -876,7 +991,7 @@ mod tests {
         for query in ["worktree", "worktree", "zzqxj-no-such"] {
             let t = Instant::now();
             let found = search(&roots, query);
-            let cached: usize = CACHE.lock().unwrap().len();
+            let cached: usize = cache().entries.len();
             println!(
                 "query#{} {:?}: {} sessions, {} cached files",
                 query.len(),

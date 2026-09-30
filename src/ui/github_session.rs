@@ -1,6 +1,6 @@
 //! The GitHub tab's "This session" filter: its Pull Requests narrowed to the
 //! ones the focused pane's agent session mentions
-//! ([`Host::agent_session_mentions`](tty7_core::host::Host::agent_session_mentions)).
+//! ([`ForkHost::agent_session_mentions`](tty7_core::core::fork_host::ForkHost::agent_session_mentions)).
 //!
 //! The list is the fetched pages intersected with the mentions. A mentioned
 //! pull request that is not on them (merged, closed, older than the page)
@@ -15,6 +15,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
+use tty7_core::core::fork_host::ForkCalls as _;
 use tty7_core::core::github::{Item, Kind, RepoSlug};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;

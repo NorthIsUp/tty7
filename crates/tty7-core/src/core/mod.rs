@@ -7,6 +7,7 @@ pub mod codename;
 pub mod config;
 pub mod crash;
 pub mod fork_config;
+pub mod fork_host;
 pub mod git;
 pub mod github;
 pub mod gitignore;

@@ -1,5 +1,5 @@
 //! The History tab: full text over what was said in past agent sessions
-//! ([`Host::search_agent_history`](tty7_core::host::Host::search_agent_history)),
+//! ([`ForkHost::search_agent_history`](tty7_core::core::fork_host::ForkHost::search_agent_history)),
 //! one row per session with its best match. Enter resumes it where it ran,
 //! the way a Sessions row does.
 //!
@@ -12,6 +12,7 @@ use std::path::Path;
 
 use crate::core::history_search::HistoryHit;
 use gpui::{Context, Window};
+use tty7_core::core::fork_host::ForkCalls as _;
 
 use super::SearchTab;
 use super::command::{Avatar, CommandKind, Item};
