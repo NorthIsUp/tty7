@@ -832,10 +832,10 @@ impl TerminalView {
     /// `iterm2`. The agent's Waiting mark on the tab is the daemon's doing.
     ///
     /// `Unfocused` holds a note back only while the reader is looking at this
-    /// very pane. A pane whose agent reports through tty7's hooks already gets
-    /// its Waiting and Done notices from `poll_agent_status` whenever
-    /// `hooks_notify`, so the program's own copy would be a duplicate there.
-    fn show_program_notes(&self, hooks_notify: bool, window: &Window, cx: &mut Context<Self>) {
+    /// very pane. A pane whose agent reports through tty7's hooks gets its
+    /// Waiting and Done notices from `poll_agent_status` under the same rule,
+    /// so the program's own copy would be a duplicate there.
+    fn show_program_notes(&self, window: &Window, cx: &mut Context<Self>) {
         let notes = self.terminal.take_osc_notes();
         if notes.is_empty() {
             return;
@@ -846,7 +846,7 @@ impl TerminalView {
             .global::<Config>()
             .notify_on_command_finish
             .allows(watched)
-            && !(hooked && hooks_notify);
+            && !hooked;
         log::debug!(
             "{} program notification(s) {}",
             notes.len(),
@@ -4035,7 +4035,7 @@ impl TerminalView {
         // An agent's hook notices are about this pane, so an agent in another
         // tab of the front window still reaches the reader.
         let hooks_notify = mode.allows(window_active && self.focus_handle.is_focused(window));
-        self.show_program_notes(hooks_notify, window, cx);
+        self.show_program_notes(window, cx);
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
