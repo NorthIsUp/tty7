@@ -1364,19 +1364,16 @@ impl Tty7App {
                             .child(crate::ui::group_header::chevron(open)),
                     )
                     // Every kept group carries the mark; it is what sets them
-                    // apart from the derived groups below. On a folder group it
-                    // is also the way to stop keeping it — a click unpins, and
-                    // the folder's tabs fall back to the groups their cwds
-                    // resolve to. A label group's mark is only a mark: without a
-                    // folder there is nothing to fall back on, so letting go of
-                    // it is Delete Group, in its menu, not a stray click.
+                    // apart from the derived groups below, and the way to stop
+                    // keeping one — a click unpins, and its tabs fall back to
+                    // the groups their cwds resolve to. A label group too: a
+                    // pin that looks the same but ignores the click read as
+                    // broken.
                     .when_some(pinned_id, |header, id| {
-                        let mark = div()
-                            .flex_shrink_0()
-                            .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)));
-                        header.child(match pinned_folder.is_some() {
-                            false => mark.into_any_element(),
-                            true => mark
+                        header.child(
+                            div()
+                                .flex_shrink_0()
+                                .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)))
                                 .id(("sidebar-group-unpin", group_ix))
                                 .debug_selector(|| "sidebar-group-unpin".into())
                                 .cursor_pointer()
@@ -1391,9 +1388,8 @@ impl Tty7App {
                                 .on_click(cx.listener(move |this, _, _window, cx| {
                                     cx.stop_propagation();
                                     this.delete_group(id, cx);
-                                }))
-                                .into_any_element(),
-                        })
+                                })),
+                        )
                     })
                     .child(crate::ui::group_color::swatch(&name, hue_slot, cx))
                     .child(match renaming_group {
@@ -3961,6 +3957,40 @@ mod fold_tests {
                 !keys.contains(&Some(GroupKey::Auto(r.clone()))),
                 "r is no longer an auto group"
             );
+        });
+    }
+
+    /// A label group's pin unpins it too: the group goes, and its tabs fall
+    /// back to auto grouping in the order they had.
+    #[gpui::test]
+    fn clicking_a_label_groups_pin_unpins_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
+        let order = app.update(&mut vcx, |app, cx| {
+            cx.global_mut::<Config>().fork.animations = false;
+            cx.global_mut::<Config>().tab_bar_position = crate::core::config::TabBarPosition::Left;
+            let id = label(app, "New Group", cx);
+            app.set_tab_group(0, Some(id), cx);
+            app.set_tab_group(2, Some(id), cx);
+            app.tabs.iter().map(|t| t.tree_id.get()).collect::<Vec<_>>()
+        });
+        vcx.run_until_parked();
+
+        let at = vcx
+            .debug_bounds("sidebar-group-unpin")
+            .expect("a label group's pin is clickable")
+            .center();
+        vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        vcx.simulate_click(at, gpui::Modifiers::none());
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, _| {
+            assert!(
+                app.sidebar_groups.pinned.is_empty(),
+                "the group is unpinned"
+            );
+            assert!(app.tabs.iter().all(|t| t.group.get().is_none()));
+            let now: Vec<_> = app.tabs.iter().map(|t| t.tree_id.get()).collect();
+            assert_eq!(now, order, "no tab closed or moved");
         });
     }
 
