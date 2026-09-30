@@ -1364,35 +1364,34 @@ impl Tty7App {
                             .child(crate::ui::group_header::chevron(open)),
                     )
                     // Every kept group carries the mark; it is what sets them
-                    // apart from the derived groups below. On a folder group it
-                    // is also the way to stop keeping it — a click unpins, and
-                    // the folder's tabs fall back to the groups their cwds
-                    // resolve to. A label group's mark is only a mark: without a
-                    // folder there is nothing to fall back on, so letting go of
-                    // it is Delete Group, in its menu, not a stray click.
+                    // apart from the derived groups below, and the way to stop
+                    // keeping one — a click unpins, and its tabs fall back to
+                    // the groups their cwds resolve to. A label group too: a
+                    // pin that looks the same but ignores the click read as
+                    // broken. There it says Delete Group, as its menu does —
+                    // the name and the hand-picked members go with it.
                     .when_some(pinned_id, |header, id| {
-                        let mark = div()
-                            .flex_shrink_0()
-                            .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)));
-                        header.child(match pinned_folder.is_some() {
-                            false => mark.into_any_element(),
-                            true => mark
+                        let tip = match pinned_folder.is_some() {
+                            true => L10nKey::SidebarUnpinGroup,
+                            false => L10nKey::SidebarDeleteGroup,
+                        };
+                        header.child(
+                            div()
+                                .flex_shrink_0()
+                                .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)))
                                 .id(("sidebar-group-unpin", group_ix))
+                                .debug_selector(|| "sidebar-group-unpin".into())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(cx.theme().foreground))
-                                .tooltip(|window, cx| {
-                                    gpui_component::tooltip::Tooltip::new(t(
-                                        L10nKey::SidebarUnpinGroup,
-                                    ))
-                                    .build(window, cx)
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(t(tip)).build(window, cx)
                                 })
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(cx.listener(move |this, _, _window, cx| {
                                     cx.stop_propagation();
                                     this.delete_group(id, cx);
-                                }))
-                                .into_any_element(),
-                        })
+                                })),
+                        )
                     })
                     .child(crate::ui::group_color::swatch(&name, hue_slot, cx))
                     .child(match renaming_group {
@@ -2290,6 +2289,16 @@ impl Tty7App {
         cx.notify();
     }
 
+    /// Put tab `index` in group `key`. An auto group's members are decided by
+    /// their cwds, so a tab goes into one by pinning the group, as its
+    /// header's pin does — the tab joins in the same edit.
+    pub(crate) fn move_tab_to(&mut self, index: usize, key: GroupKey, cx: &mut Context<Self>) {
+        match key {
+            GroupKey::Pinned(id) => self.set_tab_group(index, Some(id), cx),
+            GroupKey::Auto(auto) => self.pin_auto_group_with(auto, Some(index), cx),
+        }
+    }
+
     /// A name no pinned group is using yet, for a group about to be made.
     ///
     /// The placeholder only has to be unique — the rename box opens on it
@@ -2352,6 +2361,12 @@ impl Tty7App {
     /// The fold comes along: a group that was shut stays shut, rather than
     /// springing open in its new place.
     pub(crate) fn pin_auto_group(&mut self, key: AutoKey, cx: &mut Context<Self>) {
+        self.pin_auto_group_with(key, None, cx);
+    }
+
+    /// [`pin_auto_group`](Self::pin_auto_group), taking tab `also` into the
+    /// new group in the same edit.
+    fn pin_auto_group_with(&mut self, key: AutoKey, also: Option<usize>, cx: &mut Context<Self>) {
         let mut group = match &key {
             AutoKey::Repo(root) => PinnedGroup::folder(root),
             AutoKey::SshHost(host) => PinnedGroup::label(host.clone()),
@@ -2359,8 +2374,13 @@ impl Tty7App {
         group.collapsed = self.sidebar_groups.auto_collapsed.contains(&key);
         let id = group.id;
         let wanted = Some(GroupKey::Auto(key.clone()));
-        for (tab, place) in self.tabs.iter().zip(self.sidebar_group_keys(cx)) {
-            if place == wanted {
+        for (i, (tab, place)) in self
+            .tabs
+            .iter()
+            .zip(self.sidebar_group_keys(cx))
+            .enumerate()
+        {
+            if place == wanted || also == Some(i) {
                 tab.group.set(Some(id));
             }
         }
@@ -3063,6 +3083,35 @@ fn sidebar_sections(keys: &[Option<GroupKey>], groups: &WorkspaceGroups) -> Vec<
         });
     }
     sections
+}
+
+/// A row of the tab menu's "Move to Group".
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MoveTarget {
+    pub key: GroupKey,
+    pub name: String,
+    pub checked: bool,
+}
+
+/// Every group the sidebar draws, in its order — pinned and auto alike —
+/// with the one tab `index` is in checked.
+pub(crate) fn move_targets(
+    keys: &[Option<GroupKey>],
+    groups: &WorkspaceGroups,
+    index: usize,
+) -> Vec<MoveTarget> {
+    let here = keys.get(index).cloned().flatten();
+    sidebar_sections(keys, groups)
+        .into_iter()
+        .filter_map(|s| {
+            let key = s.key?;
+            Some(MoveTarget {
+                checked: here.as_ref() == Some(&key),
+                name: s.name.expect("a section with a key has a header"),
+                key,
+            })
+        })
+        .collect()
 }
 
 fn reordered_rows(
@@ -3830,6 +3879,105 @@ mod fold_tests {
         });
     }
 
+    /// A click on a folder group's pin mark unpins it: the group goes, and
+    /// its tab falls back to auto grouping without closing.
+    #[gpui::test]
+    fn clicking_a_folder_groups_pin_unpins_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update(&mut vcx, |app, cx| {
+            cx.global_mut::<Config>().fork.animations = false;
+            cx.global_mut::<Config>().tab_bar_position = crate::core::config::TabBarPosition::Left;
+            let id = folder(app, "/w/alpha", cx);
+            app.set_tab_group(0, Some(id), cx);
+        });
+        vcx.run_until_parked();
+
+        let mark = vcx
+            .debug_bounds("sidebar-group-unpin")
+            .expect("a folder group draws its pin mark");
+        vcx.simulate_click(mark.center(), gpui::Modifiers::none());
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, _| {
+            assert!(
+                app.sidebar_groups.pinned.is_empty(),
+                "the group is unpinned"
+            );
+            assert_eq!(app.tabs.len(), 2, "its tab is not closed");
+            assert_eq!(app.tabs[0].group.get(), None, "and is back to auto");
+        });
+    }
+
+    /// Moving a tab into an auto group pins that group, in one edit: the
+    /// group's own tabs and the moved one end up in a single folder group.
+    #[gpui::test]
+    fn moving_a_tab_into_an_auto_group_pins_it_with_the_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
+        let r = AutoKey::Repo(PathBuf::from("/w/r"));
+        app.update(&mut vcx, |app, cx| {
+            for i in 0..2 {
+                *app.tabs[i].auto_group.borrow_mut() = Some(r.clone());
+            }
+            *app.tabs[2].auto_group.borrow_mut() = Some(AutoKey::Repo(PathBuf::from("/w/s")));
+            cx.notify();
+        });
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, cx| {
+            app.move_tab_to(2, GroupKey::Auto(r.clone()), cx)
+        });
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, cx| {
+            let [group] = app.sidebar_groups.pinned.as_slice() else {
+                panic!("exactly one pinned group: {:?}", app.sidebar_groups.pinned);
+            };
+            assert_eq!(group.folder.as_deref(), Some("/w/r"));
+            for i in 0..3 {
+                assert_eq!(app.tabs[i].group.get(), Some(group.id), "tab {i}");
+            }
+            let keys = app.sidebar_group_keys(cx);
+            assert!(
+                !keys.contains(&Some(GroupKey::Auto(r.clone()))),
+                "r is no longer an auto group"
+            );
+        });
+    }
+
+    /// A label group's pin unpins it too: the group goes, and its tabs fall
+    /// back to auto grouping in the order they had.
+    #[gpui::test]
+    fn clicking_a_label_groups_pin_unpins_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
+        let order = app.update(&mut vcx, |app, cx| {
+            cx.global_mut::<Config>().fork.animations = false;
+            cx.global_mut::<Config>().tab_bar_position = crate::core::config::TabBarPosition::Left;
+            let id = label(app, "New Group", cx);
+            app.set_tab_group(0, Some(id), cx);
+            app.set_tab_group(2, Some(id), cx);
+            app.tabs.iter().map(|t| t.tree_id.get()).collect::<Vec<_>>()
+        });
+        vcx.run_until_parked();
+
+        let at = vcx
+            .debug_bounds("sidebar-group-unpin")
+            .expect("a label group's pin is clickable")
+            .center();
+        vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        vcx.simulate_click(at, gpui::Modifiers::none());
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, _| {
+            assert!(
+                app.sidebar_groups.pinned.is_empty(),
+                "the group is unpinned"
+            );
+            assert!(app.tabs.iter().all(|t| t.group.get().is_none()));
+            let now: Vec<_> = app.tabs.iter().map(|t| t.tree_id.get()).collect();
+            assert_eq!(now, order, "no tab closed or moved");
+        });
+    }
+
     /// A pinned group with no tabs is still drawn — it is kept until it is
     /// deleted — while an auto group with none simply is not there.
     #[gpui::test]
@@ -4350,6 +4498,43 @@ mod tests {
                 (Some("Ungrouped".into()), vec![3]),
             ]
         );
+    }
+
+    /// "Move to Group" offers every group the sidebar draws — auto groups
+    /// too, not just the pinned ones — in sidebar order.
+    #[test]
+    fn move_targets_list_every_sidebar_group_in_order() {
+        let mut groups = none();
+        let work = PinnedGroup::label("work");
+        groups.pinned = vec![work.clone()];
+        let keys = vec![
+            Some(g("/w/r")),
+            Some(GroupKey::Pinned(work.id)),
+            Some(host("u@h")),
+            None,
+        ];
+        let shape = |index| -> Vec<(GroupKey, String, bool)> {
+            move_targets(&keys, &groups, index)
+                .into_iter()
+                .map(|m| (m.key, m.name, m.checked))
+                .collect()
+        };
+        assert_eq!(
+            shape(0),
+            vec![
+                (GroupKey::Pinned(work.id), "work".into(), false),
+                (g("/w/r"), "r".into(), true),
+                (host("u@h"), "u@h".into(), false),
+            ]
+        );
+        let checked = |index| -> Vec<bool> { shape(index).into_iter().map(|m| m.2).collect() };
+        assert_eq!(checked(1), vec![true, false, false]);
+        assert_eq!(
+            checked(3),
+            vec![false, false, false],
+            "an ungrouped tab is in none"
+        );
+        assert!(move_targets(&[None], &none(), 0).is_empty());
     }
 
     /// With pinned groups and nothing auto-grouped below them, the rest is
