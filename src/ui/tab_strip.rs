@@ -8,7 +8,9 @@ use gpui_component::input::Input;
 use gpui_component::kbd::Kbd;
 use gpui_component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_component::tooltip::Tooltip;
-use gpui_component::{ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _, h_flex};
+use gpui_component::{
+    ActiveTheme as _, Icon, IconName, Selectable as _, Side, Sizable as _, h_flex,
+};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::core::actions::{
@@ -2008,7 +2010,12 @@ impl Tty7App {
                 t(L10nKey::SidebarMoveToGroup),
                 window,
                 cx,
-                move |mut sub, _window, _cx| {
+                move |sub, _window, _cx| {
+                    // A left check makes every row of the menu reserve a
+                    // check column, so the whole submenu sat one icon's
+                    // width right of the tab menu beside it. On the right,
+                    // its labels line up with the parent's.
+                    let mut sub = sub.check_side(Side::Right);
                     for (i, target) in targets.iter().enumerate() {
                         // Pinned groups, then the auto ones, as the divider
                         // splits them in the sidebar.
