@@ -3885,7 +3885,7 @@ mod fold_tests {
 
         app.update(&mut vcx, |app, cx| {
             // Fork: rows stay drawn through the fold's slide; this is about where it ends.
-            cx.global_mut::<Config>().animations = false;
+            cx.global_mut::<Config>().fork.animations = false;
             for (i, root) in [(0, &alpha), (1, &alpha), (2, &beta)] {
                 *app.tabs[i].auto_group.borrow_mut() = Some(root.clone());
             }

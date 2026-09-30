@@ -10538,7 +10538,7 @@ fn tabs_from_session(
     let alive = alive_panes_on(&route);
     // A remote listing is not asked for, so only here can "nothing of it is
     // running" be told apart from "nobody checked".
-    let lazy = cx.global::<Config>().restore_asleep
+    let lazy = cx.global::<Config>().fork.restore_asleep
         && matches!(route, crate::terminal::PaneRoute::Local)
         && alive.is_some();
     let mut tabs: Vec<Tab> = Vec::with_capacity(session.tabs.len());

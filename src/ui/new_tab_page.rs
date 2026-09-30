@@ -263,6 +263,7 @@ fn initial_kind(offered: &[CLIAgent], usage: &HashMap<String, ProfileUsage>) -> 
 /// not a use.
 fn bump_frecency(cfg: &mut Config, dir: &Path, now: u64) {
     let used = cfg
+        .fork
         .dir_frecency
         .entry(dir.to_string_lossy().into_owned())
         .or_default();
@@ -575,7 +576,7 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !cx.global::<Config>().new_tab_page || !self.can_spawn_locally(cx) {
+        if !cx.global::<Config>().fork.new_tab_page || !self.can_spawn_locally(cx) {
             return false;
         }
         if let Some(search) = &self.search {
@@ -608,7 +609,11 @@ impl Tty7App {
             .filter(|d| seen.insert((*d).clone()))
             .map(|d| (d.clone(), d.clone()))
             .collect();
-        let (frecency, roots, now) = (cfg.dir_frecency.clone(), cfg.dir_roots.clone(), unix_now());
+        let (frecency, roots, now) = (
+            cfg.fork.dir_frecency.clone(),
+            cfg.fork.dir_roots.clone(),
+            unix_now(),
+        );
         let listing_home = home.clone();
         let listing = move |host: &dyn Host| {
             candidates(
@@ -878,7 +883,7 @@ mod tests {
         let dir = Path::new("/Users/me/src/x");
         bump_frecency(&mut cfg, dir, NOW - DAY);
         bump_frecency(&mut cfg, dir, NOW);
-        let u = &cfg.dir_frecency["/Users/me/src/x"];
+        let u = &cfg.fork.dir_frecency["/Users/me/src/x"];
         assert_eq!((u.count, u.last_used), (2, NOW));
     }
 
@@ -909,7 +914,7 @@ mod tests {
         let mut vcx = VisualTestContext::from_window(window.into(), cx);
         vcx.run_until_parked();
 
-        vcx.update(|_, cx| cx.global_mut::<Config>().new_tab_page = false);
+        vcx.update(|_, cx| cx.global_mut::<Config>().fork.new_tab_page = false);
         let opened = app.update_in(&mut vcx, |app, window, cx| {
             app.open_new_tab_page(window, cx)
         });
@@ -918,7 +923,7 @@ mod tests {
             "with the page off, New Tab falls through to upstream"
         );
 
-        vcx.update(|_, cx| cx.global_mut::<Config>().new_tab_page = true);
+        vcx.update(|_, cx| cx.global_mut::<Config>().fork.new_tab_page = true);
         let tabs = app.update(&mut vcx, |app, _| app.tabs.len());
         let opened = app.update_in(&mut vcx, |app, window, cx| {
             app.open_new_tab_page(window, cx)
@@ -937,7 +942,7 @@ mod tests {
             assert!(app.search.is_none(), "Esc closes the page");
             assert_eq!(app.tabs.len(), tabs, "Esc opens nothing");
             assert!(
-                cx.global::<Config>().dir_frecency.is_empty(),
+                cx.global::<Config>().fork.dir_frecency.is_empty(),
                 "Esc counts no use"
             );
         });

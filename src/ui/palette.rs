@@ -237,7 +237,7 @@ mod tests {
     #[gpui::test]
     fn new_tab_opens_the_palette_on_its_new_tab_tab(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
-        vcx.update(|_, cx| cx.global_mut::<Config>().new_tab_page = true);
+        vcx.update(|_, cx| cx.global_mut::<Config>().fork.new_tab_page = true);
         let tabs = app.read_with(&vcx, |app, _| app.tabs.len());
         let new_tab = key("NewTab", &mut vcx);
         vcx.simulate_keystrokes(&new_tab);
