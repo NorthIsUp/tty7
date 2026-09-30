@@ -3,7 +3,7 @@
 //! waking their agents (`--continue`, the palette command, and
 //! `resume_agents_on_launch`), and the line a restored agent pane types.
 
-use gpui::{App, Context, Window};
+use gpui::{App, Context, Global, Window};
 
 use crate::core::config::Config;
 use crate::core::session::SessionPane;
@@ -53,6 +53,25 @@ impl Resume {
     }
 }
 
+impl Resume {
+    /// For a pane that was still connecting when its wake ran: the prompt it
+    /// carried here in `PendingSpawn::agent_prompt`.
+    pub(crate) fn landing(self, prompt: Option<String>) -> AtPrompt {
+        AtPrompt::Resume(Resume { prompt, ..self })
+    }
+}
+
+/// The prompt a wake in progress sends each agent it resumes, set only for
+/// the length of [`Tty7App::wake_tab_with`] (as `in_background` is).
+struct WakePrompt(Option<String>);
+
+impl Global for WakePrompt {}
+
+/// The prompt of the wake in progress, if any.
+pub(crate) fn wake_prompt(cx: &App) -> Option<String> {
+    cx.try_global::<WakePrompt>().and_then(|w| w.0.clone())
+}
+
 /// What a pane types at its first prompt.
 pub(crate) enum AtPrompt {
     Line(String),
@@ -88,6 +107,20 @@ impl AtPrompt {
 }
 
 impl Tty7App {
+    /// [`Self::wake_tab`], with `prompt` sent to each agent it resumes.
+    pub(crate) fn wake_tab_with(
+        &mut self,
+        index: usize,
+        prompt: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        cx.set_global(WakePrompt(prompt.map(str::to_string)));
+        let woke = self.wake_tab(index, window, cx);
+        cx.set_global(WakePrompt(None));
+        woke
+    }
+
     /// Continue All Agents: [`Self::wake_agent_tabs`] with `continue_prompt`.
     pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = cx.global::<Config>().fork.continue_prompt.clone();

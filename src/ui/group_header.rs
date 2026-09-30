@@ -15,12 +15,13 @@ use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex};
 
 use crate::core::config::Config;
 use crate::core::group_key::GroupKey;
-use crate::terminal::git_status::GitStatusCache;
+use crate::terminal::git_status::{GitStatus, GitStatusCache};
 use crate::ui::app::Tty7App;
 use crate::ui::group_color::{dark_rail, group_color};
 use crate::ui::host_ops::{HostId, HostOps};
 use crate::ui::host_registry::HostRegistry;
 use crate::ui::i18n::{L10nKey, t};
+use crate::ui::tab_sidebar::SharedGit;
 use tty7_core::core::fork_config::{GroupBackgroundScope, GroupColorSource};
 
 /// A hashed fill's alpha: a pastel over a light rail, a wash over a dark one,
@@ -227,6 +228,37 @@ pub(crate) fn clip_rows(rows: Vec<AnyElement>, open: f32, full: f32, gap: f32) -
 struct DefaultBranches(HashMap<(HostId, PathBuf), Option<String>>);
 
 impl Global for DefaultBranches {}
+
+/// A group header's git: the rows' shared counts under the repo's default
+/// branch (found from `repo`, the first row's checkout), or that branch
+/// alone when the rows share no counts.
+pub(crate) fn header_git(
+    shared: Option<&SharedGit>,
+    repo: Option<(HostId, PathBuf)>,
+    cx: &mut Context<Tty7App>,
+) -> Option<SharedGit> {
+    let branch = repo.and_then(|(host, cwd)| default_branch(host, &cwd, cx));
+    match (shared, branch) {
+        (Some(s), branch) => Some(SharedGit {
+            status: GitStatus {
+                branch: branch.unwrap_or_default(),
+                ..s.status.clone()
+            },
+            click: s.click.clone(),
+            rows: s.rows.clone(),
+        }),
+        (None, Some(branch)) => Some(SharedGit {
+            status: GitStatus {
+                branch,
+                added: 0,
+                removed: 0,
+            },
+            click: None,
+            rows: Vec::new(),
+        }),
+        (None, None) => None,
+    }
+}
 
 /// The default branch of the repo `cwd` is in, once known. The first ask
 /// starts the lookup off the UI thread and repaints when it lands.

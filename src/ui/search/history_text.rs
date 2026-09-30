@@ -166,11 +166,6 @@ mod tests {
             }
         );
         assert_eq!(rows[1].subtitle.as_deref(), Some("Claude Code · ~/src/app"));
-        assert_eq!(
-            super::super::view::match_range(&rows[0].title, "WIDGET"),
-            Some(14..20),
-            "the row picks out what was typed"
-        );
     }
 
     #[test]

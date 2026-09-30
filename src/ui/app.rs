@@ -2215,7 +2215,6 @@ impl Tty7App {
             self.workspace,
             &st.pane,
             alive.as_ref(),
-            None,
             self.font_size,
             window,
             cx,
@@ -4196,10 +4195,9 @@ impl Tty7App {
                     &spawn.agent,
                     spawn.agent_session_id.as_deref(),
                     spawn.agent_launch_argv.as_deref(),
-                    spawn.agent_prompt.as_deref(),
                     cx,
                 )
-                .map(crate::ui::agent_resume::AtPrompt::Resume)
+                .map(|r| r.landing(spawn.agent_prompt.clone()))
                 .or_else(|| {
                     let line = spawn.run_on_land.clone();
                     line.map(crate::ui::agent_resume::AtPrompt::Line)
@@ -5407,17 +5405,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.wake_tab_with(index, None, window, cx)
-    }
-
-    /// [`Self::wake_tab`], with `prompt` sent to each agent it resumes.
-    pub(crate) fn wake_tab_with(
-        &mut self,
-        index: usize,
-        prompt: Option<&str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
         let Some(asleep) = self.tabs.get_mut(index).and_then(|t| t.asleep.take()) else {
             return true;
         };
@@ -5432,7 +5419,6 @@ impl Tty7App {
             self.workspace,
             &layout,
             None,
-            prompt,
             self.font_size,
             window,
             cx,
@@ -10358,7 +10344,6 @@ fn agent_resume_command(
     agent: &Option<crate::core::cli_agent::CLIAgent>,
     session_id: Option<&str>,
     launch_argv: Option<&[String]>,
-    prompt: Option<&str>,
     cx: &App,
 ) -> Option<crate::ui::agent_resume::Resume> {
     if !cx.global::<Config>().restore_agent_sessions {
@@ -10377,7 +10362,7 @@ fn agent_resume_command(
         agent: *agent,
         session_id: session_id.to_string(),
         launch_argv: launch_argv.map(<[String]>::to_vec),
-        prompt: prompt.map(str::to_string),
+        prompt: crate::ui::agent_resume::wake_prompt(cx),
     })
 }
 
@@ -10570,7 +10555,6 @@ fn tabs_from_session(
             owner,
             &st.pane,
             alive.as_ref(),
-            None,
             font_size,
             window,
             cx,
@@ -10714,7 +10698,6 @@ fn session_to_pane(
     owner: WorkspaceId,
     sp: &SessionPane,
     alive: Option<&std::collections::HashMap<u64, Option<String>>>,
-    prompt: Option<&str>,
     font_size: f32,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
@@ -10783,7 +10766,6 @@ fn session_to_pane(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),
-                        prompt,
                         cx,
                     ) {
                         let at = crate::ui::agent_resume::AtPrompt::Resume(resume);
@@ -10792,11 +10774,11 @@ fn session_to_pane(
                 }
                 PaneSlot::Ready(_) => {}
                 PaneSlot::Connecting(pending) => {
-                    pending.update(cx, |pending, _| {
+                    pending.update(cx, |pending, cx| {
                         pending.spawn.agent = *agent;
                         pending.spawn.agent_session_id = agent_session_id.clone();
                         pending.spawn.agent_launch_argv = agent_launch_argv.clone();
-                        pending.spawn.agent_prompt = prompt.map(str::to_string);
+                        pending.spawn.agent_prompt = crate::ui::agent_resume::wake_prompt(cx);
                     });
                 }
             }
@@ -10808,8 +10790,8 @@ fn session_to_pane(
                 SessionAxis::Vertical => Axis::Vertical,
             };
             match (
-                session_to_pane(workspace, owner, a, alive, prompt, font_size, window, cx),
-                session_to_pane(workspace, owner, b, alive, prompt, font_size, window, cx),
+                session_to_pane(workspace, owner, a, alive, font_size, window, cx),
+                session_to_pane(workspace, owner, b, alive, font_size, window, cx),
             ) {
                 (Some(a), Some(b)) => Some(Pane::split_node(axis, *ratio, a, b)),
                 (Some(only), None) | (None, Some(only)) => Some(only),
@@ -10854,9 +10836,9 @@ pub(crate) fn new_terminal(
         agent_session_id: None,
         agent_launch_argv: None,
         run_on_land: None,
-        agent_prompt: None,
         owner,
         font_size,
+        ..Default::default()
     };
     // The same leak the reconnect banner had: this name is read out as
     // "Connecting to {machine}…" and "Could not reach {machine}", and a
@@ -12279,9 +12261,9 @@ mod tests {
                         agent_session_id: Some("sid-abc".to_string()),
                         agent_launch_argv: Some(vec!["claude".to_string()]),
                         run_on_land: None,
-                        agent_prompt: None,
                         owner: None,
                         font_size: 14.0,
+                        ..Default::default()
                     },
                     cx,
                 )
@@ -14057,9 +14039,9 @@ mod tab_focus_memory_tests {
                     agent_session_id: None,
                     agent_launch_argv: None,
                     run_on_land: None,
-                    agent_prompt: None,
                     owner: None,
                     font_size: 14.,
+                    ..Default::default()
                 },
                 cx,
             )

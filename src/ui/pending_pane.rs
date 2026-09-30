@@ -11,7 +11,7 @@ use crate::daemon::protocol::ShellSpec;
 use crate::terminal::PaneWorkspace;
 use crate::ui::i18n::{L10nKey, t_fmt};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PendingSpawn {
     pub workspace: Option<PaneWorkspace>,
     pub working_directory: Option<std::path::PathBuf>,

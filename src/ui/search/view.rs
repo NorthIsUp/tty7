@@ -753,12 +753,6 @@ impl SearchView {
         self.catalog.symbols.len()
     }
 
-    #[cfg(test)]
-    pub(crate) fn text_rows(&self) -> Vec<Item> {
-        let text = self.catalog.live(SearchTab::Text);
-        text.map(|l| l.rows.clone()).unwrap_or_default()
-    }
-
     /// The tab showing — or, in a row's own list, the one Escape returns to.
     pub(crate) fn tab(&self) -> SearchTab {
         self.tab
@@ -1131,7 +1125,7 @@ const TABS_H: f32 = 34.;
 /// title the row picks out. `None` for an empty query, or one the fuzzy
 /// scorer matched as scattered letters — picking out stray letters reads as
 /// noise, not as an answer.
-pub(super) fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
+fn match_range(title: &str, query: &str) -> Option<std::ops::Range<usize>> {
     let query = query.trim();
     if query.is_empty() {
         return None;
@@ -1281,17 +1275,6 @@ impl Render for SearchView {
                 if is_edit_gesture(&ev.keystroke) && this.on_edit_gesture(window, cx) {
                     cx.stop_propagation();
                 }
-                // ⇧Enter: the list binds only a bare Enter, so confirm here; the
-                // held ⇧ is read back when the row runs (`background_tab`).
-                let ks = &ev.keystroke;
-                if ks.key == "enter"
-                    && ks.modifiers == gpui::Modifiers::shift()
-                    && let Some(ix) = this.list.read(cx).selected_index()
-                {
-                    let list = this.list.clone();
-                    this.on_list_event(&list, &ListEvent::Confirm(ix), window, cx);
-                    cx.stop_propagation();
-                }
             }))
             .on_mouse_down(
                 MouseButton::Left,
@@ -1439,24 +1422,6 @@ mod tests {
         app.read_with(&vcx, |app, _| {
             assert!(app.search.is_none(), "picking a row closes the search");
             assert_eq!(app.active, 2, "back to the tab used before this one");
-        });
-    }
-
-    /// ⇧Enter confirms the row too (`background_tab`): the list binds only a
-    /// bare Enter.
-    #[gpui::test]
-    fn shift_return_confirms_the_picked_row(cx: &mut TestAppContext) {
-        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
-        app.update_in(&mut vcx, |app, _, _| app.tabs[1].last_used.set(5));
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.open_search(SearchTab::All, "", window, cx)
-        });
-        vcx.run_until_parked();
-        vcx.simulate_keystrokes("shift-enter");
-        vcx.run_until_parked();
-        app.read_with(&vcx, |app, _| {
-            assert!(app.search.is_none(), "⇧Enter picks the row");
-            assert_eq!(app.active, 1);
         });
     }
 
