@@ -2293,9 +2293,7 @@ impl Tty7App {
     pub(crate) fn move_tab_to(&mut self, index: usize, key: GroupKey, cx: &mut Context<Self>) {
         match key {
             GroupKey::Pinned(id) => self.set_tab_group(index, Some(id), cx),
-            GroupKey::Auto(auto) => {
-                self.pin_auto_group_with(auto, Some(index), cx);
-            }
+            GroupKey::Auto(auto) => self.pin_auto_group_with(auto, Some(index), cx),
         }
     }
 
@@ -2365,13 +2363,8 @@ impl Tty7App {
     }
 
     /// [`pin_auto_group`](Self::pin_auto_group), taking tab `also` into the
-    /// new group in the same edit, and answering the group's id.
-    fn pin_auto_group_with(
-        &mut self,
-        key: AutoKey,
-        also: Option<usize>,
-        cx: &mut Context<Self>,
-    ) -> GroupId {
+    /// new group in the same edit.
+    fn pin_auto_group_with(&mut self, key: AutoKey, also: Option<usize>, cx: &mut Context<Self>) {
         let mut group = match &key {
             AutoKey::Repo(root) => PinnedGroup::folder(root),
             AutoKey::SshHost(host) => PinnedGroup::label(host.clone()),
@@ -2393,7 +2386,6 @@ impl Tty7App {
             groups.auto_collapsed.retain(|k| *k != key);
             groups.pinned.push(group);
         });
-        id
     }
 
     /// Pin `folder` as a group of its own — a folder dropped from Finder, or

@@ -1996,8 +1996,8 @@ impl Tty7App {
         //
         // An auto group's membership is its tabs' cwds, so a tab can only be
         // put in one by keeping the group: picking it pins the group (as its
-        // header's pin does) and the tab with it. Ungrouped hands the tab back
-        // to auto grouping.
+        // header's pin does) and the tab with it. Remove from Group, offered
+        // only for a tab kept in a group, hands it back to auto grouping.
         //
         // Offered only with the tabs in the sidebar — a group is something the
         // sidebar draws, and "move to group" from the top tab bar would name
