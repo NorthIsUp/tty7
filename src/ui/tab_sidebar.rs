@@ -1368,8 +1368,13 @@ impl Tty7App {
                     // keeping one — a click unpins, and its tabs fall back to
                     // the groups their cwds resolve to. A label group too: a
                     // pin that looks the same but ignores the click read as
-                    // broken.
+                    // broken. There it says Delete Group, as its menu does —
+                    // the name and the hand-picked members go with it.
                     .when_some(pinned_id, |header, id| {
+                        let tip = match pinned_folder.is_some() {
+                            true => L10nKey::SidebarUnpinGroup,
+                            false => L10nKey::SidebarDeleteGroup,
+                        };
                         header.child(
                             div()
                                 .flex_shrink_0()
@@ -1378,11 +1383,8 @@ impl Tty7App {
                                 .debug_selector(|| "sidebar-group-unpin".into())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(cx.theme().foreground))
-                                .tooltip(|window, cx| {
-                                    gpui_component::tooltip::Tooltip::new(t(
-                                        L10nKey::SidebarUnpinGroup,
-                                    ))
-                                    .build(window, cx)
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(t(tip)).build(window, cx)
                                 })
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(cx.listener(move |this, _, _window, cx| {
