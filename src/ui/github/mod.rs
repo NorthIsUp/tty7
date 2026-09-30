@@ -160,8 +160,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) branch_pulls: HashMap<BranchPullKey, BranchPullCache>,
     /// The long sections of a detail the user unfolded.
     pub(crate) unfolded: std::collections::HashSet<(RepoSlug, u64, Fold)>,
-    /// What the focused pane's agent session mentions (`github_session`).
-    pub(crate) session: Option<crate::ui::github_session::SessionCache>,
+    /// The Session tab and what it shows (`github_session`).
+    pub(crate) session: crate::ui::github_session::SessionState,
 }
 
 /// A detail section that folds when it runs long.
@@ -197,7 +197,7 @@ pub(crate) enum GhTarget {
 /// Not gpui's background executor: a request can sit on a dead link for its
 /// whole timeout, and parking one of the executor's few workers for that long
 /// starves everything else scheduled on it.
-fn off_ui<T, F>(f: F) -> impl std::future::Future<Output = Option<T>>
+pub(crate) fn off_ui<T, F>(f: F) -> impl std::future::Future<Output = Option<T>>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,

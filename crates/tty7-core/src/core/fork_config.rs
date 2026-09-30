@@ -52,14 +52,9 @@ pub struct ForkConfig {
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     pub nice: i32,
-    /// The GitHub panel's pull requests show only those the focused pane's
-    /// agent session mentions.
-    pub github_panel_session_filter: bool,
     /// The GitHub panel shows `origin` (the fork) until a remote is picked,
     /// instead of `upstream`.
     pub github_panel_prefer_origin: bool,
-    /// Which list the GitHub panel opens on.
-    pub github_panel_default_list: GitHubPanelList,
     /// The system-wide chord that shows and hides tty7, in keymap syntax
     /// (`alt-space`, `cmd-shift-t`); `null` or `""` turns it off. macOS only.
     pub global_hotkey: Option<String>,
@@ -90,9 +85,7 @@ impl Default for ForkConfig {
             group_background_scope: GroupBackgroundScope::Header,
             animations: true,
             nice: 5,
-            github_panel_session_filter: true,
             github_panel_prefer_origin: true,
-            github_panel_default_list: GitHubPanelList::Issues,
             global_hotkey: Some("alt-space".into()),
             global_hotkey_fullscreen: false,
             global_hotkey_hide_on_blur: false,
@@ -122,15 +115,6 @@ pub enum GroupBackgroundScope {
     Group,
 }
 
-/// The GitHub panel's list on open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GitHubPanelList {
-    #[default]
-    Issues,
-    PullRequests,
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::config::Config;
@@ -154,9 +138,7 @@ mod tests {
         "group_background_scope": "group",
         "animations": false,
         "nice": 0,
-        "github_panel_session_filter": false,
         "github_panel_prefer_origin": false,
-        "github_panel_default_list": "pull_requests",
         "global_hotkey": "cmd-shift-t",
         "global_hotkey_fullscreen": true,
         "global_hotkey_hide_on_blur": true,
@@ -223,6 +205,19 @@ mod tests {
             fork.iter().all(|k| unique.contains(k)),
             "every fork key reaches the file"
         );
+    }
+
+    /// The GitHub panel's Session tab replaced these two.
+    #[test]
+    fn retired_github_keys_still_load() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"github_panel_session_filter": false, "github_panel_default_list": "issues", "nice": 2}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.fork.nice, 2);
+        let saved = serde_json::to_value(&cfg).unwrap();
+        assert!(saved.get("github_panel_default_list").is_none());
+        assert!(saved.get("github_panel_session_filter").is_none());
     }
 
     #[test]
