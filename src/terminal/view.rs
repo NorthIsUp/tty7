@@ -1617,18 +1617,18 @@ impl TerminalView {
         self.owner_workspace
     }
 
+    /// Dials `spec` through the local daemon. `remote_start_dir` is a
+    /// directory on the far host — see [`ClientMsg::SpawnNativeSsh`]'s `cwd`
+    /// — and never a local one.
+    ///
+    /// [`ClientMsg::SpawnNativeSsh`]: crate::daemon::protocol::ClientMsg::SpawnNativeSsh
     pub fn spawn_native_ssh_terminal(
         spec: Box<crate::daemon::protocol::NativeSshSpec>,
-        working_directory: Option<std::path::PathBuf>,
+        remote_start_dir: Option<std::path::PathBuf>,
     ) -> anyhow::Result<NativeSshParts> {
         let persist = Box::new(spec.without_secrets());
-        let (terminal, pane_id) = RemoteTerminal::spawn_native_ssh(
-            TermSize::new(80, 24),
-            8,
-            17,
-            working_directory,
-            spec,
-        )?;
+        let (terminal, pane_id) =
+            RemoteTerminal::spawn_native_ssh(TermSize::new(80, 24), 8, 17, remote_start_dir, spec)?;
         Ok(NativeSshParts {
             terminal,
             pane_id,
@@ -2077,7 +2077,13 @@ impl TerminalView {
     }
 
     fn accepts_input(&self, cx: &gpui::App) -> bool {
-        let Some(ws) = self.workspace().map(|w| w.workspace) else {
+        // A local pane has no `PaneWorkspace`, but the window that owns it can
+        // still have been taken over by a remote client.
+        let Some(ws) = self
+            .workspace()
+            .map(|w| w.workspace)
+            .or(self.owner_workspace)
+        else {
             return true;
         };
         crate::ui::remote_workspace::workspace_accepts_input(cx, ws)
