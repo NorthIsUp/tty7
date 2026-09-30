@@ -172,7 +172,7 @@ fn with_minted_session(agent: CLIAgent, line: String) -> String {
 /// moment it lands if it is still connecting.
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => view.update(cx, |view, cx| view.run_at_prompt(command, cx)),
+        PaneSlot::Ready(view) => view.update(cx, |view, _| view.run_at_prompt(command)),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }

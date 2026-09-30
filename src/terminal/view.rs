@@ -2274,23 +2274,7 @@ impl TerminalView {
     /// that reads the terminal (a focus-reporting or colour query) swallows
     /// it. Held until the shell reports a prompt, or [`QUEUED_LINE_FALLBACK`]
     /// for a shell without integration, which never will.
-    ///
-    /// A Claude resume of a session running in the background is refused, so
-    /// that one becomes `claude attach <job>` once the host has looked.
-    pub fn run_at_prompt(&mut self, cmd: String, cx: &mut Context<Self>) {
-        use crate::core::claude_background::{resume_or_attach, resumed_session};
-        match (resumed_session(&cmd), self.host(cx)) {
-            (Some(id), Some(host)) => crate::ui::host_ops::HostOps::run(
-                host,
-                cx,
-                move |h| h.claude_background_job(&id),
-                move |view, job, _| view.queue_at_prompt(resume_or_attach(cmd, job.as_deref())),
-            ),
-            _ => self.queue_at_prompt(cmd),
-        }
-    }
-
-    fn queue_at_prompt(&mut self, cmd: String) {
+    pub fn run_at_prompt(&mut self, cmd: String) {
         match self.terminal.at_prompt() {
             true => self.run_command_line(&cmd),
             false => self.queued_line = Some((cmd, std::time::Instant::now())),

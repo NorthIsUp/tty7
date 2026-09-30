@@ -377,10 +377,18 @@ impl Host for LocalHost {
         )
     }
 
-    fn claude_background_job(&self, session_id: &str) -> Option<String> {
+    fn resume_plan(
+        &self,
+        agent: crate::core::cli_agent::CLIAgent,
+        session_id: &str,
+    ) -> crate::core::claude_background::ResumePlan {
         guard_off_ui();
-        let dir = crate::core::claude_background::sessions_dir()?;
-        crate::core::claude_background::job_for_session(&dir, session_id)
+        match crate::core::agent_history::Roots::local() {
+            Some(roots) => {
+                crate::core::claude_background::resume_plan(&roots.claude, agent, session_id)
+            }
+            None => crate::core::claude_background::ResumePlan::Resume,
+        }
     }
 
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {

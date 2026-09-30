@@ -415,10 +415,15 @@ pub trait Host: Send + Sync + 'static {
         Ok(Default::default())
     }
 
-    /// The background job Claude session `session_id` is running as on this
-    /// host ([`crate::core::claude_background`]). Only the local host looks.
-    fn claude_background_job(&self, _session_id: &str) -> Option<String> {
-        None
+    /// How to reopen `agent`'s session `session_id` on this host
+    /// ([`crate::core::claude_background::resume_plan`]). Only the local host
+    /// looks; elsewhere it just resumes.
+    fn resume_plan(
+        &self,
+        _agent: crate::core::cli_agent::CLIAgent,
+        _session_id: &str,
+    ) -> crate::core::claude_background::ResumePlan {
+        crate::core::claude_background::ResumePlan::Resume
     }
 
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;

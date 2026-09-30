@@ -1,15 +1,91 @@
 //! The fork's agent-resume features, kept out of `app.rs` so rebasing on
 //! upstream touches as little of it as possible: which restored tabs sleep,
-//! and waking their agents (`--continue`, the palette command, and
-//! `resume_agents_on_launch`).
+//! waking their agents (`--continue`, the palette command, and
+//! `resume_agents_on_launch`), and the line a restored agent pane types.
 
 use gpui::{App, Context, Window};
 
 use crate::core::config::Config;
 use crate::core::session::SessionPane;
-use crate::ui::app::Tty7App;
+use crate::terminal::view::TerminalView;
+use crate::ui::app::{Tty7App, join_shell_args};
+use crate::ui::host_ops::HostOps;
 use crate::ui::windows::WindowRegistry;
+use tty7_core::core::claude_background::ResumePlan;
+use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::machine::TabId;
+
+/// An agent session a restored pane reopens once its shell is up.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Resume {
+    pub agent: CLIAgent,
+    pub session_id: String,
+    pub launch_argv: Option<Vec<String>>,
+    /// Sent as the resumed session's next turn, where the agent takes one.
+    pub prompt: Option<String>,
+}
+
+impl Resume {
+    /// The one command to type under `plan`. Attach and a fresh start take
+    /// no prompt: a running session needs no nudge, and a new one has nothing
+    /// to continue.
+    fn line(&self, plan: ResumePlan) -> Option<String> {
+        let argv = self.launch_argv.as_deref();
+        let fresh = match plan {
+            ResumePlan::Attach(job) => return Some(format!("claude attach {job}")),
+            ResumePlan::Fresh => self.agent.start_command(&self.session_id, argv),
+            ResumePlan::Resume => None,
+        };
+        if fresh.is_some() {
+            return fresh;
+        }
+        let cmd = self.agent.resume_command(&self.session_id, argv)?;
+        Some(
+            match self
+                .prompt
+                .as_deref()
+                .filter(|p| !p.is_empty() && self.agent.resume_takes_prompt())
+            {
+                Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
+                None => cmd,
+            },
+        )
+    }
+}
+
+/// What a pane types at its first prompt.
+pub(crate) enum AtPrompt {
+    Line(String),
+    Resume(Resume),
+}
+
+impl AtPrompt {
+    /// Type it into `view`. A resume asks the pane's host how first
+    /// ([`tty7_core::host::Host::resume_plan`]), off the UI thread.
+    pub(crate) fn run(self, view: &mut TerminalView, cx: &mut Context<TerminalView>) {
+        let resume = match self {
+            AtPrompt::Line(line) => return view.run_at_prompt(line),
+            AtPrompt::Resume(resume) => resume,
+        };
+        let Some(host) = view.host(cx) else {
+            if let Some(line) = resume.line(ResumePlan::Resume) {
+                view.run_at_prompt(line);
+            }
+            return;
+        };
+        let (agent, id) = (resume.agent, resume.session_id.clone());
+        HostOps::run(
+            host,
+            cx,
+            move |h| h.resume_plan(agent, &id),
+            move |view, plan, _| {
+                if let Some(line) = resume.line(plan) {
+                    view.run_at_prompt(line);
+                }
+            },
+        );
+    }
+}
 
 impl Tty7App {
     /// Continue All Agents: [`Self::wake_agent_tabs`] with `continue_prompt`.
@@ -133,7 +209,7 @@ pub(crate) fn layout_has_live_pane(
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_tabs, launch_wake, layout_has_live_pane};
+    use super::{Resume, ResumePlan, agent_tabs, launch_wake, layout_has_live_pane};
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
     use tty7_core::core::cli_agent::CLIAgent;
@@ -199,5 +275,50 @@ mod tests {
         assert!(!layout_has_live_pane(&leaf(Some(1)), Some(&alive)));
         assert!(!layout_has_live_pane(&leaf(None), Some(&alive)));
         assert!(!layout_has_live_pane(&split, Some(&Default::default())));
+    }
+
+    #[test]
+    fn a_resume_types_exactly_one_command_for_its_plan() {
+        const ID: &str = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let resume = Resume {
+            agent: CLIAgent::Claude,
+            session_id: ID.into(),
+            launch_argv: Some(vec!["claude".into(), "--model".into(), "opus".into()]),
+            prompt: Some("go on".into()),
+        };
+        assert_eq!(
+            resume.line(ResumePlan::Resume).as_deref(),
+            Some(format!("claude --model opus --resume {ID} 'go on'").as_str())
+        );
+        assert_eq!(
+            resume.line(ResumePlan::Fresh).as_deref(),
+            Some(format!("claude --model opus --session-id {ID}").as_str())
+        );
+        assert_eq!(
+            resume
+                .line(ResumePlan::Attach("6011098d".into()))
+                .as_deref(),
+            Some("claude attach 6011098d")
+        );
+        for plan in [ResumePlan::Resume, ResumePlan::Fresh] {
+            assert!(!resume.line(plan).unwrap().contains("||"));
+        }
+
+        let codex = Resume {
+            agent: CLIAgent::Codex,
+            session_id: "th_1".into(),
+            launch_argv: None,
+            prompt: None,
+        };
+        assert_eq!(
+            codex.line(ResumePlan::Fresh).as_deref(),
+            Some("codex resume th_1"),
+            "an agent that can't name a new session resumes"
+        );
+        let unsafe_id = Resume {
+            session_id: "$(boom)".into(),
+            ..resume
+        };
+        assert_eq!(unsafe_id.line(ResumePlan::Resume), None);
     }
 }
