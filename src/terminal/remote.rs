@@ -107,7 +107,6 @@ struct ReaderSignals {
     /// which places/deletes them as `DaemonMsg::Image`/`DeleteImage` frames land.
     images: crate::terminal::images::ImageStore,
     clipboard_writes: Arc<Mutex<VecDeque<tty7_core::core::clipboard::ClipboardWrite>>>,
-    osc_notes: OscNotes,
     clipboard_write_busy: Arc<AtomicBool>,
     lease: Arc<Mutex<Option<String>>>,
     /// Whether this pane's pty is one a conhost renders into, and so whether
@@ -115,8 +114,7 @@ struct ReaderSignals {
     /// its [`PtySource`], and shared rather than copied because the reader can
     /// learn better mid-stream — see the `RemoteContext` arm.
     local_conpty: Arc<AtomicBool>,
-    /// Whether the program in the pane switched on DEC mode 2031.
-    color_scheme_updates: Arc<AtomicBool>,
+    fork: fork_pane::Signals,
 }
 
 /// What kind of pty is at the far end of a pane's link, which is what decides
@@ -626,7 +624,6 @@ pub struct RemoteTerminal {
     /// anchors are relative to, so the store lives here rather than in the daemon.
     images: crate::terminal::images::ImageStore,
     clipboard_writes: Arc<Mutex<VecDeque<tty7_core::core::clipboard::ClipboardWrite>>>,
-    osc_notes: OscNotes,
     clipboard_write_busy: Arc<AtomicBool>,
     /// Who runs this pane at their own size — a phone, by the name it paired
     /// under — while the daemon says so. See [`Self::take_back`].
@@ -648,8 +645,7 @@ pub struct RemoteTerminal {
     /// to it is rebuilt, and the route a relink carries cannot tell a
     /// native-SSH pane from a local shell.
     local_conpty: Arc<AtomicBool>,
-    /// Whether the program in the pane switched on DEC mode 2031.
-    color_scheme_updates: Arc<AtomicBool>,
+    fork: fork_pane::Signals,
 }
 
 /// The workspace id a spawn carries, so the pane's shell gets `$TTY7_WS` and a
@@ -972,7 +968,6 @@ impl RemoteTerminal {
                 phase: self.ssh_phase.clone(),
                 images: self.images.clone(),
                 clipboard_writes: self.clipboard_writes.clone(),
-                osc_notes: self.osc_notes.clone(),
                 clipboard_write_busy: self.clipboard_write_busy.clone(),
                 lease: self.lease.clone(),
                 // Deliberately the pane's existing answer rather than one
@@ -980,7 +975,7 @@ impl RemoteTerminal {
                 // it was before the link dropped, and only this value still
                 // remembers what a `RemoteContext` taught the old reader.
                 local_conpty: self.local_conpty.clone(),
-                color_scheme_updates: self.color_scheme_updates.clone(),
+                fork: self.fork.clone(),
             },
         );
         self.reader_thread = Some(reader);
@@ -1077,13 +1072,12 @@ impl RemoteTerminal {
         let ssh_phase: Arc<Mutex<Option<SshPhase>>> = Arc::new(Mutex::new(None));
         let images = crate::terminal::images::ImageStore::new();
         let clipboard_writes = Arc::new(Mutex::new(VecDeque::new()));
-        let osc_notes = OscNotes::default();
         let clipboard_write_busy = Arc::new(AtomicBool::new(false));
         let lease = Arc::new(Mutex::new(None));
 
         let reader_quit = Arc::new(AtomicBool::new(false));
         let local_conpty = Arc::new(AtomicBool::new(pty == PtySource::LocalConpty));
-        let color_scheme_updates = Arc::new(AtomicBool::new(false));
+        let fork = fork_pane::Signals::default();
         let reader_thread = Self::spawn_reader(
             term.clone(),
             proxy.clone(),
@@ -1106,11 +1100,10 @@ impl RemoteTerminal {
                 phase: ssh_phase.clone(),
                 images: images.clone(),
                 clipboard_writes: clipboard_writes.clone(),
-                osc_notes: osc_notes.clone(),
                 clipboard_write_busy: clipboard_write_busy.clone(),
                 lease: lease.clone(),
                 local_conpty: local_conpty.clone(),
-                color_scheme_updates: color_scheme_updates.clone(),
+                fork: fork.clone(),
             },
         );
 
@@ -1147,7 +1140,6 @@ impl RemoteTerminal {
             agent_session,
             images,
             clipboard_writes,
-            osc_notes,
             clipboard_write_busy,
             lease,
             route: PaneRoute::Local,
@@ -1155,7 +1147,7 @@ impl RemoteTerminal {
             reader_thread: Some(reader_thread),
             reader_quit,
             local_conpty,
-            color_scheme_updates,
+            fork,
         })
     }
 
@@ -1225,11 +1217,10 @@ impl RemoteTerminal {
                     phase,
                     images,
                     clipboard_writes,
-                    osc_notes,
                     clipboard_write_busy,
                     lease,
                     local_conpty,
-                    color_scheme_updates,
+                    fork,
                 } = signals;
                 let mut awaiting_replay = awaiting_replay;
                 crate::core::threads::promote_to_user_interactive();
@@ -1257,13 +1248,7 @@ impl RemoteTerminal {
                 let mut command_tok = OscTokenizer::new(&[b"133"]);
                 let mut command_cursor = CommandCursorStyle::default();
                 let mut prompt_break = PromptBreak::default();
-                // A new link replays the pane from scratch, 2031 included
-                // (`term_modes` restores it ahead of the ring).
-                let mut modes = tty7_core::core::term_modes::TerminalModes::new();
-                color_scheme_updates.store(false, Ordering::Relaxed);
-                // Set by a replay that left 2031 on: the theme may have flipped
-                // while no window was attached, so the program hears once.
-                let mut report_scheme = false;
+                let mut fork = fork.reader();
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
                 // coalescing (issue #213): inflating a full-window browser frame
@@ -1372,13 +1357,7 @@ impl RemoteTerminal {
                                         tr_adv_t += t0.elapsed() - waited;
                                     }
                                 }
-                                if let Ok(mut notes) = osc_notes.lock() {
-                                    osc.feed(&out_batch, &mut *notes);
-                                    // Pane output is untrusted: a burst keeps
-                                    // only the newest.
-                                    let over = notes.len().saturating_sub(MAX_OSC_NOTES);
-                                    notes.drain(..over);
-                                }
+                                fork.on_output(&out_batch, &mut osc, &proxy);
                                 mode_tok.feed(&out_batch, |payload| {
                                     if let Some(mode) = payload.strip_prefix(b"133;V;") {
                                         shell_vi_mode.store(
@@ -1448,16 +1427,7 @@ impl RemoteTerminal {
                         }
                         let frame = match crate::daemon::protocol::take_frame(&mut pending) {
                             Ok(Some(frame)) => frame,
-                            Ok(None) => {
-                                // Once per replay (a modes Snapshot, then one
-                                // per ring segment), when what was read runs out.
-                                if std::mem::take(&mut report_scheme)
-                                    && color_scheme_updates.load(Ordering::Relaxed)
-                                {
-                                    proxy.send_event(super::color_scheme::query_reply());
-                                }
-                                break;
-                            }
+                            Ok(None) => break,
                             Err(e) => {
                                 teardown(Some(&format!("unframeable bytes on the link: {e}")));
                                 break 'main;
@@ -1470,6 +1440,7 @@ impl RemoteTerminal {
                                 break 'main;
                             }
                         };
+                        fork.on_frame(&msg, &proxy);
                         match msg {
                             // Geometry, applied at this exact stream position.
                             // During replay each ring segment is preceded by
@@ -1540,10 +1511,7 @@ impl RemoteTerminal {
                                     }
                                 });
                                 proxy.replaying.store(false, Ordering::Relaxed);
-                                // A replayed `?996n` was answered long ago.
-                                super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
-                                modes.take_color_scheme_queries();
-                                report_scheme = true;
+                                fork.on_replay(&bytes);
                                 // The replay carries the pane's recent marks,
                                 // so reading it is what lets a reattached
                                 // window know whether the title it just
@@ -1565,10 +1533,6 @@ impl RemoteTerminal {
                                 // time, and that report would be discounted.
                                 awaiting_replay = false;
                                 replaying_state = false;
-                                super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
-                                for _ in 0..modes.take_color_scheme_queries() {
-                                    proxy.send_event(super::color_scheme::query_reply());
-                                }
                                 out_batch.extend_from_slice(&bytes);
                                 tr_frames += 1;
                             }
@@ -2038,15 +2002,6 @@ impl RemoteTerminal {
     /// and deletes images as out-of-band frames arrive from the daemon.
     pub fn images(&self) -> crate::terminal::images::ImageStore {
         self.images.clone()
-    }
-
-    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
-    /// first; the view decides whether each is shown.
-    pub fn take_osc_notes(&self) -> Vec<(Option<String>, String)> {
-        self.osc_notes
-            .lock()
-            .map(|mut notes| notes.drain(..).collect())
-            .unwrap_or_default()
     }
 
     pub fn pop_clipboard_write(&self) -> Option<tty7_core::core::clipboard::ClipboardWrite> {
@@ -2749,11 +2704,7 @@ fn daemon_disconnected_before_spawn_reply(err: &anyhow::Error) -> bool {
     })
 }
 
-impl RemoteTerminal {
-    pub(super) fn color_scheme_updates(&self) -> bool {
-        self.color_scheme_updates.load(Ordering::Relaxed)
-    }
-}
+mod fork_pane;
 
 impl Drop for RemoteTerminal {
     fn drop(&mut self) {
@@ -3251,12 +3202,6 @@ mod notification_tests {
         );
     }
 }
-
-type OscNotes = Arc<Mutex<VecDeque<(Option<String>, String)>>>;
-
-/// Notes queued for a view that has not polled: a burst keeps only its
-/// newest few, so it shows as a few rather than a spray.
-const MAX_OSC_NOTES: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
@@ -7167,34 +7112,6 @@ mod osc_tests {
             s.feed(c, &mut out);
         }
         out
-    }
-
-    /// Pane output is untrusted: a flood of notifications shows only its
-    /// newest few, once.
-    #[test]
-    fn a_notification_flood_shows_only_its_newest_few() {
-        use crate::daemon::protocol::DaemonMsg;
-        use crate::terminal::size::TermSize;
-
-        crate::core::config::pin_test_config_dir();
-        let (client, mut daemon) = crate::terminal::view::test_stream_pair();
-        let term = super::RemoteTerminal::from_stream(client, TermSize::new(80, 24)).unwrap();
-        let flood: Vec<u8> = (0..40)
-            .flat_map(|n| format!("\x1b]9;note {n}\x07").into_bytes())
-            .collect();
-        DaemonMsg::Output(flood).encode(&mut daemon).unwrap();
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let taken = loop {
-            let batch = term.take_osc_notes();
-            if !batch.is_empty() || std::time::Instant::now() > deadline {
-                break batch;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        };
-        let bodies: Vec<_> = taken.into_iter().map(|(_, body)| body).collect();
-        assert_eq!(bodies, ["note 37", "note 38", "note 39"]);
-        assert!(term.take_osc_notes().is_empty(), "the rest were dropped");
     }
 
     #[test]

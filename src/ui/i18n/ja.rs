@@ -2116,6 +2116,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppRestartServerBodyResume => {
             "このコンピュータ上のすべてのシェルを終了します。タブとレイアウトは保持され、新しいシェルで開き直し、各エージェントは元の会話を再開します。"
         }
+        L10nKey::ProgramNotesDropped => "このペインのほかの通知は表示されませんでした",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",

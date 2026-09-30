@@ -7,10 +7,13 @@
 //! `Unfocused` holds a notice back only while the reader is looking at this
 //! very pane, so another tab in the key window still hears about it.
 
+use std::time::Instant;
+
 use gpui::{Context, Window};
 
 use super::TerminalView;
 use crate::core::config::Config;
+use crate::ui::i18n::{L10nKey, t};
 
 /// Whether a notice about `view` reaches the desktop now.
 pub(super) fn allowed(view: &TerminalView, window: &Window, cx: &Context<TerminalView>) -> bool {
@@ -20,25 +23,35 @@ pub(super) fn allowed(view: &TerminalView, window: &Window, cx: &Context<Termina
         .allows(watched)
 }
 
-/// Shows what the program wrote since the last poll. Drained even from a
-/// pane whose shell has exited, so its last words are not lost.
+/// Shows what the program wrote since the last poll, at most a few per pane
+/// every few seconds (pane output is untrusted), with one note saying the
+/// rest were not shown.
+/// Drained even from a pane whose shell has exited, so its last words are
+/// not lost.
 pub(super) fn show(view: &TerminalView, window: &Window, cx: &mut Context<TerminalView>) {
     let notes = view.terminal.take_osc_notes();
-    if notes.is_empty() {
-        return;
-    }
     // An agent reporting through tty7's hooks gets its notices from
     // `poll_agent_status` under the same rule; its own copy would repeat them.
     let show = !view.terminal.agent_session().is_some_and(|s| s.rich) && allowed(view, window, cx);
-    log::debug!(
-        "{} program notification(s) {}",
-        notes.len(),
-        if show { "shown" } else { "held back" }
-    );
+    if !notes.is_empty() {
+        log::debug!(
+            "{} program notification(s) {}",
+            notes.len(),
+            if show { "shown" } else { "held back" }
+        );
+    }
+    // Asked on every poll, so the rest are said once a flood stops too, and
+    // while held back, so a stale count never surfaces minutes later.
+    let (notes, dropped) = view
+        .terminal
+        .pace_notes(if show { notes } else { Vec::new() }, Instant::now());
     if !show {
         return;
     }
     let agent = view.terminal.foreground_agent().map(|a| a.display_name());
+    if dropped > 0 {
+        view.notify_pane(agent, &t(L10nKey::ProgramNotesDropped), cx);
+    }
     for (title, body) in notes {
         match title {
             Some(title) => super::super::remote::notify_desktop_for_pane(

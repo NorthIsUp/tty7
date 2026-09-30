@@ -2053,6 +2053,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppRestartServerBodyResume => {
             "This ends every shell on this computer. Your tabs and layout are kept and reopen with fresh shells, and every agent picks its conversation back up."
         }
+        L10nKey::ProgramNotesDropped => "More notifications from this pane weren't shown",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"
