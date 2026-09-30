@@ -5,21 +5,6 @@ All notable changes to tty7 are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- **Program notifications follow the notification policy, and kitty's OSC 99
-  works too.** An OSC 9 or OSC 777 notification used to post whether or not
-  you were looking at the pane, ignored **Notifications: Never**, and clicking
-  it revealed nothing. It now follows the policy (*When unfocused* holds it
-  back only while that pane is focused in the front window), reveals its pane
-  when clicked, and gets the agent's name as its title when it brings none.
-  Kitty's OSC 99, title and body chunked or not, is read as well. Claude Code
-  posts these when its Notifications setting in `/config` is `ghostty`, `kitty`
-  or `iterm2`. A pane whose agent reports through tty7's hooks skips the ones
-  that would repeat tty7's own.
-
 ## [26.9.4] - 2026-09-29
 
 ### Added
