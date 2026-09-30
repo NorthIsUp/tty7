@@ -775,6 +775,11 @@ fn shell_kind(program: Option<&str>) -> Option<ShellKind> {
     }
 }
 
+/// Whether [`setup`] has integration for `program` (`None`: the login shell).
+pub(crate) fn integrates(program: Option<&str>) -> bool {
+    shell_kind(program).is_some()
+}
+
 pub(crate) fn wsl_distro(args: &[String]) -> Option<String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {

@@ -16,13 +16,15 @@
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::time::Duration;
 
-use gpui::{App, Axis, Context, Window};
+use gpui::{App, Axis, Context, Entity, Window};
 use gpui_component::WindowExt as _;
 
 use crate::core::cli_agent::{CLIAgent, launch_program, program_on_path};
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::core::session::WorkspaceStore;
+use crate::terminal::view::TerminalView;
 use crate::ui::app::{SpawnAs, SpawnWhere, Tty7App, join_shell_args};
 use crate::ui::i18n::{L10nKey, t_fmt};
 use crate::ui::pane::PaneSlot;
@@ -147,9 +149,6 @@ pub(crate) fn fork_line(
     agent.fork_command(session_id, Some(&argv))
 }
 
-/// How long a new shell is given to reach its first prompt before a queued
-/// command is typed anyway.
-const PROMPT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 const PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// `line` with a fresh `--session-id` for Claude, so the pane knows which
@@ -179,31 +178,39 @@ fn with_minted_session(agent: CLIAgent, line: String) -> String {
 /// A shell that is up is not yet at its prompt: typed straight in, the line
 /// was echoed by the tty above everything the shell prints while it starts (a
 /// banner, `fastfetch`) and read only afterwards. It waits for the shell's
-/// first prompt instead — up to [`PROMPT_WAIT`], for a shell with no
-/// integration to say when that is.
+/// first prompt instead ([`type_at_first_prompt`]).
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => {
-            let view = view.downgrade();
-            cx.spawn(async move |cx| {
-                let deadline = std::time::Instant::now() + PROMPT_WAIT;
-                loop {
-                    let ready = view
-                        .read_with(cx, |view, _| view.terminal.at_prompt())
-                        .unwrap_or(true);
-                    if ready || std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                    cx.background_executor().timer(PROMPT_POLL).await;
-                }
-                let _ = view.read_with(cx, |view, _| view.run_command_line(&command));
-            })
-            .detach();
-        }
+        PaneSlot::Ready(view) => type_at_first_prompt(view, command, cx),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
     }
+}
+
+/// Type `line` into `view`'s shell once it reports a prompt, or when its
+/// patience runs out (a shell with no integration never reports one).
+pub(crate) fn type_at_first_prompt(view: &Entity<TerminalView>, line: String, cx: &mut App) {
+    let patience = crate::ui::agent_resume::prompt_patience(view, cx);
+    type_within(view, line, patience, cx);
+}
+
+fn type_within(view: &Entity<TerminalView>, line: String, patience: Duration, cx: &mut App) {
+    let polls = patience.as_millis().div_ceil(PROMPT_POLL.as_millis());
+    let view = view.downgrade();
+    cx.spawn(async move |cx| {
+        for _ in 0..polls {
+            let ready = view
+                .read_with(cx, |view, _| view.terminal.at_prompt())
+                .unwrap_or(true);
+            if ready {
+                break;
+            }
+            cx.background_executor().timer(PROMPT_POLL).await;
+        }
+        let _ = view.read_with(cx, |view, _| view.run_command_line(&line));
+    })
+    .detach();
 }
 
 impl Tty7App {
@@ -416,6 +423,115 @@ impl Tty7App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod first_prompt {
+        use std::io::Write as _;
+
+        use gpui::{TestAppContext, VisualTestContext};
+
+        use super::super::*;
+        use crate::daemon::protocol::{ClientMsg, DaemonMsg};
+        use crate::daemon::transport::Stream;
+        use crate::terminal::view::quiet_test_pane;
+
+        fn pane(cx: &mut TestAppContext) -> (VisualTestContext, Entity<TerminalView>, Stream) {
+            crate::core::config::pin_test_config_dir();
+            cx.executor().allow_parking();
+            cx.update(|cx| {
+                gpui_component::init(cx);
+                cx.set_global(Config::default());
+            });
+            let mut vcx = cx.add_empty_window().clone();
+            let (view, daemon) = vcx.update(|window, cx| quiet_test_pane(1, window, cx));
+            (vcx, view, daemon)
+        }
+
+        /// What was typed into the pane, if anything, after `wait` of test time.
+        fn typed_after(wait: Duration, vcx: &mut VisualTestContext, daemon: &mut Stream) -> bool {
+            vcx.executor().advance_clock(wait);
+            vcx.run_until_parked();
+            daemon
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
+            loop {
+                match ClientMsg::read(daemon) {
+                    Ok(ClientMsg::Input(bytes)) => {
+                        assert_eq!(bytes, b"claude\r");
+                        return true;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            }
+        }
+
+        fn report_prompt(
+            view: &Entity<TerminalView>,
+            vcx: &mut VisualTestContext,
+            daemon: &mut Stream,
+        ) {
+            DaemonMsg::Prompt {
+                active: true,
+                at_prompt: true,
+                last_exit: None,
+            }
+            .encode(daemon)
+            .unwrap();
+            daemon.flush().unwrap();
+            for _ in 0..400 {
+                if vcx.update(|_, cx| view.read(cx).terminal.at_prompt()) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            panic!("the prompt report never arrived");
+        }
+
+        fn type_it(view: &Entity<TerminalView>, patience: Duration, vcx: &mut VisualTestContext) {
+            vcx.update(|_, cx| type_within(view, "claude".into(), patience, cx));
+        }
+
+        #[gpui::test]
+        fn a_shell_at_its_prompt_gets_the_line_at_once(cx: &mut TestAppContext) {
+            let (mut vcx, view, mut daemon) = pane(cx);
+            report_prompt(&view, &mut vcx, &mut daemon);
+            type_it(&view, Duration::from_secs(3), &mut vcx);
+            assert!(typed_after(Duration::ZERO, &mut vcx, &mut daemon));
+        }
+
+        #[gpui::test]
+        fn the_line_waits_for_the_first_prompt(cx: &mut TestAppContext) {
+            let (mut vcx, view, mut daemon) = pane(cx);
+            type_it(&view, Duration::from_secs(30), &mut vcx);
+            assert!(!typed_after(Duration::from_secs(1), &mut vcx, &mut daemon));
+            report_prompt(&view, &mut vcx, &mut daemon);
+            assert!(typed_after(PROMPT_POLL, &mut vcx, &mut daemon));
+        }
+
+        #[gpui::test]
+        fn a_shell_without_integration_gets_it_after_the_short_wait(cx: &mut TestAppContext) {
+            let (mut vcx, view, mut daemon) = pane(cx);
+            type_it(&view, Duration::from_secs(3), &mut vcx);
+            assert!(!typed_after(
+                Duration::from_millis(2900),
+                &mut vcx,
+                &mut daemon
+            ));
+            assert!(typed_after(
+                Duration::from_millis(200),
+                &mut vcx,
+                &mut daemon
+            ));
+        }
+
+        #[gpui::test]
+        fn an_integrated_shell_that_never_prompts_gets_it_at_the_cap(cx: &mut TestAppContext) {
+            let (mut vcx, view, mut daemon) = pane(cx);
+            type_it(&view, Duration::from_secs(30), &mut vcx);
+            assert!(!typed_after(Duration::from_secs(4), &mut vcx, &mut daemon));
+            assert!(typed_after(Duration::from_secs(27), &mut vcx, &mut daemon));
+        }
+    }
 
     #[test]
     fn a_claude_launch_mints_the_session_it_will_resume() {

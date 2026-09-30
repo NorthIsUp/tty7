@@ -157,6 +157,19 @@ fn shell_program_problem(program: &str) -> Option<String> {
     None
 }
 
+/// Whether a pane spawned with `shell` gets tty7's shell integration, and so
+/// will report its prompts: the shell and arguments [`build_spawn_config`]
+/// would choose, for a client deciding how long to wait for a first prompt.
+/// `configured` is the config's `shell` ([`crate::core::config::shell_command`]).
+pub fn integrates(shell: Option<ShellSpec>, configured: Option<(String, Vec<String>)>) -> bool {
+    let chosen = choose_shell(shell, configured);
+    let program = match &chosen {
+        Some(c) => c.program.clone(),
+        None => default_shell_name(&default_prog()),
+    };
+    !has_custom_args(chosen.as_ref()) && shell_integration::integrates(Some(&program))
+}
+
 fn build_spawn_config(
     pane: u64,
     cwd: Option<PathBuf>,
@@ -4147,6 +4160,19 @@ mod tests {
             Some("codex"),
             "the observed argv rides along with the detection"
         );
+    }
+
+    #[test]
+    fn a_known_shell_without_the_users_own_args_is_integrated() {
+        let spec = |program: &str, args: &[&str]| ShellSpec {
+            program: program.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            args_are_tty7_defaults: false,
+        };
+        assert!(integrates(Some(spec("/bin/zsh", &[])), None));
+        assert!(!integrates(Some(spec("/bin/zsh", &["-f"])), None));
+        assert!(!integrates(Some(spec("/bin/sh", &[])), None));
+        assert!(integrates(None, Some(("fish".into(), Vec::new()))));
     }
 
     #[test]

@@ -3,17 +3,21 @@
 //! waking their agents (`--continue`, the palette command, and
 //! `resume_agents_on_launch`), and the line a restored agent pane types.
 
-use gpui::{App, Context, Global, Window};
+use std::time::Duration;
+
+use gpui::{App, Context, Entity, Global, Window};
 
 use crate::core::config::Config;
 use crate::core::session::SessionPane;
 use crate::terminal::view::TerminalView;
+use crate::ui::agent_launch::type_at_first_prompt;
 use crate::ui::app::{Tty7App, join_shell_args};
 use crate::ui::host_ops::HostOps;
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::claude_background::ResumePlan;
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::machine::TabId;
+use tty7_core::daemon::pane::integrates;
 
 /// An agent session a restored pane reopens once its shell is up.
 #[derive(Clone, Debug, PartialEq)]
@@ -79,30 +83,56 @@ pub(crate) enum AtPrompt {
 }
 
 impl AtPrompt {
-    /// Type it into `view`. A resume asks the pane's host how first
-    /// ([`tty7_core::host::Host::resume_plan`]), off the UI thread.
-    pub(crate) fn run(self, view: &mut TerminalView, cx: &mut Context<TerminalView>) {
+    /// Type it into `view` at its first prompt. A resume asks the pane's host
+    /// how first ([`tty7_core::host::Host::resume_plan`]), off the UI thread.
+    pub(crate) fn run(self, view: &Entity<TerminalView>, cx: &mut App) {
         let resume = match self {
-            AtPrompt::Line(line) => return view.run_at_prompt(line),
+            AtPrompt::Line(line) => return type_at_first_prompt(view, line, cx),
             AtPrompt::Resume(resume) => resume,
         };
-        let Some(host) = view.host(cx) else {
+        let Some(host) = view.read(cx).host(cx) else {
             if let Some(line) = resume.line(ResumePlan::Resume) {
-                view.run_at_prompt(line);
+                type_at_first_prompt(view, line, cx);
             }
             return;
         };
         let (agent, id) = (resume.agent, resume.session_id.clone());
-        HostOps::run(
-            host,
-            cx,
-            move |h| h.resume_plan(agent, &id),
-            move |view, plan, _| {
-                if let Some(line) = resume.line(plan) {
-                    view.run_at_prompt(line);
-                }
-            },
-        );
+        view.update(cx, |_, cx| {
+            HostOps::run(
+                host,
+                cx,
+                move |h| h.resume_plan(agent, &id),
+                move |_, plan, cx| {
+                    if let Some(line) = resume.line(plan) {
+                        type_at_first_prompt(&cx.entity(), line, cx);
+                    }
+                },
+            )
+        });
+    }
+}
+
+/// How long a new shell may take to reach a prompt that is coming: its
+/// startup files can be slow (nvm, conda).
+const PROMPT_CAP: Duration = Duration::from_secs(30);
+/// How long to give one that will never report a prompt: no integration.
+const PROMPT_WAIT: Duration = Duration::from_secs(3);
+
+/// How long [`type_at_first_prompt`] waits on `view`: up to [`PROMPT_CAP`]
+/// when a prompt report is coming (the shell has reported already, or it is
+/// a local shell the daemon gives integration), [`PROMPT_WAIT`] otherwise.
+pub(crate) fn prompt_patience(view: &Entity<TerminalView>, cx: &App) -> Duration {
+    let view = view.read(cx);
+    let local =
+        view.workspace().is_none() && view.ssh_spec().is_none() && view.remote_context().is_none();
+    let configured = cx
+        .global::<Config>()
+        .shell
+        .clone()
+        .map(|s| (s.program, s.args));
+    match view.terminal.shell_active() || (local && integrates(view.shell_spec(), configured)) {
+        true => PROMPT_CAP,
+        false => PROMPT_WAIT,
     }
 }
 
@@ -248,6 +278,7 @@ mod tests {
     use crate::core::session::SessionPane;
     use tty7_core::core::cli_agent::CLIAgent;
     use tty7_core::core::machine::TabId;
+    use tty7_core::daemon::pane::integrates;
 
     fn agent_leaf(session: Option<&str>) -> SessionPane {
         SessionPane::Leaf {
