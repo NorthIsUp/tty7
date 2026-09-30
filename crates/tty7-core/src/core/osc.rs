@@ -1,3 +1,5 @@
+use base64::Engine as _;
+
 const MAX_PAYLOAD: usize = 8192;
 
 pub struct OscTokenizer {
@@ -145,6 +147,89 @@ pub fn parse_notification(payload: &[u8]) -> Option<(Option<String>, String)> {
         return (!body.is_empty()).then_some((title, body));
     }
     None
+}
+
+/// Desktop notifications across OSC 9, 99 and 777. OSC 99 is kitty's
+/// protocol, which is stateful: a title and a body can arrive as separate
+/// chunks sharing an `i=` id, and the notification is complete at the first
+/// chunk without `d=0`. <https://sw.kovidgoyal.net/kitty/desktop-notifications/>
+#[derive(Default)]
+pub struct Notifications {
+    /// Unfinished OSC 99 notifications: id, title, body.
+    kitty: Vec<(String, String, String)>,
+}
+
+/// Unfinished kitty notifications kept at once; a program that opens ids and
+/// never finishes them loses the oldest.
+const MAX_PENDING_KITTY: usize = 8;
+
+impl Notifications {
+    /// Reads one OSC payload, identifier included, and returns the
+    /// notification it completes, as `(title, body)`.
+    pub fn parse(&mut self, payload: &[u8]) -> Option<(Option<String>, String)> {
+        match payload.strip_prefix(b"99;") {
+            Some(rest) => self.kitty(rest),
+            None => parse_notification(payload),
+        }
+    }
+
+    fn kitty(&mut self, rest: &[u8]) -> Option<(Option<String>, String)> {
+        let split = rest.iter().position(|&b| b == b';');
+        let (meta, data) = match split {
+            Some(at) => (&rest[..at], &rest[at + 1..]),
+            None => (rest, &b""[..]),
+        };
+        let meta = String::from_utf8_lossy(meta);
+        let (mut id, mut done, mut part, mut b64) = ("", true, "title", false);
+        for kv in meta.split(':') {
+            match kv.split_once('=') {
+                Some(("i", v)) => id = v,
+                Some(("d", v)) => done = v != "0",
+                Some(("p", v)) => part = v,
+                Some(("e", v)) => b64 = v == "1",
+                _ => {}
+            }
+        }
+        let text = match b64 {
+            true => base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map(|d| String::from_utf8_lossy(&d).into_owned())
+                .unwrap_or_default(),
+            false => String::from_utf8_lossy(data).into_owned(),
+        };
+        let at = match self.kitty.iter().position(|(i, ..)| i == id) {
+            Some(at) => at,
+            None => {
+                if self.kitty.len() == MAX_PENDING_KITTY {
+                    self.kitty.remove(0);
+                }
+                self.kitty
+                    .push((id.to_string(), String::new(), String::new()));
+                self.kitty.len() - 1
+            }
+        };
+        let (_, title, body) = &mut self.kitty[at];
+        let field = match part {
+            "title" => Some(title),
+            "body" => Some(body),
+            _ => None,
+        };
+        if let Some(field) = field
+            && field.len() + text.len() <= MAX_PAYLOAD
+        {
+            field.push_str(&text);
+        }
+        if !done {
+            return None;
+        }
+        let (_, title, body) = self.kitty.remove(at);
+        match (title.is_empty(), body.is_empty()) {
+            (true, true) => None,
+            (false, true) => Some((None, title)),
+            (true, false) => Some((None, body)),
+            (false, false) => Some((Some(title), body)),
+        }
+    }
 }
 
 /// What a sequence did to the title a pane is showing — see
@@ -488,6 +573,71 @@ mod tests {
         assert_eq!(
             collect(&[b"9"], &[b"\x1b]9;half\x1b[0m\x1b]9;whole\x07"]),
             vec![b"9;whole".to_vec()]
+        );
+    }
+
+    fn notes(payloads: &[&[u8]]) -> Vec<(Option<String>, String)> {
+        let mut n = Notifications::default();
+        payloads.iter().filter_map(|p| n.parse(p)).collect()
+    }
+
+    #[test]
+    fn kitty_notification_in_one_chunk_is_its_title() {
+        assert_eq!(
+            notes(&[b"99;;Build done"]),
+            vec![(None, "Build done".into())]
+        );
+        assert_eq!(notes(&[b"99;i=1;hi"]), vec![(None, "hi".into())]);
+    }
+
+    #[test]
+    fn kitty_chunks_sharing_an_id_make_one_notification() {
+        // What Claude Code writes for its `kitty` channel.
+        assert_eq!(
+            notes(&[
+                b"99;i=42:d=0:p=title;Claude Code",
+                b"99;i=42:p=body;Claude needs your permission",
+                b"99;i=42:d=1:a=focus;",
+            ]),
+            vec![(
+                Some("Claude Code".into()),
+                "Claude needs your permission".into()
+            )]
+        );
+    }
+
+    #[test]
+    fn kitty_chunks_append_and_interleaved_ids_stay_apart() {
+        assert_eq!(
+            notes(&[
+                b"99;i=a:d=0;Hel",
+                b"99;i=b:d=0:p=body;other",
+                b"99;i=a:d=0;lo",
+                b"99;i=a:p=body;world",
+            ]),
+            vec![(Some("Hello".into()), "world".into())]
+        );
+    }
+
+    #[test]
+    fn kitty_base64_payload_is_decoded() {
+        assert_eq!(
+            notes(&[b"99;e=1:p=body;aOKAkmxsbw=="]),
+            vec![(None, "h\u{2012}llo".into())]
+        );
+    }
+
+    #[test]
+    fn kitty_control_payloads_show_nothing() {
+        assert_eq!(notes(&[b"99;i=1:p=close;"]), vec![]);
+        assert_eq!(notes(&[b"99;i=1:p=?;"]), vec![]);
+    }
+
+    #[test]
+    fn osc_9_and_777_still_parse_through_the_same_reader() {
+        assert_eq!(
+            notes(&[b"9;ping", b"777;notify;T;B", b"9;4;1;50"]),
+            vec![(None, "ping".into()), (Some("T".into()), "B".into())]
         );
     }
 }
