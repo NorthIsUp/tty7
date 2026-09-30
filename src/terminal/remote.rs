@@ -113,6 +113,8 @@ struct ReaderSignals {
     /// its [`PtySource`], and shared rather than copied because the reader can
     /// learn better mid-stream — see the `RemoteContext` arm.
     local_conpty: Arc<AtomicBool>,
+    /// Whether the program in the pane switched on DEC mode 2031.
+    color_scheme_updates: Arc<AtomicBool>,
 }
 
 /// What kind of pty is at the far end of a pane's link, which is what decides
@@ -643,6 +645,8 @@ pub struct RemoteTerminal {
     /// to it is rebuilt, and the route a relink carries cannot tell a
     /// native-SSH pane from a local shell.
     local_conpty: Arc<AtomicBool>,
+    /// Whether the program in the pane switched on DEC mode 2031.
+    color_scheme_updates: Arc<AtomicBool>,
 }
 
 /// The workspace id a spawn carries, so the pane's shell gets `$TTY7_WS` and a
@@ -972,6 +976,7 @@ impl RemoteTerminal {
                 // it was before the link dropped, and only this value still
                 // remembers what a `RemoteContext` taught the old reader.
                 local_conpty: self.local_conpty.clone(),
+                color_scheme_updates: self.color_scheme_updates.clone(),
             },
         );
         self.reader_thread = Some(reader);
@@ -1073,6 +1078,7 @@ impl RemoteTerminal {
 
         let reader_quit = Arc::new(AtomicBool::new(false));
         let local_conpty = Arc::new(AtomicBool::new(pty == PtySource::LocalConpty));
+        let color_scheme_updates = Arc::new(AtomicBool::new(false));
         let reader_thread = Self::spawn_reader(
             term.clone(),
             proxy.clone(),
@@ -1098,6 +1104,7 @@ impl RemoteTerminal {
                 clipboard_write_busy: clipboard_write_busy.clone(),
                 lease: lease.clone(),
                 local_conpty: local_conpty.clone(),
+                color_scheme_updates: color_scheme_updates.clone(),
             },
         );
 
@@ -1141,6 +1148,7 @@ impl RemoteTerminal {
             reader_thread: Some(reader_thread),
             reader_quit,
             local_conpty,
+            color_scheme_updates,
         })
     }
 
@@ -1213,6 +1221,7 @@ impl RemoteTerminal {
                     clipboard_write_busy,
                     lease,
                     local_conpty,
+                    color_scheme_updates,
                 } = signals;
                 let mut awaiting_replay = awaiting_replay;
                 crate::core::threads::promote_to_user_interactive();
@@ -1239,6 +1248,10 @@ impl RemoteTerminal {
                 // against the bytes before its `D`, not the whole batch.
                 let mut command_tok = OscTokenizer::new(&[b"133"]);
                 let mut command_cursor = CommandCursorStyle::default();
+                // A new link replays the pane from scratch, 2031 included
+                // (`term_modes` restores it ahead of the ring).
+                let mut modes = tty7_core::core::term_modes::TerminalModes::new();
+                color_scheme_updates.store(false, Ordering::Relaxed);
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
                 // coalescing (issue #213): inflating a full-window browser frame
@@ -1495,6 +1508,9 @@ impl RemoteTerminal {
                                     }
                                 });
                                 proxy.replaying.store(false, Ordering::Relaxed);
+                                // A replayed `?996n` was answered long ago.
+                                super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
+                                modes.take_color_scheme_queries();
                                 // The replay carries the pane's recent marks,
                                 // so reading it is what lets a reattached
                                 // window know whether the title it just
@@ -1516,6 +1532,10 @@ impl RemoteTerminal {
                                 // time, and that report would be discounted.
                                 awaiting_replay = false;
                                 replaying_state = false;
+                                super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
+                                for _ in 0..modes.take_color_scheme_queries() {
+                                    proxy.send_event(super::color_scheme::query_reply());
+                                }
                                 out_batch.extend_from_slice(&bytes);
                                 tr_frames += 1;
                             }
@@ -2677,6 +2697,12 @@ fn daemon_disconnected_before_spawn_reply(err: &anyhow::Error) -> bool {
             )
         })
     })
+}
+
+impl RemoteTerminal {
+    pub(super) fn color_scheme_updates(&self) -> bool {
+        self.color_scheme_updates.load(Ordering::Relaxed)
+    }
 }
 
 impl Drop for RemoteTerminal {

@@ -54,6 +54,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/claude_background.rs` | Claude sessions running in the background: session ↔ job id from `sessions/<pid>.json`, and a resume line turned into `claude attach <job>` |
 | `src/ui/hotkey_window.rs` | the global hotkey (`global_hotkey`, ⌥Space): Carbon `RegisterEventHotKey`, one dedicated hotkey window (its workspace saved in `hotkey-window`, picked from a switcher row's menu) shown / focused / ordered out with a fade, the full screen modal, windows activated over it lifted above it, hide on focus loss, and its Settings rows (macOS; a no-op elsewhere) |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
+| `src/terminal/color_scheme.rs` | DEC mode 2031: `CSI ? 997 ; 1\|2 n` to a pane whose program switched it on when the theme's background changes, and the `CSI ? 996 n` answer (Claude Code's `theme: auto` re-reads OSC 11 only on a 997) |
 
 ## Hooks in upstream files
 
@@ -151,4 +152,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `docs/window/search-everywhere.mdx` | intro; Tabs table; Sessions | ⌘T/⌘P/⌘K from anywhere, modal; the Text, History, Agents and New Tab tabs; ⇧ opens in the background |
 | `docs/reference/keyboard-shortcuts.mdx` | New Tab, Search Everywhere, Clear Scrollback rows; after View | ⌘K is Agents; Clear Scrollback moved to ⌘⇧K; ⌘T is the palette's New Tab tab; the three chords work from anywhere and the palette is modal |
 | `docs/docs.json` | "The window" pages | `window/new-tab-page`, `window/hotkey-window` |
+| `crates/tty7-core/src/core/term_modes.rs` | `TRACKED`, `COLOR_SCHEME_UPDATES`, `feed`'s `n` arm, `take_color_scheme_queries` (+ test) | track 2031 (a reattach restores it) and count `?996n` queries |
+| `crates/tty7-core/src/daemon/pane.rs` | `INPUT_MODE_RESETS` | `?2031l`: a restored pane's new shell never asked for theme reports |
+| `src/terminal/remote.rs` | `ReaderSignals`, `RemoteTerminal` field + `color_scheme_updates()`, `spawn_reader` `Snapshot` / `Output` arms | `color_scheme::fold`; answer a live `?996n` with `color_scheme::query_reply` |
+| `src/terminal/view.rs` | `with_terminal` (made `pub(super)` for the test) | `color_scheme::watch` |
+| `src/terminal/mod.rs` | module list | `mod color_scheme` |
 | `.github/workflows/ci.yml` | `changes` job; `needs`/`if` on `build` steps and the server jobs; `build` env; the three `Swatinem/rust-cache` steps | skip the Rust jobs on docs-only PRs while required checks still report; save caches from main and manual runs only, keep them on failure, build tests with `line-tables-only` debug so the cache is smaller |
