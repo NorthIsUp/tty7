@@ -125,7 +125,7 @@ pub(crate) fn badge(
 
 fn chord_of(cx: &App, row: WorkspaceId) -> Option<String> {
     let cfg = cx.try_global::<crate::core::config::Config>()?;
-    badge(&cfg.global_hotkey, workspace(cx), row).map(str::to_string)
+    badge(&cfg.fork.global_hotkey, workspace(cx), row).map(str::to_string)
 }
 
 /// The hotkey chord as keycaps, on the hotkey workspace's switcher row.
@@ -165,7 +165,7 @@ pub(crate) fn menu_item(
 ) -> PopupMenu {
     let on = cx
         .try_global::<crate::core::config::Config>()
-        .is_some_and(|c| configured(&c.global_hotkey).is_some());
+        .is_some_and(|c| configured(&c.fork.global_hotkey).is_some());
     if !cfg!(target_os = "macos") || !on {
         return menu;
     }
@@ -451,7 +451,7 @@ mod mac {
 
     pub(super) fn workspace(cx: &App) -> Option<WorkspaceId> {
         let hk = cx.try_global::<HotkeyWindow>()?;
-        configured(&cx.try_global::<Config>()?.global_hotkey)?;
+        configured(&cx.try_global::<Config>()?.fork.global_hotkey)?;
         hk.workspace
     }
 
@@ -580,7 +580,7 @@ mod mac {
             if hk.recording.is_some() {
                 None
             } else {
-                configured(&cx.global::<Config>().global_hotkey).map(str::to_string)
+                configured(&cx.global::<Config>().fork.global_hotkey).map(str::to_string)
             }
         };
         let hk = cx.global_mut::<HotkeyWindow>();
@@ -695,7 +695,7 @@ mod mac {
     }
 
     fn fade_ms(cx: &App) -> u64 {
-        cx.global::<Config>().global_hotkey_fade_ms.min(2000)
+        cx.global::<Config>().fork.global_hotkey_fade_ms.min(2000)
     }
 
     fn next_generation(cx: &mut App) -> u64 {
@@ -829,7 +829,7 @@ mod mac {
     /// Fullscreen style: cover the screen the mouse is on, above other apps,
     /// on whichever Space is current. Window style: undo that if it was done.
     fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
-        let fullscreen = cx.global::<Config>().global_hotkey_fullscreen;
+        let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
         let hk = cx.global_mut::<HotkeyWindow>();
         let at = hk.saved.iter().position(|s| s.window == handle);
         if !fullscreen {
@@ -918,7 +918,7 @@ mod mac {
             return;
         }
         log::debug!("global hotkey: tty7 resigned active");
-        if cx.global::<Config>().global_hotkey_hide_on_blur {
+        if cx.global::<Config>().fork.global_hotkey_hide_on_blur {
             hide(cx, async_cx, ns, false);
             return;
         }
@@ -935,18 +935,18 @@ mod mac {
         pub(crate) fn hotkey_window_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
             let tk = Tk::of(cx);
             let cfg = cx.global::<Config>();
-            let spec = configured(&cfg.global_hotkey).map(str::to_string);
+            let spec = configured(&cfg.fork.global_hotkey).map(str::to_string);
             let (fullscreen, hide_on_blur, fade) = (
-                cfg.global_hotkey_fullscreen,
-                cfg.global_hotkey_hide_on_blur,
-                cfg.global_hotkey_fade_ms,
+                cfg.fork.global_hotkey_fullscreen,
+                cfg.fork.global_hotkey_hide_on_blur,
+                cfg.fork.global_hotkey_fade_ms,
             );
             let recording = cx
                 .try_global::<HotkeyWindow>()
                 .is_some_and(|hk| hk.recording.is_some());
             let on = self.settings_switch("hotkey-on", spec.is_some(), cx, |this, on, _, cx| {
                 this.update_config(cx, |c| {
-                    c.global_hotkey = on.then(|| "alt-space".to_string())
+                    c.fork.global_hotkey = on.then(|| "alt-space".to_string())
                 })
             });
             let ring = if recording {
@@ -978,13 +978,15 @@ mod mac {
                 .into_any_element();
             let fullscreen =
                 self.settings_switch("hotkey-fullscreen", fullscreen, cx, |this, on, _, cx| {
-                    this.update_config(cx, |c| c.global_hotkey_fullscreen = on)
+                    this.update_config(cx, |c| c.fork.global_hotkey_fullscreen = on)
                 });
             let blur = self.settings_switch(
                 "hotkey-hide-on-blur",
                 hide_on_blur,
                 cx,
-                |this, on, _, cx| this.update_config(cx, |c| c.global_hotkey_hide_on_blur = on),
+                |this, on, _, cx| {
+                    this.update_config(cx, |c| c.fork.global_hotkey_hide_on_blur = on)
+                },
             );
             let fade_ix = FADE_BUCKETS.iter().position(|&b| b == fade);
             let custom = fade_ix.is_none().then(|| {
@@ -1001,7 +1003,7 @@ mod mac {
                 cx,
                 |this, ix, _, cx| {
                     if let Some(&ms) = FADE_BUCKETS.get(ix) {
-                        this.update_config(cx, |c| c.global_hotkey_fade_ms = ms)
+                        this.update_config(cx, |c| c.fork.global_hotkey_fade_ms = ms)
                     }
                 },
             );
@@ -1060,7 +1062,7 @@ mod mac {
                 };
                 cx.global_mut::<HotkeyWindow>().recording = None;
                 let _ = this.update(cx, |this, cx| match picked {
-                    Some(spec) => this.update_config(cx, |c| c.global_hotkey = spec),
+                    Some(spec) => this.update_config(cx, |c| c.fork.global_hotkey = spec),
                     None => cx.notify(),
                 });
                 sync(cx);
@@ -1090,23 +1092,23 @@ mod tests {
     #[test]
     fn the_hotkey_defaults_on_at_option_space_and_null_or_blank_turns_it_off() {
         let cfg: Config = serde_json::from_str("{}").unwrap();
-        assert_eq!(configured(&cfg.global_hotkey), Some("alt-space"));
-        assert!(!cfg.global_hotkey_fullscreen);
-        assert!(!cfg.global_hotkey_hide_on_blur);
-        assert_eq!(cfg.global_hotkey_fade_ms, 150);
-        assert_eq!(Config::default().global_hotkey, cfg.global_hotkey);
+        assert_eq!(configured(&cfg.fork.global_hotkey), Some("alt-space"));
+        assert!(!cfg.fork.global_hotkey_fullscreen);
+        assert!(!cfg.fork.global_hotkey_hide_on_blur);
+        assert_eq!(cfg.fork.global_hotkey_fade_ms, 150);
+        assert_eq!(Config::default().fork.global_hotkey, cfg.fork.global_hotkey);
 
         let off: Config = serde_json::from_str(r#"{"global_hotkey": null}"#).unwrap();
-        assert_eq!(configured(&off.global_hotkey), None);
+        assert_eq!(configured(&off.fork.global_hotkey), None);
         let blank: Config = serde_json::from_str(r#"{"global_hotkey": " "}"#).unwrap();
-        assert_eq!(configured(&blank.global_hotkey), None);
+        assert_eq!(configured(&blank.fork.global_hotkey), None);
         let set: Config = serde_json::from_str(
             r#"{"global_hotkey": "cmd-shift-t", "global_hotkey_fullscreen": true, "global_hotkey_fade_ms": 0}"#,
         )
         .unwrap();
-        assert_eq!(configured(&set.global_hotkey), Some("cmd-shift-t"));
-        assert!(set.global_hotkey_fullscreen);
-        assert_eq!(set.global_hotkey_fade_ms, 0);
+        assert_eq!(configured(&set.fork.global_hotkey), Some("cmd-shift-t"));
+        assert!(set.fork.global_hotkey_fullscreen);
+        assert_eq!(set.fork.global_hotkey_fade_ms, 0);
     }
 
     #[test]

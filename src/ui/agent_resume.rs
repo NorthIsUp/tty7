@@ -90,7 +90,7 @@ impl AtPrompt {
 impl Tty7App {
     /// Continue All Agents: [`Self::wake_agent_tabs`] with `continue_prompt`.
     pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = cx.global::<Config>().continue_prompt.clone();
+        let prompt = cx.global::<Config>().fork.continue_prompt.clone();
         self.wake_agent_tabs(Some(prompt), window, cx);
     }
 
@@ -108,7 +108,8 @@ impl Tty7App {
             self.continue_when_tabs_land = Some(prompt);
             return;
         }
-        let stagger = std::time::Duration::from_millis(cx.global::<Config>().continue_stagger_ms);
+        let stagger =
+            std::time::Duration::from_millis(cx.global::<Config>().fork.continue_stagger_ms);
         let ids = agent_tabs(
             self.tabs
                 .iter()
@@ -151,8 +152,8 @@ fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>
 /// One answer, so a launch with both wakes each tab once.
 fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Option<String>> {
     if continue_flag {
-        Some(Some(cfg.continue_prompt.clone()))
-    } else if cfg.resume_agents_on_launch {
+        Some(Some(cfg.fork.continue_prompt.clone()))
+    } else if cfg.fork.resume_agents_on_launch {
         Some(None)
     } else {
         None
@@ -243,11 +244,11 @@ mod tests {
     #[test]
     fn launch_wakes_once_with_the_prompt_only_under_continue() {
         let mut cfg = Config::default();
-        cfg.continue_prompt = "go".into();
-        assert!(cfg.resume_agents_on_launch);
+        cfg.fork.continue_prompt = "go".into();
+        assert!(cfg.fork.resume_agents_on_launch);
         assert_eq!(launch_wake(true, &cfg), Some(Some("go".into())));
         assert_eq!(launch_wake(false, &cfg), Some(None));
-        cfg.resume_agents_on_launch = false;
+        cfg.fork.resume_agents_on_launch = false;
         assert_eq!(launch_wake(true, &cfg), Some(Some("go".into())));
         assert_eq!(launch_wake(false, &cfg), None);
     }

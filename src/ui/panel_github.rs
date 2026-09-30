@@ -1047,7 +1047,7 @@ mod gpui_tests {
             }));
             app.right_panel_visible = true;
             app.right_panel_tab = RightPanelTab::GitHub;
-            cx.global_mut::<Config>().github_panel_prefer_origin = false;
+            cx.global_mut::<Config>().fork.github_panel_prefer_origin = false;
             cx.notify();
         });
         DaemonMsg::Cwd(root.clone())

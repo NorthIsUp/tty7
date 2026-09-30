@@ -18,7 +18,7 @@ pub(crate) fn clamp(n: i32) -> Option<i32> {
 /// logged, never fatal: a pane at normal priority beats no pane.
 #[cfg(unix)]
 pub(crate) fn apply(pid: u32) {
-    let Some(n) = clamp(Config::load().nice) else {
+    let Some(n) = clamp(Config::load().fork.nice) else {
         return;
     };
     apply_n(pid, n);

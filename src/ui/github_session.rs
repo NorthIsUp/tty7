@@ -19,12 +19,13 @@ use tty7_core::core::github::{Item, Kind, RepoSlug};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
 
-use crate::core::config::{Config, GitHubPanelList};
+use crate::core::config::Config;
 use crate::ui::app::{CONTENT_INSET, Tty7App};
 use crate::ui::github::{GitHubPanelState, STALE_AFTER};
 use crate::ui::host_ops::{HostOps, SharedHost};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::right_panel::{META, TEXT_INSET};
+use tty7_core::core::fork_config::GitHubPanelList;
 
 /// Which session's mentions, of which repository.
 #[derive(Clone, PartialEq, Eq)]
@@ -75,7 +76,7 @@ pub(crate) fn remote_pick(pick: Option<&str>, prefer_origin: bool) -> Option<&st
 /// The panel's state at launch: the list `github_panel_default_list` names.
 pub(crate) fn panel_state(config: &Config) -> GitHubPanelState {
     GitHubPanelState {
-        kind: match config.github_panel_default_list {
+        kind: match config.fork.github_panel_default_list {
             GitHubPanelList::Issues => Kind::Issues,
             GitHubPanelList::PullRequests => Kind::Pulls,
         },
@@ -88,6 +89,7 @@ impl Tty7App {
         self.github.kind == Kind::Pulls
             && cx
                 .global::<crate::core::config::Config>()
+                .fork
                 .github_panel_session_filter
     }
 
@@ -113,7 +115,7 @@ impl Tty7App {
     }
 
     fn github_set_session_filter(&mut self, on: bool, cx: &mut Context<Self>) {
-        self.update_config(cx, |c| c.github_panel_session_filter = on);
+        self.update_config(cx, |c| c.fork.github_panel_session_filter = on);
         self.github.list_scroll = gpui::ScrollHandle::new();
         cx.notify();
     }
@@ -314,7 +316,7 @@ mod tests {
     fn the_panel_opens_on_the_configured_list() {
         let mut config = Config::default();
         assert_eq!(panel_state(&config).kind, Kind::Issues);
-        config.github_panel_default_list = GitHubPanelList::PullRequests;
+        config.fork.github_panel_default_list = GitHubPanelList::PullRequests;
         assert_eq!(panel_state(&config).kind, Kind::Pulls);
     }
 
