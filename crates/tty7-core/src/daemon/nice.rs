@@ -29,16 +29,51 @@ pub(crate) fn apply(pid: u32) {
     std::thread::spawn(move || {
         for wait in [1, 4] {
             std::thread::sleep(std::time::Duration::from_secs(wait));
-            // SAFETY: plain integers in, a plain integer out.
-            if unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t) } < n {
-                apply_n(pid, n);
-            }
+            recheck(pid, n, std::process::id());
         }
     });
 }
 
 #[cfg(not(unix))]
 pub(crate) fn apply(_pid: u32) {}
+
+/// Put `pid` back at `n` if something reset it, but only while it is still
+/// `parent`'s child: the shell may have exited since, and its pid gone to a
+/// process that is none of ours.
+#[cfg(unix)]
+fn recheck(pid: u32, n: i32, parent: u32) {
+    if parent_of(pid) != Some(parent) {
+        return;
+    }
+    // SAFETY: plain integers in, a plain integer out.
+    if unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t) } < n {
+        apply_n(pid, n);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn parent_of(pid: u32) -> Option<u32> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is a zeroed `proc_bsdinfo` of exactly `size` bytes.
+    let got = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
+    (got == size).then_some(info.pbi_ppid)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn parent_of(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    after_name.split_whitespace().nth(1)?.parse().ok()
+}
 
 #[cfg(unix)]
 fn apply_n(pid: u32, n: i32) {
@@ -75,5 +110,28 @@ mod tests {
         child.kill().ok();
         child.wait().ok();
         assert_eq!(got, 7);
+    }
+
+    /// A pid that is not the daemon's child is left alone, whatever its
+    /// priority: after the shell exits, its number can belong to anyone.
+    #[cfg(unix)]
+    #[test]
+    fn a_recheck_touches_only_the_parents_own_child() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let prio = || unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t) };
+        assert_eq!(parent_of(pid), Some(std::process::id()));
+        let before = prio();
+        recheck(pid, 19, std::process::id() + 1);
+        let stranger = prio();
+        recheck(pid, 19, std::process::id());
+        let own = prio();
+        child.kill().ok();
+        child.wait().ok();
+        assert_eq!(stranger, before, "not our child: left alone");
+        assert_eq!(own, 19);
     }
 }
