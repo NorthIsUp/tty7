@@ -394,36 +394,9 @@ pub trait Host: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
-    /// Past sessions on this host whose conversation contains `query`
-    /// ([`crate::core::history_search::search`]). Only the local host looks.
-    fn search_agent_history(
-        &self,
-        _query: &str,
-    ) -> io::Result<Vec<crate::core::history_search::HistoryHit>> {
-        Ok(Vec::new())
-    }
-
-    /// The issues and pull requests of `repo` that `agent`'s session `id`
-    /// on this host mentions ([`crate::core::history_search::session_mentions`]).
-    /// Only the local host looks.
-    fn agent_session_mentions(
-        &self,
-        _agent: crate::core::cli_agent::CLIAgent,
-        _id: &str,
-        _repo: &crate::core::github::RepoSlug,
-    ) -> io::Result<crate::core::history_search::Mentions> {
-        Ok(Default::default())
-    }
-
-    /// How to reopen `agent`'s session `session_id` on this host
-    /// ([`crate::core::claude_background::resume_plan`]). Only the local host
-    /// looks; elsewhere it just resumes.
-    fn resume_plan(
-        &self,
-        _agent: crate::core::cli_agent::CLIAgent,
-        _session_id: &str,
-    ) -> crate::core::claude_background::ResumePlan {
-        crate::core::claude_background::ResumePlan::Resume
+    /// The fork's calls (`core::fork_host`), where this host answers them.
+    fn fork(&self) -> &dyn crate::core::fork_host::ForkHost {
+        &crate::core::fork_host::NoFork
     }
 
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;

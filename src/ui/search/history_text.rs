@@ -1,5 +1,5 @@
 //! The History tab: full text over what was said in past agent sessions
-//! ([`Host::search_agent_history`](tty7_core::host::Host::search_agent_history)),
+//! ([`ForkHost::search_agent_history`](tty7_core::core::fork_host::ForkHost::search_agent_history)),
 //! one row per session with its best match. Enter resumes it where it ran,
 //! the way a Sessions row does.
 //!
@@ -98,7 +98,7 @@ impl Tty7App {
                     host,
                     window,
                     cx,
-                    move |h| h.search_agent_history(&pattern),
+                    move |h| h.fork().search_agent_history(&pattern),
                     move |app, found, window, cx| {
                         let found = found.unwrap_or_else(|e| {
                             log::debug!("palette history search: {e}");
