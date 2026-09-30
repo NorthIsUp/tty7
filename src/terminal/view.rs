@@ -12369,6 +12369,69 @@ mod gpui_tests {
         );
     }
 
+    /// A program that switched 2031 on and died without `?2031l` leaves a
+    /// replay whose last word is still `?2031h`. The shell that owns the pane
+    /// now never asked, so neither a reattach nor a theme flip may type a
+    /// report into its command line.
+    #[gpui::test]
+    fn a_dead_programs_2031_never_reaches_the_shell(cx: &mut TestAppContext) {
+        let set_background = |cx: &mut TestAppContext, bg: gpui::Hsla| {
+            cx.update(|cx| gpui_component::Theme::global_mut(cx).background = bg)
+        };
+        let dead = b"\x1b]133;C;claude\x07\x1b[?2031hclaude output\r\n";
+        let prompt = b"\x1b]133;D;137\x07\x1b]133;A\x07$ \x1b]133;B\x07";
+        let restored = crate::daemon::pane::restore_preamble(Some("this shell is new"));
+
+        for tail in [&prompt[..], &restored[..]] {
+            let (_window, mut daemon) = harness(cx);
+            set_background(cx, gpui::white());
+            let mut replay = Vec::new();
+            for frame in [
+                DaemonMsg::Snapshot(dead.to_vec()),
+                DaemonMsg::Snapshot(tail.to_vec()),
+            ] {
+                frame.encode(&mut replay).unwrap();
+            }
+            std::io::Write::write_all(&mut daemon, &replay).unwrap();
+            assert_eq!(
+                pumped_input(cx, &mut daemon, 2),
+                None,
+                "a reattach reports nothing"
+            );
+            set_background(cx, gpui::black());
+            assert_eq!(pumped_input(cx, &mut daemon, 2), None, "nor does a flip");
+        }
+
+        // Live, the same: the program's exit and the next prompt end it.
+        let (_window, mut live) = harness(cx);
+        set_background(cx, gpui::white());
+        DaemonMsg::Output(dead.to_vec()).encode(&mut live).unwrap();
+        assert_eq!(pumped_input(cx, &mut live, 1), None);
+        set_background(cx, gpui::black());
+        assert_eq!(
+            pumped_input(cx, &mut live, 20).as_deref(),
+            Some("\x1b[?997;1n")
+        );
+        DaemonMsg::Output(prompt.to_vec())
+            .encode(&mut live)
+            .unwrap();
+        assert_eq!(pumped_input(cx, &mut live, 1), None);
+        set_background(cx, gpui::white());
+        assert_eq!(
+            pumped_input(cx, &mut live, 2),
+            None,
+            "a shell at its prompt hears nothing"
+        );
+        DaemonMsg::Output(b"\x1b[?996n".to_vec())
+            .encode(&mut live)
+            .unwrap();
+        assert_eq!(
+            pumped_input(cx, &mut live, 20).as_deref(),
+            Some("\x1b[?997;2n"),
+            "a live 996 is still answered"
+        );
+    }
+
     #[gpui::test]
     fn allowed_remote_clipboard_image_reaches_the_system_clipboard(cx: &mut TestAppContext) {
         use gpui::ClipboardEntry;

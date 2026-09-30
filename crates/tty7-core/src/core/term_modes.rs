@@ -175,7 +175,10 @@ impl TerminalModes {
                         self.params.clear();
                         self.state = State::Csi { private: false };
                     }
-                    b']' => self.state = State::Osc,
+                    b']' => {
+                        self.params.clear();
+                        self.state = State::Osc;
+                    }
                     // RIS. Everything this tracker knows goes back to default,
                     // exactly as it does in the client's emulator.
                     b'c' => {
@@ -213,18 +216,31 @@ impl TerminalModes {
                     _ => self.state = State::Text,
                 },
                 State::Osc => match b {
-                    0x07 => self.state = State::Text,
+                    0x07 => self.osc_end(),
                     0x1b => self.state = State::OscEsc,
+                    _ if self.params.len() < 5 => self.params.push(b),
                     _ => {}
                 },
                 State::OscEsc => match b {
-                    b'\\' => self.state = State::Text,
+                    b'\\' => self.osc_end(),
                     0x1b => {}
                     _ => self.state = State::Osc,
                 },
             }
             i += 1;
         }
+    }
+
+    /// A shell prompt mark (OSC 133 `A`, `B` or `D`) means the shell owns the
+    /// terminal again, so whatever program switched 2031 on is gone — possibly
+    /// killed before it could send `?2031l`. A report after that would be
+    /// typed into the shell's command line.
+    fn osc_end(&mut self) {
+        if matches!(self.params.as_slice(), b"133;A" | b"133;B" | b"133;D") {
+            self.on.retain(|m| *m != COLOR_SCHEME_UPDATES);
+        }
+        self.params.clear();
+        self.state = State::Text;
     }
 
     fn apply(&mut self, on: bool) {
@@ -405,5 +421,33 @@ mod tests {
         assert_eq!(modes.take_color_scheme_queries(), 0);
         modes.feed(b"\x1b[?2031l");
         assert!(!modes.is_on(COLOR_SCHEME_UPDATES));
+    }
+
+    #[test]
+    fn a_shell_prompt_ends_colour_scheme_updates() {
+        for mark in [
+            &b"\x1b]133;A\x07"[..],
+            b"\x1b]133;B\x1b\\",
+            b"\x1b]133;D;0\x07",
+        ] {
+            let mut modes = TerminalModes::new();
+            modes.feed(b"\x1b[?2031h\x1b[?2004h\x1b]133;C\x07");
+            assert!(
+                modes.is_on(COLOR_SCHEME_UPDATES),
+                "a command start keeps it"
+            );
+            modes.feed(mark);
+            assert!(!modes.is_on(COLOR_SCHEME_UPDATES));
+            assert!(
+                modes.is_on(BRACKETED_PASTE),
+                "only 2031 is the prompt's to clear"
+            );
+        }
+        let mut modes = TerminalModes::new();
+        modes.feed(b"\x1b[?2031h\x1b]0;133;A\x07\x1b]1337;A\x07");
+        assert!(
+            modes.is_on(COLOR_SCHEME_UPDATES),
+            "other OSCs leave it alone"
+        );
     }
 }
