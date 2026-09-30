@@ -5,6 +5,17 @@ All notable changes to tty7 are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Selecting a tab in the sidebar no longer scrolls the list.** Activating a
+  tab asked the list to show its N-th child, but since the sidebar grouped its
+  rows those children are groups, not tabs, so clicking a row lower down jumped
+  the list to some other group. A row that is on screen now stays where it is;
+  one out of view (⌘1–9, next/previous tab, a new tab) scrolls in just far
+  enough to reach the nearest edge.
+
 ## [26.9.4] - 2026-09-29
 
 ### Added

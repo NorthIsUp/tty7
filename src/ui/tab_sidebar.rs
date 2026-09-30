@@ -1039,12 +1039,28 @@ impl Tty7App {
                                 // reads the slots of one group, a pane dropped
                                 // on the sidebar reads every row there is.
                                 let by_tab = self.sidebar_slots.clone();
-                                move |bounds, _window, _cx| {
+                                let reveal = self.sidebar_reveal.clone();
+                                let scroll = self.sidebar_scroll.clone();
+                                move |bounds, window, _cx| {
                                     if let Some(s) = slots.borrow_mut().get_mut(slot) {
                                         *s = bounds;
                                     }
                                     if let Some(s) = by_tab.borrow_mut().get_mut(i) {
                                         *s = bounds;
+                                    }
+                                    if reveal.get() == Some(i) {
+                                        reveal.set(None);
+                                        let view = scroll.bounds();
+                                        let shift = reveal_shift(
+                                            (bounds.top(), bounds.bottom()),
+                                            (view.top(), view.bottom()),
+                                        );
+                                        if shift != px(0.) {
+                                            let mut offset = scroll.offset();
+                                            offset.y += shift;
+                                            scroll.set_offset(offset);
+                                            window.refresh();
+                                        }
                                     }
                                 }
                             },
@@ -2954,6 +2970,20 @@ impl Section {
 /// yet — it is just the list, and a header over the whole of it would be a
 /// label on nothing. The same goes for a sidebar with no groups at all, which
 /// comes out as one headerless section holding every tab.
+/// How far to move the sidebar's scroll offset so a newly active row shows.
+/// A row with any part in view stays put — clicking a row must not move the
+/// list under the pointer; one out of view comes in at the nearest edge.
+fn reveal_shift(row: (Pixels, Pixels), view: (Pixels, Pixels)) -> Pixels {
+    let ((top, bottom), (view_top, view_bottom)) = (row, view);
+    if bottom <= view_top {
+        view_top - top
+    } else if top >= view_bottom {
+        view_bottom - bottom
+    } else {
+        px(0.)
+    }
+}
+
 fn sidebar_sections(keys: &[Option<GroupKey>], groups: &WorkspaceGroups) -> Vec<Section> {
     let members = |key: &GroupKey| -> Vec<usize> {
         (0..keys.len())
@@ -4160,6 +4190,19 @@ mod fold_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reveal_shift_moves_only_rows_out_of_view() {
+        let view = (px(100.), px(400.));
+        // On screen, or cut by an edge: a click there scrolls nothing.
+        assert_eq!(reveal_shift((px(200.), px(230.)), view), px(0.));
+        assert_eq!(reveal_shift((px(90.), px(120.)), view), px(0.));
+        assert_eq!(reveal_shift((px(390.), px(420.)), view), px(0.));
+        // Above: its top lands on the top edge.
+        assert_eq!(reveal_shift((px(10.), px(40.)), view), px(90.));
+        // Below: its bottom lands on the bottom edge.
+        assert_eq!(reveal_shift((px(500.), px(530.)), view), px(-130.));
+    }
 
     fn p(s: &str) -> PathBuf {
         PathBuf::from(s)
