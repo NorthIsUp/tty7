@@ -506,6 +506,20 @@ pub struct Config {
     /// Which list the GitHub panel opens on.
     #[serde(default)]
     pub github_panel_default_list: GitHubPanelList,
+    /// The system-wide chord that shows and hides tty7, in keymap syntax
+    /// (`alt-space`, `cmd-shift-t`); `null` or `""` turns it off. macOS only.
+    #[serde(default = "default_global_hotkey")]
+    pub global_hotkey: Option<String>,
+    /// The hotkey summons the window over the whole screen the mouse is on,
+    /// floating above other apps.
+    #[serde(default)]
+    pub global_hotkey_fullscreen: bool,
+    /// Hide tty7 whenever it loses focus after the hotkey summoned it.
+    #[serde(default)]
+    pub global_hotkey_hide_on_blur: bool,
+    /// How long the hotkey's fade in and out takes; 0 is instant.
+    #[serde(default = "default_global_hotkey_fade_ms")]
+    pub global_hotkey_fade_ms: u64,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -908,6 +922,10 @@ impl Default for Config {
             github_panel_session_filter: true,
             github_panel_prefer_origin: true,
             github_panel_default_list: GitHubPanelList::Issues,
+            global_hotkey: default_global_hotkey(),
+            global_hotkey_fullscreen: false,
+            global_hotkey_hide_on_blur: false,
+            global_hotkey_fade_ms: default_global_hotkey_fade_ms(),
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
@@ -1577,6 +1595,14 @@ fn default_continue_prompt() -> String {
 
 fn default_continue_stagger_ms() -> u64 {
     3000
+}
+
+fn default_global_hotkey() -> Option<String> {
+    Some("alt-space".to_string())
+}
+
+fn default_global_hotkey_fade_ms() -> u64 {
+    150
 }
 
 fn default_dir_roots() -> Vec<String> {

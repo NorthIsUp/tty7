@@ -24,6 +24,7 @@ pub mod home;
 pub mod host_ops;
 #[allow(dead_code)]
 pub mod host_registry;
+pub mod hotkey_window;
 pub mod i18n;
 pub mod keymap;
 pub mod local_link;

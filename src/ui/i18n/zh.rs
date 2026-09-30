@@ -1857,6 +1857,19 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsGroupScopeGroup => "整个分组",
         L10nKey::SettingsGroupAnimations => "折叠动画",
         L10nKey::SettingsGroupAnimationsDesc => "分组展开和收起时平滑过渡，而不是立即切换。",
+        L10nKey::SettingsHotkeyWindow => "快捷键窗口",
+        L10nKey::SettingsHotkeyOn => "全局快捷键",
+        L10nKey::SettingsHotkeyOnDesc => "在任意应用中显示或隐藏 tty7。",
+        L10nKey::SettingsHotkeyKey => "快捷键",
+        L10nKey::SettingsHotkeyKeyDesc => "点击后按下组合键。Esc 取消，Backspace 关闭。",
+        L10nKey::SettingsHotkeyFullscreen => "全屏",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "在鼠标所在的屏幕上全屏显示 tty7，并置于其他应用之上。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "失去焦点时隐藏",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "切换到其他应用时隐藏 tty7。",
+        L10nKey::SettingsHotkeyFade => "淡入淡出",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
         L10nKey::AppAgentLaunchSaved => "{name} 以后将以此命令启动：{command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} 未报告其启动参数",
         L10nKey::AppCmdShellTitle => "Shell：{title}",
