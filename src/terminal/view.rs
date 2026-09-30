@@ -12265,6 +12265,33 @@ mod gpui_tests {
     }
 
     #[gpui::test]
+    fn a_launch_line_waits_for_the_first_prompt(cx: &mut TestAppContext) {
+        let (window, mut daemon) = harness(cx);
+        let view = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        cx.update(|cx| crate::ui::agent_launch::type_at_first_prompt(&view, "claude".into(), cx));
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+        assert_eq!(
+            next_input_until_timeout(&mut daemon),
+            None,
+            "nothing is typed before the shell's first prompt"
+        );
+
+        prompt_ready(&window, cx, &mut daemon);
+        let line = (0..20).find_map(|_| {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(100));
+            cx.run_until_parked();
+            next_input_until_timeout(&mut daemon)
+        });
+        assert!(
+            line.is_some_and(|l| String::from_utf8_lossy(&l).contains("claude")),
+            "the line arrives once the prompt does"
+        );
+    }
+
+    #[gpui::test]
     fn allowed_remote_clipboard_image_reaches_the_system_clipboard(cx: &mut TestAppContext) {
         use gpui::ClipboardEntry;
 
