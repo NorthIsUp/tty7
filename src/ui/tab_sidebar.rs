@@ -1374,10 +1374,11 @@ impl Tty7App {
                     // keeping one — a click unpins, and its tabs fall back to
                     // the groups their cwds resolve to. A label group too: a
                     // pin that looks the same but ignores the click read as
-                    // broken. There it says Delete Group, as its menu does —
-                    // the name and the hand-picked members go with it.
+                    // broken. There it says Delete Group, as its menu does,
+                    // and asks first (`group_header`'s `pin_clicked`).
                     .when_some(pinned_id, |header, id| {
-                        let tip = match pinned_folder.is_some() {
+                        let folder = pinned_folder.is_some();
+                        let tip = match folder {
                             true => L10nKey::SidebarUnpinGroup,
                             false => L10nKey::SidebarDeleteGroup,
                         };
@@ -1393,9 +1394,9 @@ impl Tty7App {
                                     gpui_component::tooltip::Tooltip::new(t(tip)).build(window, cx)
                                 })
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, _window, cx| {
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.delete_group(id, cx);
+                                    this.pin_clicked(id, folder, window, cx);
                                 })),
                         )
                     })
@@ -3992,10 +3993,10 @@ mod fold_tests {
         });
     }
 
-    /// A label group's pin unpins it too: the group goes, and its tabs fall
-    /// back to auto grouping in the order they had.
+    /// A label group's pin deletes it, after asking: the group goes, and its
+    /// tabs fall back to auto grouping in the order they had.
     #[gpui::test]
-    fn clicking_a_label_groups_pin_unpins_it(cx: &mut TestAppContext) {
+    fn clicking_a_label_groups_pin_deletes_it_once_confirmed(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
         let order = app.update(&mut vcx, |app, cx| {
             cx.global_mut::<Config>().fork.animations = false;
@@ -4011,15 +4012,24 @@ mod fold_tests {
             .debug_bounds("sidebar-group-unpin")
             .expect("a label group's pin is clickable")
             .center();
-        vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
-        vcx.simulate_click(at, gpui::Modifiers::none());
+        let click = |vcx: &mut gpui::VisualTestContext| {
+            vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+            vcx.simulate_click(at, gpui::Modifiers::none());
+            vcx.run_until_parked();
+            assert!(vcx.has_pending_prompt(), "a label group's pin asks first");
+        };
+        click(&mut vcx);
+        vcx.simulate_prompt_answer(t(L10nKey::Cancel));
         vcx.run_until_parked();
-
         app.update(&mut vcx, |app, _| {
-            assert!(
-                app.sidebar_groups.pinned.is_empty(),
-                "the group is unpinned"
-            );
+            assert_eq!(app.sidebar_groups.pinned.len(), 1, "Cancel keeps it");
+        });
+
+        click(&mut vcx);
+        vcx.simulate_prompt_answer(t(L10nKey::SidebarDeleteGroup));
+        vcx.run_until_parked();
+        app.update(&mut vcx, |app, _| {
+            assert!(app.sidebar_groups.pinned.is_empty(), "the group is deleted");
             assert!(app.tabs.iter().all(|t| t.group.get().is_none()));
             let now: Vec<_> = app.tabs.iter().map(|t| t.tree_id.get()).collect();
             assert_eq!(now, order, "no tab closed or moved");

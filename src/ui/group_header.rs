@@ -8,19 +8,19 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, Context, EntityId, Global, Hsla, IntoElement, ParentElement as _, Styled,
-    Window, ease_in_out, px, radians,
+    AnyElement, App, Context, EntityId, Global, Hsla, IntoElement, ParentElement as _, PromptLevel,
+    Styled, Window, ease_in_out, px, radians,
 };
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex};
 
 use crate::core::config::Config;
-use crate::core::group_key::GroupKey;
+use crate::core::group_key::{GroupId, GroupKey};
 use crate::terminal::git_status::{GitStatus, GitStatusCache};
 use crate::ui::app::Tty7App;
 use crate::ui::group_color::{dark_rail, group_color};
 use crate::ui::host_ops::{HostId, HostOps};
 use crate::ui::host_registry::HostRegistry;
-use crate::ui::i18n::{L10nKey, t};
+use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::tab_sidebar::SharedGit;
 use tty7_core::core::fork_config::{GroupBackgroundScope, GroupColorSource};
 
@@ -311,6 +311,42 @@ fn default_branch_name(
 }
 
 impl Tty7App {
+    /// A click on a pinned group's pin. A folder group is unpinned: its tabs
+    /// fall back to the auto groups their cwds resolve to. A label group has
+    /// nothing to fall back to — the click deletes it, its name and the tabs
+    /// picked for it by hand — so that asks first.
+    pub(crate) fn pin_clicked(
+        &mut self,
+        id: GroupId,
+        folder: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if folder {
+            return self.delete_group(id, cx);
+        }
+        let name = self
+            .sidebar_groups
+            .pinned
+            .iter()
+            .find(|g| g.id == id)
+            .and_then(|g| g.name.clone())
+            .unwrap_or_default();
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &t_fmt(L10nKey::SidebarDeleteGroupTitle, &[("name", &name)]),
+            Some(&t(L10nKey::SidebarDeleteGroupBody)),
+            &crate::ui::confirm_answers(&t(L10nKey::SidebarDeleteGroup), &t(L10nKey::Cancel)),
+            cx,
+        );
+        cx.spawn(async move |this, cx| {
+            if matches!(answer.await, Ok(0)) {
+                let _ = this.update(cx, |this, cx| this.delete_group(id, cx));
+            }
+        })
+        .detach();
+    }
+
     /// The group header options, as rows for Settings' Tabs group.
     pub(crate) fn group_header_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 6] {
         let cfg = cx.global::<Config>();

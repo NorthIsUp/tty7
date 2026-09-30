@@ -25,6 +25,9 @@ concurrency:
 jobs:
   # Decide whether tonight needs a build, and compute the version once.
   plan:
+    # Upstream's channel only: a fork that re-enables this would publish its
+    # own nightly under upstream's name. Every other job needs this one.
+    if: github.repository == 'l0ng-ai/tty7'
     runs-on: ubuntu-latest
     outputs:
       build: ${{ steps.plan.outputs.build }}
