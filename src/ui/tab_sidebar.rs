@@ -261,6 +261,12 @@ impl Tty7App {
         let show_badges = self.mod_hint_badges;
         let width = self.sidebar_px(window, cx);
         let query = self.sidebar_search.read(cx).value().trim().to_lowercase();
+        // A reveal whose row this frame does not draw (folded, filtered out)
+        // is dropped, not left to fire whenever that row next shows.
+        if self.sidebar_reveal.get().is_some() {
+            let reveal = self.sidebar_reveal.clone();
+            window.on_next_frame(move |_, _| reveal.set(None));
+        }
         // Blanked here, written again from paint: a row filtered out by the
         // search — or hidden with its collapsed group — must leave no rectangle
         // behind for a pane to be dropped between.
@@ -3008,16 +3014,6 @@ impl Section {
     }
 }
 
-/// The sidebar's sections, top to bottom: every pinned group in the user's
-/// order — an empty one too, since a kept group stays until it is deleted —
-/// then the auto groups in the order their first tab appears, then
-/// Ungrouped.
-///
-/// Ungrouped only draws a header beside other groups below the divider. With
-/// no auto group to set it apart from — grouping off, or nothing resolved
-/// yet — it is just the list, and a header over the whole of it would be a
-/// label on nothing. The same goes for a sidebar with no groups at all, which
-/// comes out as one headerless section holding every tab.
 /// How far to move the sidebar's scroll offset so a newly active row shows.
 /// A row with any part in view stays put — clicking a row must not move the
 /// list under the pointer; one out of view comes in at the nearest edge.
@@ -3032,6 +3028,16 @@ fn reveal_shift(row: (Pixels, Pixels), view: (Pixels, Pixels)) -> Pixels {
     }
 }
 
+/// The sidebar's sections, top to bottom: every pinned group in the user's
+/// order — an empty one too, since a kept group stays until it is deleted —
+/// then the auto groups in the order their first tab appears, then
+/// Ungrouped.
+///
+/// Ungrouped only draws a header beside other groups below the divider. With
+/// no auto group to set it apart from — grouping off, or nothing resolved
+/// yet — it is just the list, and a header over the whole of it would be a
+/// label on nothing. The same goes for a sidebar with no groups at all, which
+/// comes out as one headerless section holding every tab.
 fn sidebar_sections(keys: &[Option<GroupKey>], groups: &WorkspaceGroups) -> Vec<Section> {
     let members = |key: &GroupKey| -> Vec<usize> {
         (0..keys.len())

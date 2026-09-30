@@ -177,4 +177,31 @@ mod tests {
             "2031 switched off"
         );
     }
+
+    /// A reattach replays the modes and then each ring segment as its own
+    /// Snapshot. The theme may have flipped while nothing was attached, so a
+    /// replay that leaves 2031 on is answered once, after its last frame.
+    #[gpui::test]
+    fn a_replay_that_leaves_2031_on_reports_the_scheme_once(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        set_background(cx, gpui::black());
+        let mut replayed = pane(cx);
+        for frame in [
+            DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec()),
+            DaemonMsg::Snapshot(b"first segment\r\n".to_vec()),
+            DaemonMsg::Snapshot(b"second segment\r\n".to_vec()),
+            DaemonMsg::Output(b"live\r\n".to_vec()),
+        ] {
+            frame.encode(&mut replayed.daemon).unwrap();
+        }
+        assert_eq!(
+            typed(cx, &replayed, "", Duration::from_millis(500)),
+            "\x1b[?997;1n"
+        );
+    }
 }

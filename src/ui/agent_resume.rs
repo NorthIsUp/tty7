@@ -35,21 +35,21 @@ impl Resume {
     /// to continue.
     fn line(&self, plan: ResumePlan) -> Option<String> {
         let argv = self.launch_argv.as_deref();
-        let fresh = match plan {
-            ResumePlan::Attach(job) => return Some(format!("claude attach {job}")),
-            ResumePlan::Fresh => self.agent.start_command(&self.session_id, argv),
-            ResumePlan::Resume => None,
-        };
-        if fresh.is_some() {
-            return fresh;
+        match plan {
+            ResumePlan::Attach(job) => Some(format!("claude attach {job}")),
+            ResumePlan::Fresh => self
+                .agent
+                .start_command(&self.session_id, argv)
+                .or_else(|| self.resumed(argv)),
+            ResumePlan::Resume => self.resumed(argv),
         }
+    }
+
+    fn resumed(&self, argv: Option<&[String]>) -> Option<String> {
         let cmd = self.agent.resume_command(&self.session_id, argv)?;
+        let prompt = self.prompt.as_deref();
         Some(
-            match self
-                .prompt
-                .as_deref()
-                .filter(|p| !p.is_empty() && self.agent.resume_takes_prompt())
-            {
+            match prompt.filter(|p| !p.is_empty() && self.agent.resume_takes_prompt()) {
                 Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
                 None => cmd,
             },
@@ -90,7 +90,11 @@ impl AtPrompt {
             AtPrompt::Line(line) => return type_at_first_prompt(view, line, cx),
             AtPrompt::Resume(resume) => resume,
         };
-        let Some(host) = view.read(cx).host(cx) else {
+        // An SSH or remote pane's session lives on the far machine; a plan
+        // read from this one's files would be wrong about it.
+        let far = view.read(cx).ssh_spec().is_some() || view.read(cx).remote_context().is_some();
+        let host = view.read(cx).host(cx).filter(|_| !far);
+        let Some(host) = host else {
             if let Some(line) = resume.line(ResumePlan::Resume) {
                 type_at_first_prompt(view, line, cx);
             }
@@ -150,9 +154,11 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        let outer = cx.try_global::<WakePrompt>().and_then(|w| w.0.clone());
+        debug_assert!(outer.is_none(), "a wake inside a wake");
         cx.set_global(WakePrompt(prompt.map(str::to_string)));
         let woke = self.wake_tab(index, window, cx);
-        cx.set_global(WakePrompt(None));
+        cx.set_global(WakePrompt(outer));
         woke
     }
 

@@ -31,6 +31,8 @@ use tty7_core::host::Host;
 use tty7_core::host::local::LocalHost;
 
 const LIST_H: f32 = 336.0;
+/// Denser than the palette's 32px rows: a directory row is one line of path,
+/// with no icon or subtitle to make room for.
 const ROW_H: f32 = 28.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
