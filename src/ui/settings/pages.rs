@@ -190,7 +190,9 @@ impl Tty7App {
                         cx,
                     ),
                 ]
-                .map(IntoElement::into_any_element),
+                .map(IntoElement::into_any_element)
+                .into_iter()
+                .chain([self.resume_agents_setting(cx)]),
                 cx,
             ),
             self.render_tabs_group(cx),

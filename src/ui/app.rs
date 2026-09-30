@@ -2399,7 +2399,7 @@ impl Tty7App {
         let answer = window.prompt(
             PromptLevel::Warning,
             t(crate::ui::i18n::L10nKey::QuitStopServerTitle),
-            Some(t(crate::ui::i18n::L10nKey::QuitStopServerBody)),
+            Some(t(crate::ui::agent_resume::quit_stop_body(cx))),
             &crate::ui::confirm_answers(
                 t(crate::ui::i18n::L10nKey::QuitAndStop),
                 t(crate::ui::i18n::L10nKey::Cancel),
@@ -2505,7 +2505,7 @@ impl Tty7App {
             Some(t(if in_place {
                 L10nKey::AppRestartServerBodyInPlace
             } else {
-                L10nKey::AppRestartServerBody
+                crate::ui::agent_resume::restart_body(cx)
             })),
             &crate::ui::confirm_answers(
                 t(L10nKey::AppRestart),
@@ -2517,6 +2517,7 @@ impl Tty7App {
             if !matches!(answer.await, Ok(0)) {
                 return;
             }
+            let _ = cx.update(|cx| crate::ui::agent_resume::arm_restart_wake(in_place, cx));
             let _ = this.update_in(cx, |this, _window, cx| this.restart_daemon_confirmed(cx));
         })
         .detach();
