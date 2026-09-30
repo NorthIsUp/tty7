@@ -189,11 +189,40 @@ mod tests {
     /// and read by only one of them.
     #[test]
     fn fork_keys_and_upstream_keys_do_not_overlap() {
-        let fork = serde_json::to_value(super::ForkConfig::default()).unwrap();
-        let text = serde_json::to_string(&Config::default()).unwrap();
-        for key in fork.as_object().unwrap().keys() {
-            assert_eq!(text.matches(&format!("\"{key}\":")).count(), 1, "{key}");
+        /// The top-level keys of a JSON object as written, duplicates kept
+        /// (a `serde_json::Value` would fold them into one).
+        struct Keys(Vec<String>);
+        impl<'de> serde::Deserialize<'de> for Keys {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                struct V;
+                impl<'de> serde::de::Visitor<'de> for V {
+                    type Value = Keys;
+                    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        f.write_str("an object")
+                    }
+                    fn visit_map<A: serde::de::MapAccess<'de>>(
+                        self,
+                        mut map: A,
+                    ) -> Result<Keys, A::Error> {
+                        let mut keys = Vec::new();
+                        while let Some((k, serde::de::IgnoredAny)) = map.next_entry()? {
+                            keys.push(k);
+                        }
+                        Ok(Keys(keys))
+                    }
+                }
+                d.deserialize_map(V)
+            }
         }
+        let keys = |text: String| serde_json::from_str::<Keys>(&text).unwrap().0;
+        let fork = keys(serde_json::to_string(&super::ForkConfig::default()).unwrap());
+        let all = keys(serde_json::to_string(&Config::default()).unwrap());
+        let unique: std::collections::BTreeSet<_> = all.iter().collect();
+        assert_eq!(unique.len(), all.len(), "a key written twice");
+        assert!(
+            fork.iter().all(|k| unique.contains(k)),
+            "every fork key reaches the file"
+        );
     }
 
     #[test]

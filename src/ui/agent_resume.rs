@@ -90,10 +90,12 @@ impl AtPrompt {
             AtPrompt::Line(line) => return type_at_first_prompt(view, line, cx),
             AtPrompt::Resume(resume) => resume,
         };
-        // An SSH or remote pane's session lives on the far machine; a plan
-        // read from this one's files would be wrong about it.
-        let far = view.read(cx).ssh_spec().is_some() || view.read(cx).remote_context().is_some();
-        let host = view.read(cx).host(cx).filter(|_| !far);
+        // A session on another machine: a plan read from this one's files
+        // would be wrong about it.
+        let host = view
+            .read(cx)
+            .host(cx)
+            .filter(|_| on_this_machine(view.read(cx)));
         let Some(host) = host else {
             if let Some(line) = resume.line(ResumePlan::Resume) {
                 type_at_first_prompt(view, line, cx);
@@ -120,6 +122,12 @@ impl AtPrompt {
     }
 }
 
+/// Whether `view`'s shell, and so its agent session, runs on this machine:
+/// not a remote workspace's pane, not SSH (native or typed), not WSL.
+fn on_this_machine(view: &TerminalView) -> bool {
+    view.pane_route().is_local() && view.ssh_spec().is_none() && view.remote_context().is_none()
+}
+
 /// How long a new shell may take to reach a prompt that is coming: its
 /// startup files can be slow (nvm, conda).
 const PROMPT_CAP: Duration = Duration::from_secs(30);
@@ -131,9 +139,7 @@ const PROMPT_WAIT: Duration = Duration::from_secs(3);
 /// a local shell the daemon gives integration), [`PROMPT_WAIT`] otherwise.
 pub(crate) fn prompt_patience(view: &Entity<TerminalView>, cx: &App) -> Duration {
     let view = view.read(cx);
-    let local = view.pane_route().is_local()
-        && view.ssh_spec().is_none()
-        && view.remote_context().is_none();
+    let local = on_this_machine(view);
     let configured = cx
         .global::<Config>()
         .shell

@@ -261,12 +261,6 @@ impl Tty7App {
         let show_badges = self.mod_hint_badges;
         let width = self.sidebar_px(window, cx);
         let query = self.sidebar_search.read(cx).value().trim().to_lowercase();
-        // A reveal whose row this frame does not draw (folded, filtered out)
-        // is dropped, not left to fire whenever that row next shows.
-        if self.sidebar_reveal.get().is_some() {
-            let reveal = self.sidebar_reveal.clone();
-            window.on_next_frame(move |_, _| reveal.set(None));
-        }
         // Blanked here, written again from paint: a row filtered out by the
         // search — or hidden with its collapsed group — must leave no rectangle
         // behind for a pane to be dropped between.
@@ -521,6 +515,10 @@ impl Tty7App {
             .get(self.workspace)
             .is_some_and(|w| w.is_remote());
 
+        // A reveal whose row is not drawn this frame (folded away, or the tab
+        // gone) is dropped, so it cannot fire when the row turns up later.
+        let reveal = self.sidebar_reveal.get();
+        let mut reveal_drawn = false;
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             if n == first_unpinned && show_divider {
                 list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));
@@ -614,6 +612,7 @@ impl Tty7App {
             for (slot, i) in visible.into_iter().enumerate() {
                 let badge_pos = badge_pos[i];
                 let tab = &self.tabs[i];
+                reveal_drawn |= reveal == Some(tab.tree_id.get());
                 let is_active = i == active;
                 let ssh_dot = self.tab_ssh_dot(tab, cx);
                 let asleep = tab.is_asleep();
@@ -1062,6 +1061,7 @@ impl Tty7App {
                                 let by_tab = self.sidebar_slots.clone();
                                 let reveal = self.sidebar_reveal.clone();
                                 let scroll = self.sidebar_scroll.clone();
+                                let id = tab.tree_id.get();
                                 move |bounds, window, _cx| {
                                     if let Some(s) = slots.borrow_mut().get_mut(slot) {
                                         *s = bounds;
@@ -1069,7 +1069,7 @@ impl Tty7App {
                                     if let Some(s) = by_tab.borrow_mut().get_mut(i) {
                                         *s = bounds;
                                     }
-                                    if reveal.get() == Some(i) {
+                                    if reveal.get() == Some(id) {
                                         reveal.set(None);
                                         let view = scroll.bounds();
                                         let shift = reveal_shift(
@@ -1695,6 +1695,9 @@ impl Tty7App {
                 }
                 _ => block.into_any_element(),
             });
+        }
+        if !reveal_drawn {
+            self.sidebar_reveal.set(None);
         }
         if show_divider && !divider_drawn {
             list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));

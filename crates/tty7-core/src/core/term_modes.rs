@@ -39,10 +39,12 @@
 /// which is how a paste turns into commands. `2031` is colour scheme
 /// notifications: a reattached window that lost it never tells the program the
 /// theme flipped.
+#[rustfmt::skip]
 const TRACKED: &[u16] = &[
     1, 47, 1047, 1049, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 2004,
-    2031, // COLOR_SCHEME_UPDATES
+    COLOR_SCHEME_UPDATES,
 ];
+
 /// DEC mode 2031: report light/dark changes as `CSI ? 997 ; 1|2 n`.
 pub const COLOR_SCHEME_UPDATES: u16 = 2031;
 
