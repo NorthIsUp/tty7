@@ -7,7 +7,7 @@ name: CI
 # guards against regressing the original target.
 on:
   push:
-    branches: [main]
+    branches: [main-niu]
   pull_request:
   workflow_dispatch:
 
@@ -98,10 +98,13 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: windows-latest
-            target: x86_64-pc-windows-msvc
-          - runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+          # Off for CI speed while the fork is macOS-only; uncomment to build
+          # them again (and re-add their required checks). Releases still build
+          # every platform.
+          # - runner: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          # - runner: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
     needs: changes
     runs-on: ${{ matrix.runner }}
     # Line tables keep file:line in backtraces but shrink the cached target dir.
@@ -144,7 +147,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: needs.changes.outputs.code == 'true'
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
 
       # `--locked` on the build so a Cargo.lock that disagrees with Cargo.toml
@@ -235,7 +238,9 @@ jobs:
   # PR. Keep this job non-required until it has a few weeks of green.
   server-musl:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Off for CI speed while the fork is macOS-only; restore the line below.
+    # if: needs.changes.outputs.code == 'true'
+    if: false
     name: tty7-server musl (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -283,7 +288,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
 
       # The crate split lands separately; until `tty7-server` exists as a
       # workspace member this job has nothing to build. Skip cleanly rather than
@@ -354,7 +359,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
 
       - name: Look for the tty7-server package
         id: probe

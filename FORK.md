@@ -4,9 +4,11 @@ This is [l0ng-ai/tty7](https://github.com/l0ng-ai/tty7) plus agent resume after
 a reboot (Continue All Agents), a new tab page, a Text (find in files) tab and a History (agent conversations) tab in
 Search Everywhere, sidebar group colours and a niceness for pane shells. It stays rebasable by one rule: fork logic lives in
 fork-owned files, and an upstream file gets only a short hook call into them,
-listed below. `mise run sync-upstream` rebases onto `upstream/main`; when it
+listed below. The fork's work lives on `main-niu` (the default branch); `main`
+mirrors upstream and never gets fork commits. `mise run sync-upstream` syncs
+`main` from upstream and merges `upstream/main` into the current branch; when it
 stops on a conflict, the hook table says what each fork hunk in that file is
-for, so keep upstream's side, re-add the hook, and `git rebase --continue`.
+for, so keep upstream's side, re-add the hook, and `git commit`.
 
 ## The app
 
