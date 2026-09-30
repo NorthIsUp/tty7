@@ -2003,17 +2003,12 @@ impl RemoteTerminal {
         self.images.clone()
     }
 
-    /// Desktop notifications the program wrote (OSC 9, 99, 777) since the
-    /// last call, oldest first: the newest [`OSC_NOTES_SHOWN`] of them, so a
-    /// burst shows as a few rather than a spray. The view decides whether
-    /// each is shown.
+    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
+    /// first; the view decides whether each is shown.
     pub fn take_osc_notes(&self) -> Vec<Note> {
         self.osc_notes
             .lock()
-            .map(|mut notes| {
-                let stale = notes.len().saturating_sub(OSC_NOTES_SHOWN);
-                notes.drain(..).skip(stale).collect()
-            })
+            .map(|mut notes| notes.drain(..).collect())
             .unwrap_or_default()
     }
 
@@ -3216,12 +3211,9 @@ mod notification_tests {
 
 type OscNotes = Arc<Mutex<VecDeque<Note>>>;
 
-/// Notes queued for a view that has not polled; a pane nobody is drawing
-/// keeps only the newest.
-const MAX_OSC_NOTES: usize = 8;
-
-/// How many queued notes [`RemoteTerminal::take_osc_notes`] hands over.
-const OSC_NOTES_SHOWN: usize = 3;
+/// Notes queued for a view that has not polled: a burst keeps only its
+/// newest few, so it shows as a few rather than a spray.
+const MAX_OSC_NOTES: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
