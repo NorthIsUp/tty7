@@ -3919,12 +3919,16 @@ impl Tty7App {
                     spawn.agent_prompt.as_deref(),
                     cx,
                 )
-                .or_else(|| spawn.run_on_land.clone())
+                .map(crate::ui::agent_resume::AtPrompt::Resume)
+                .or_else(|| {
+                    let line = spawn.run_on_land.clone();
+                    line.map(crate::ui::agent_resume::AtPrompt::Line)
+                })
             })
             .flatten();
         let view = build_terminal_view(parts, font_size, window, cx);
-        if let Some(cmd) = resume {
-            view.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
+        if let Some(at) = resume {
+            view.update(cx, |view, cx| at.run(view, cx));
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -9859,7 +9863,7 @@ fn agent_resume_command(
     launch_argv: Option<&[String]>,
     prompt: Option<&str>,
     cx: &App,
-) -> Option<String> {
+) -> Option<crate::ui::agent_resume::Resume> {
     if !cx.global::<Config>().restore_agent_sessions {
         return None;
     }
@@ -9871,14 +9875,12 @@ fn agent_resume_command(
         );
         return None;
     };
-    let cmd = agent.resume_command(session_id, launch_argv)?;
-    let resume = match prompt.filter(|p| !p.is_empty() && agent.resume_takes_prompt()) {
-        Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
-        None => cmd,
-    };
-    Some(match agent.start_command(session_id, launch_argv) {
-        Some(fresh) => format!("{resume} || {fresh}"),
-        None => resume,
+    agent.resume_command(session_id, launch_argv)?;
+    Some(crate::ui::agent_resume::Resume {
+        agent: *agent,
+        session_id: session_id.to_string(),
+        launch_argv: launch_argv.map(<[String]>::to_vec),
+        prompt: prompt.map(str::to_string),
     })
 }
 
@@ -10244,14 +10246,15 @@ fn session_to_pane(
             };
             match &view {
                 PaneSlot::Ready(terminal) if !terminal.read(cx).restored() => {
-                    if let Some(cmd) = agent_resume_command(
+                    if let Some(resume) = agent_resume_command(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),
                         prompt,
                         cx,
                     ) {
-                        terminal.update(cx, |view, cx| view.run_at_prompt(cmd, cx));
+                        let at = crate::ui::agent_resume::AtPrompt::Resume(resume);
+                        terminal.update(cx, |view, cx| at.run(view, cx));
                     }
                 }
                 PaneSlot::Ready(_) => {}

@@ -4,11 +4,15 @@
 //! keeps `<config>/sessions/<pid>.json`; a background one carries
 //! `"kind": "bg"` and its `jobId`, so both directions (session → job for the
 //! resume line, job → session for a pane running `claude attach`) are a read
-//! of that directory, no `claude` spawned.
+//! of that directory, no `claude` spawned. [`resume_plan`] also checks
+//! whether a session was ever saved, so a resume that would find nothing
+//! starts fresh instead.
 
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::core::cli_agent::{AgentSessionState, CLIAgent};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,28 +51,68 @@ pub fn session_for_job(dir: &Path, job: &str) -> Option<String> {
     live_jobs(dir).find_map(|(s, j)| (j == job).then_some(s))
 }
 
-/// The session a typed resume line reopens: the Claude `--resume <uuid>`
-/// ahead of any `||` fallback. `None` for anything else, a fork included.
-pub fn resumed_session(line: &str) -> Option<String> {
-    let first = line.split("||").next()?;
-    let argv: Vec<String> = first.split_whitespace().map(str::to_string).collect();
-    let resumes = argv
-        .iter()
-        .any(|t| matches!(t.as_str(), "--resume" | "-r") || t.starts_with("--resume="));
-    if argv.first().map(String::as_str) != Some("claude") || !resumes {
-        return None;
-    }
-    crate::core::cli_agent::CLIAgent::Claude.session_id_in_argv(&argv)
+/// How to reopen an agent session, decided on the host that has its files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResumePlan {
+    /// It is running in the background as this job: `claude --resume` would
+    /// be refused, so attach instead.
+    Attach(String),
+    Resume,
+    /// Claude saved no transcript for it (it never took a turn), so a resume
+    /// would stop at "No conversation found": start it fresh under its id.
+    Fresh,
 }
 
-/// What to type for a resume `line`: attach to the live background job when
-/// there is one (a resume would only be refused), else `line` unchanged.
-/// Attach takes no prompt; a session still running needs no nudge.
-pub fn resume_or_attach(line: String, job: Option<&str>) -> String {
-    match job.filter(|j| valid_job(j)) {
-        Some(job) => format!("claude attach {job}"),
-        None => line,
+/// [`ResumePlan`] for `agent`'s `session_id`, with Claude's files under
+/// `claude_root` (`~/.claude`). Every other agent just resumes.
+pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> ResumePlan {
+    if agent != CLIAgent::Claude {
+        return ResumePlan::Resume;
     }
+    if let Some(job) = job_for_session(&claude_root.join("sessions"), session_id) {
+        return ResumePlan::Attach(job);
+    }
+    let file = format!("{session_id}.jsonl");
+    let saved = std::fs::read_dir(claude_root.join("projects"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|project| project.path().join(&file).is_file());
+    if saved {
+        ResumePlan::Resume
+    } else {
+        ResumePlan::Fresh
+    }
+}
+
+/// Fill in the session id `argv` names for a pane no hook has spoken for
+/// yet, which is what lets a reboot resume Claude without its hooks. `true`
+/// when `session` changed. `miss` remembers the argv that named nothing, so
+/// an unmappable `claude attach` doesn't reread the sessions dir every poll.
+pub fn adopt_argv_session(
+    agent: Option<CLIAgent>,
+    argv: Option<&[String]>,
+    session: &mut Option<AgentSessionState>,
+    miss: &mut Option<Vec<String>>,
+) -> bool {
+    let (Some(agent), Some(argv)) = (agent, argv) else {
+        return false;
+    };
+    if session.as_ref().is_some_and(|s| s.session_id.is_some()) || miss.as_deref() == Some(argv) {
+        return false;
+    }
+    // `claude attach <job>` names only its job; the session file maps it back.
+    let named = agent
+        .session_id_in_argv(argv)
+        .or_else(|| session_for_job(&sessions_dir()?, attached_job(argv)?));
+    let Some(id) = named else {
+        *miss = Some(argv.to_vec());
+        return false;
+    };
+    let sess = session.get_or_insert_with(Default::default);
+    sess.session_id = Some(id);
+    sess.launch_argv.get_or_insert_with(|| argv.to_vec());
+    true
 }
 
 /// The job a `claude attach <job>` argv opens.
@@ -148,26 +192,63 @@ mod tests {
     }
 
     #[test]
-    fn only_a_claude_resume_line_names_a_session() {
-        let line = format!("claude --model opus --resume {ID} 'go on' || claude --session-id {ID}");
-        assert_eq!(resumed_session(&line).as_deref(), Some(ID));
-        assert_eq!(resumed_session(&format!("claude --session-id {ID}")), None);
+    fn a_session_attaches_resumes_or_starts_fresh() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = |id: &str| resume_plan(root.path(), CLIAgent::Claude, id);
+        assert_eq!(plan(ID), ResumePlan::Fresh, "nothing saved yet");
+
+        let project = root.path().join("projects").join("-Users-me-src");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join(format!("{ID}.jsonl")), "{}").unwrap();
+        assert_eq!(plan(ID), ResumePlan::Resume);
+
+        let sessions = root.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("1.json"),
+            entry(std::process::id(), ID, "bg", Some("6011098d")),
+        )
+        .unwrap();
+        assert_eq!(plan(ID), ResumePlan::Attach("6011098d".into()));
         assert_eq!(
-            resumed_session(&format!("claude -r {ID} --fork-session")),
-            None
+            resume_plan(root.path(), CLIAgent::Codex, "nothing-saved"),
+            ResumePlan::Resume,
+            "only Claude is checked"
         );
-        assert_eq!(resumed_session(&format!("codex resume {ID}")), None);
     }
 
     #[test]
-    fn a_background_session_attaches_and_the_rest_resume() {
-        let line = format!("claude --resume {ID} || claude --session-id {ID}");
-        assert_eq!(
-            resume_or_attach(line.clone(), Some("6011098d")),
-            "claude attach 6011098d"
-        );
-        assert_eq!(resume_or_attach(line.clone(), None), line);
-        assert_eq!(resume_or_attach(line.clone(), Some("x; rm -rf ~")), line);
+    fn an_argv_session_is_adopted_once_and_a_miss_is_remembered() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (mut session, mut miss) = (None, None);
+        let named = argv(&["claude", "--session-id", ID]);
+        let claude = Some(CLIAgent::Claude);
+        assert!(adopt_argv_session(
+            claude,
+            Some(&named),
+            &mut session,
+            &mut miss
+        ));
+        let got = session.clone().unwrap();
+        assert_eq!(got.session_id.as_deref(), Some(ID));
+        assert_eq!(got.launch_argv.as_deref(), Some(&named[..]));
+        assert!(!adopt_argv_session(
+            claude,
+            Some(&named),
+            &mut session,
+            &mut miss
+        ));
+
+        let (mut session, mut miss) = (None, None);
+        let orphan = argv(&["claude", "attach", "ffffffff"]);
+        assert!(!adopt_argv_session(
+            claude,
+            Some(&orphan),
+            &mut session,
+            &mut miss
+        ));
+        assert_eq!(miss.as_deref(), Some(&orphan[..]));
+        assert!(session.is_none());
     }
 
     #[test]
