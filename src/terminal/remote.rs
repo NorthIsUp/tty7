@@ -107,6 +107,7 @@ struct ReaderSignals {
     /// which places/deletes them as `DaemonMsg::Image`/`DeleteImage` frames land.
     images: crate::terminal::images::ImageStore,
     clipboard_writes: Arc<Mutex<VecDeque<tty7_core::core::clipboard::ClipboardWrite>>>,
+    osc_notes: OscNotes,
     clipboard_write_busy: Arc<AtomicBool>,
     lease: Arc<Mutex<Option<String>>>,
     /// Whether this pane's pty is one a conhost renders into, and so whether
@@ -625,6 +626,7 @@ pub struct RemoteTerminal {
     /// anchors are relative to, so the store lives here rather than in the daemon.
     images: crate::terminal::images::ImageStore,
     clipboard_writes: Arc<Mutex<VecDeque<tty7_core::core::clipboard::ClipboardWrite>>>,
+    osc_notes: OscNotes,
     clipboard_write_busy: Arc<AtomicBool>,
     /// Who runs this pane at their own size — a phone, by the name it paired
     /// under — while the daemon says so. See [`Self::take_back`].
@@ -970,6 +972,7 @@ impl RemoteTerminal {
                 phase: self.ssh_phase.clone(),
                 images: self.images.clone(),
                 clipboard_writes: self.clipboard_writes.clone(),
+                osc_notes: self.osc_notes.clone(),
                 clipboard_write_busy: self.clipboard_write_busy.clone(),
                 lease: self.lease.clone(),
                 // Deliberately the pane's existing answer rather than one
@@ -1074,6 +1077,7 @@ impl RemoteTerminal {
         let ssh_phase: Arc<Mutex<Option<SshPhase>>> = Arc::new(Mutex::new(None));
         let images = crate::terminal::images::ImageStore::new();
         let clipboard_writes = Arc::new(Mutex::new(VecDeque::new()));
+        let osc_notes = OscNotes::default();
         let clipboard_write_busy = Arc::new(AtomicBool::new(false));
         let lease = Arc::new(Mutex::new(None));
 
@@ -1102,6 +1106,7 @@ impl RemoteTerminal {
                 phase: ssh_phase.clone(),
                 images: images.clone(),
                 clipboard_writes: clipboard_writes.clone(),
+                osc_notes: osc_notes.clone(),
                 clipboard_write_busy: clipboard_write_busy.clone(),
                 lease: lease.clone(),
                 local_conpty: local_conpty.clone(),
@@ -1142,6 +1147,7 @@ impl RemoteTerminal {
             agent_session,
             images,
             clipboard_writes,
+            osc_notes,
             clipboard_write_busy,
             lease,
             route: PaneRoute::Local,
@@ -1219,6 +1225,7 @@ impl RemoteTerminal {
                     phase,
                     images,
                     clipboard_writes,
+                    osc_notes,
                     clipboard_write_busy,
                     lease,
                     local_conpty,
@@ -1362,10 +1369,8 @@ impl RemoteTerminal {
                                         tr_adv_t += t0.elapsed() - waited;
                                     }
                                 }
-                                let mut notes = Vec::new();
-                                osc.feed(&out_batch, &mut notes);
-                                for (title, body) in notes {
-                                    notify_desktop(title.as_deref(), &body);
+                                if let Ok(mut notes) = osc_notes.lock() {
+                                    osc.feed(&out_batch, &mut *notes);
                                 }
                                 mode_tok.feed(&out_batch, |payload| {
                                     if let Some(mode) = payload.strip_prefix(b"133;V;") {
@@ -2016,6 +2021,15 @@ impl RemoteTerminal {
     /// and deletes images as out-of-band frames arrive from the daemon.
     pub fn images(&self) -> crate::terminal::images::ImageStore {
         self.images.clone()
+    }
+
+    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
+    /// first; the view decides whether each is shown.
+    pub fn take_osc_notes(&self) -> Vec<(Option<String>, String)> {
+        self.osc_notes
+            .lock()
+            .map(|mut notes| notes.drain(..).collect())
+            .unwrap_or_default()
     }
 
     pub fn pop_clipboard_write(&self) -> Option<tty7_core::core::clipboard::ClipboardWrite> {
@@ -3221,33 +3235,39 @@ mod notification_tests {
     }
 }
 
+type OscNotes = Arc<Mutex<VecDeque<(Option<String>, String)>>>;
+
 struct OscNotifyScanner {
     tok: OscTokenizer,
+    notes: crate::core::osc::Notifications,
 }
 
 impl Default for OscNotifyScanner {
     fn default() -> Self {
         Self {
-            tok: OscTokenizer::new(&[b"9", b"777"]),
+            tok: OscTokenizer::new(&[b"9", b"99", b"777"]),
+            notes: Default::default(),
         }
     }
 }
 
 impl OscNotifyScanner {
-    fn feed(&mut self, bytes: &[u8], out: &mut Vec<(Option<String>, String)>) {
+    fn feed<E: Extend<(Option<String>, String)>>(&mut self, bytes: &[u8], out: &mut E) {
+        let notes = &mut self.notes;
         self.tok.feed(bytes, |payload| {
-            if let Some(note) = parse_osc_notification(payload) {
-                out.push(note);
-            }
+            out.extend(parse_osc_notification(notes, payload));
         });
     }
 }
 
-fn parse_osc_notification(payload: &[u8]) -> Option<(Option<String>, String)> {
+fn parse_osc_notification(
+    notes: &mut crate::core::osc::Notifications,
+    payload: &[u8],
+) -> Option<(Option<String>, String)> {
     if crate::core::cli_agent::parse_agent_event(payload).is_some() {
         return None;
     }
-    let (title, body) = crate::core::osc::parse_notification(payload)?;
+    let (title, body) = notes.parse(payload)?;
     if title.as_deref() == Some(crate::core::cli_agent::AGENT_EVENT_SENTINEL) {
         return None;
     }
@@ -7177,6 +7197,21 @@ mod osc_tests {
     }
 
     #[test]
+    fn claude_codes_kitty_and_ghostty_channels() {
+        assert_eq!(
+            scan(&[
+                b"\x1b]99;i=3:d=0:p=title;Claude Code\x07\x1b]99;i=3:p=body;Done\x07",
+                b"\x1b]99;i=3:d=1:a=focus;\x07",
+            ]),
+            vec![(Some("Claude Code".to_string()), "Done".to_string())]
+        );
+        assert_eq!(
+            scan(&[b"\x1b]777;notify;Claude Code;Done\x07"]),
+            vec![(Some("Claude Code".to_string()), "Done".to_string())]
+        );
+    }
+
+    #[test]
     fn conemu_osc9_subcommands_are_not_notifications() {
         assert_eq!(scan(&[b"\x1b]9;4;1;50\x07"]), vec![]);
         assert_eq!(scan(&[b"\x1b]9;9;/home/u\x07"]), vec![]);
@@ -7184,9 +7219,10 @@ mod osc_tests {
 
     #[test]
     fn parse_rejects_empty_and_unrelated() {
-        assert_eq!(parse_osc_notification(b"9;"), None);
-        assert_eq!(parse_osc_notification(b"777;notify;"), None);
-        assert_eq!(parse_osc_notification(b"8;;https://example.com"), None);
+        let n = &mut Default::default();
+        assert_eq!(parse_osc_notification(n, b"9;"), None);
+        assert_eq!(parse_osc_notification(n, b"777;notify;"), None);
+        assert_eq!(parse_osc_notification(n, b"8;;https://example.com"), None);
     }
 
     #[test]
