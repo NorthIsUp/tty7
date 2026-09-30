@@ -8,9 +8,15 @@
 //! macOS only: Carbon's `RegisterEventHotKey` needs no Accessibility grant.
 //! Elsewhere `init` is a no-op and the Settings rows are not drawn.
 
-use gpui::{App, Keystroke};
+use gpui::{
+    AnyElement, App, InteractiveElement as _, IntoElement as _, Keystroke, ParentElement as _,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, div,
+};
+use gpui_component::menu::{PopupMenu, PopupMenuItem};
 
 use crate::core::session::{WindowViews, WorkspaceId};
+use crate::ui::app::Tty7App;
+use crate::ui::i18n::{L10nKey, t};
 
 /// What a hotkey press does, from where the hotkey window stands.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -93,6 +99,91 @@ pub(crate) fn workspace(cx: &App) -> Option<WorkspaceId> {
         let _ = cx;
         None
     }
+}
+
+/// The switcher row menu's hotkey item for `row`: its label and the hotkey
+/// workspace picking it leaves.
+pub(crate) fn pick(
+    hotkey: Option<WorkspaceId>,
+    row: WorkspaceId,
+) -> (L10nKey, Option<WorkspaceId>) {
+    match hotkey == Some(row) {
+        true => (L10nKey::SwitcherUnsetHotkeyWorkspace, None),
+        false => (L10nKey::SwitcherSetHotkeyWorkspace, Some(row)),
+    }
+}
+
+/// The chord a workspace list shows next to the hotkey workspace, if `row`
+/// is it and the hotkey is on.
+pub(crate) fn badge(
+    spec: &Option<String>,
+    hotkey: Option<WorkspaceId>,
+    row: WorkspaceId,
+) -> Option<&str> {
+    configured(spec).filter(|_| hotkey == Some(row))
+}
+
+fn chord_of(cx: &App, row: WorkspaceId) -> Option<String> {
+    let cfg = cx.try_global::<crate::core::config::Config>()?;
+    badge(&cfg.global_hotkey, workspace(cx), row).map(str::to_string)
+}
+
+/// The hotkey chord as keycaps, on the hotkey workspace's switcher row.
+pub(crate) fn row_badge(cx: &App, row: WorkspaceId) -> Option<AnyElement> {
+    let spec = chord_of(cx, row)?;
+    Some(
+        div()
+            .id(("switcher-row-hotkey", row.element_key() as usize))
+            .flex_shrink_0()
+            .child(crate::ui::dialog::chord(
+                crate::ui::keymap::key_tokens(&spec),
+                cx,
+            ))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(t(L10nKey::SwitcherHotkeyWorkspace))
+                    .build(window, cx)
+            })
+            .into_any_element(),
+    )
+}
+
+/// A Workspaces menu item's label, with the chord after the hotkey workspace.
+pub(crate) fn menu_label(cx: &App, row: WorkspaceId, label: String) -> String {
+    match chord_of(cx, row) {
+        Some(spec) => format!("{label}  {}", crate::ui::keymap::key_tokens(&spec).concat()),
+        None => label,
+    }
+}
+
+/// "Set as Hotkey Workspace" / "Unset Hotkey Workspace" on a switcher row,
+/// while the hotkey is on.
+pub(crate) fn menu_item(
+    menu: PopupMenu,
+    row: WorkspaceId,
+    app: WeakEntity<Tty7App>,
+    cx: &App,
+) -> PopupMenu {
+    let on = cx
+        .try_global::<crate::core::config::Config>()
+        .is_some_and(|c| configured(&c.global_hotkey).is_some());
+    if !cfg!(target_os = "macos") || !on {
+        return menu;
+    }
+    let (label, next) = pick(workspace(cx), row);
+    menu.item(PopupMenuItem::new(t(label)).on_click(move |_, window, cx| {
+        let _ = app.update(cx, |this, cx| this.close_switcher(window, cx));
+        set_workspace(cx, next);
+    }))
+}
+
+/// Makes `id` the hotkey workspace (`None`: none, so the next press opens a
+/// fresh one). The hotkey window it replaces goes back to a plain window,
+/// hidden when another workspace takes over.
+pub(crate) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
+    #[cfg(target_os = "macos")]
+    mac::set_workspace(cx, id);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (cx, id);
 }
 
 pub(crate) fn toggle(hidden: bool, frontmost: bool) -> Toggle {
@@ -390,11 +481,8 @@ mod mac {
             return;
         }
         observe_appkit();
-        let workspace = config_path(WORKSPACE_FILE)
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| s.trim().parse().ok());
         cx.set_global(HotkeyWindow {
-            workspace,
+            workspace: load(),
             ..HotkeyWindow::default()
         });
         sync(cx);
@@ -410,6 +498,56 @@ mod mac {
             }
         })
         .detach();
+    }
+
+    /// The saved hotkey workspace; an empty file is none.
+    fn load() -> Option<WorkspaceId> {
+        config_path(WORKSPACE_FILE)
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| s.trim().parse().ok())
+    }
+
+    fn save(id: Option<WorkspaceId>) {
+        let text = id.map(|w| w.to_string()).unwrap_or_default();
+        if let Some(path) = config_path(WORKSPACE_FILE)
+            && let Err(e) = write_atomic(&path, text.as_bytes())
+        {
+            log::warn!("global hotkey: could not save its workspace: {e}");
+        }
+    }
+
+    pub(super) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
+        if cx
+            .try_global::<HotkeyWindow>()
+            .is_none_or(|hk| hk.workspace == id)
+        {
+            return;
+        }
+        if let Some((handle, ns)) = hotkey_window(cx) {
+            release(cx, handle, &ns);
+            if id.is_some() && ns.isVisible() {
+                hide(cx, cx.to_async(), ns, false);
+            }
+        }
+        save(id);
+        let hk = cx.global_mut::<HotkeyWindow>();
+        hk.window = None;
+        hk.workspace = id;
+        crate::ui::theme::set_menus(cx);
+        cx.refresh_windows();
+    }
+
+    /// Undoes the hotkey window treatment: the full screen frame and level,
+    /// and the windows lifted over it.
+    fn release(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
+        let hk = cx.global_mut::<HotkeyWindow>();
+        lower(hk.stack.dismissed());
+        if let Some(ix) = hk.saved.iter().position(|s| s.window == handle) {
+            let s = hk.saved.remove(ix);
+            ns.setLevel(s.level);
+            ns.setCollectionBehavior(s.behavior);
+            ns.setFrame_display(s.frame, true);
+        }
     }
 
     /// Any tty7 window taking focus (Settings, a file picker, another
@@ -537,11 +675,8 @@ mod mac {
             })
             .ok()
             .flatten()?;
-        if saved != Some(workspace)
-            && let Some(path) = config_path(WORKSPACE_FILE)
-            && let Err(e) = write_atomic(&path, workspace.to_string().as_bytes())
-        {
-            log::warn!("global hotkey: could not save its workspace: {e}");
+        if saved != Some(workspace) {
+            save(Some(workspace));
         }
         let hk = cx.global_mut::<HotkeyWindow>();
         hk.window = Some(handle);
@@ -1052,5 +1187,35 @@ mod tests {
             active: Some(hot_id),
         };
         assert_eq!(to_restore(&alone, Some(hot_id)), None);
+    }
+
+    #[test]
+    fn a_row_sets_itself_as_the_hotkey_workspace_and_the_current_one_unsets() {
+        use crate::core::session::WindowView;
+        let (a, b) = (WindowView::default().id, WindowView::default().id);
+        assert_eq!(
+            pick(None, a),
+            (L10nKey::SwitcherSetHotkeyWorkspace, Some(a))
+        );
+        assert_eq!(
+            pick(Some(b), a),
+            (L10nKey::SwitcherSetHotkeyWorkspace, Some(a))
+        );
+        assert_eq!(
+            pick(Some(a), a),
+            (L10nKey::SwitcherUnsetHotkeyWorkspace, None)
+        );
+    }
+
+    #[test]
+    fn only_the_hotkey_workspace_row_gets_the_chord_and_only_while_the_hotkey_is_on() {
+        use crate::core::session::WindowView;
+        let (a, b) = (WindowView::default().id, WindowView::default().id);
+        let on = Some("alt-space".to_string());
+        assert_eq!(badge(&on, Some(a), a), Some("alt-space"));
+        assert_eq!(badge(&on, Some(a), b), None);
+        assert_eq!(badge(&on, None, a), None);
+        assert_eq!(badge(&None, Some(a), a), None);
+        assert_eq!(badge(&Some(" ".into()), Some(a), a), None);
     }
 }

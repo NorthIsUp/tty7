@@ -1726,6 +1726,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "踏み台ホストは引き継がれません — 保存済みホストの踏み台は別の保存済みホストである必要があります"
         }
         L10nKey::SwitcherOpenInNewWindow => "新しいウィンドウで開く",
+        L10nKey::SwitcherSetHotkeyWorkspace => "ホットキーワークスペースに設定",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "ホットキーワークスペースを解除",
+        L10nKey::SwitcherHotkeyWorkspace => "ホットキーワークスペース",
         L10nKey::SwitcherRename => "名前を変更…",
         L10nKey::SwitcherPickAWorkspace => "ワークスペースを選ぶとタブが表示されます",
         L10nKey::SwitcherNoTabs => "このワークスペースにタブはありません",
