@@ -1708,6 +1708,7 @@ l10n_keys! {
     SettingsResumeAgentsDesc,
     QuitStopServerBodyResume,
     AppRestartServerBodyResume,
+    ProgramNotesDropped,
     AppAgentLaunchSaved,
     AppAgentLaunchArgsUnknown,
     AppCmdShellTitle,

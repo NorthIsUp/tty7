@@ -192,7 +192,8 @@ mod tests {
         });
         set_background(cx, gpui::black());
         let mut replayed = pane(cx);
-        // No live frame follows: an idle pane still hears once.
+        // No live frame follows: an idle pane still hears once, when the
+        // stored state that ends every replay arrives.
         let size = crate::daemon::protocol::WinSize {
             cols: 80,
             rows: 24,
@@ -205,6 +206,7 @@ mod tests {
             DaemonMsg::Size(size),
             DaemonMsg::Snapshot(b"first segment\r\n".to_vec()),
             DaemonMsg::Snapshot(b"second segment\r\n".to_vec()),
+            DaemonMsg::Cwd("/".into()),
         ] {
             frame.encode(&mut replay).unwrap();
         }
@@ -214,6 +216,57 @@ mod tests {
             "\x1b[?997;1n"
         );
     }
+    /// A replay read in pieces: the old end-of-bytes trigger reported at the
+    /// first gap, while the ring still had to switch 2031 off (a program that
+    /// died), and again after the next segment. It ends on the first frame
+    /// after the replay.
+    #[gpui::test]
+    fn a_replay_split_across_reads_reports_once_and_only_as_it_ends(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        set_background(cx, gpui::black());
+        let died = b"\x1b]133;C;claude\x07\x1b[?2031hclaude output\r\n";
+        let prompt = b"\x1b]133;D;137\x07\x1b]133;A\x07$ \x1b]133;B\x07";
+        let encode = |frames: Vec<DaemonMsg>| {
+            let mut out = Vec::new();
+            for frame in frames {
+                frame.encode(&mut out).unwrap();
+            }
+            out
+        };
+        let in_two_reads = |pane: &mut Pane, bytes: &[u8], at: usize| {
+            pane.daemon.write_all(&bytes[..at]).unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+            pane.daemon.write_all(&bytes[at..]).unwrap();
+        };
+        let wait = Duration::from_millis(600);
+
+        let mut dead = pane(cx);
+        let replay = encode(vec![
+            DaemonMsg::Snapshot(died.to_vec()),
+            DaemonMsg::Snapshot(prompt.to_vec()),
+            DaemonMsg::Cwd("/".into()),
+        ]);
+        let first = encode(vec![DaemonMsg::Snapshot(died.to_vec())]).len();
+        for at in [first, first + 4] {
+            in_two_reads(&mut dead, &replay, at);
+            assert_eq!(typed(cx, &dead, "", wait), "", "split at {at}");
+        }
+
+        let mut on = pane(cx);
+        let replay = encode(vec![
+            DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec()),
+            DaemonMsg::Snapshot(b"segment\r\n".to_vec()),
+            DaemonMsg::Cwd("/".into()),
+        ]);
+        in_two_reads(&mut on, &replay, 20);
+        assert_eq!(typed(cx, &on, "", wait), "\x1b[?997;1n");
+    }
+
     /// A program that switched 2031 on and died without switching it off
     /// leaves a replay whose last word is still `?2031h`. The shell that owns
     /// the pane now never asked, so neither a reattach nor a theme flip may
