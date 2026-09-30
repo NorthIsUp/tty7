@@ -198,6 +198,10 @@ angle brackets, and a tab:
 | `github_panel_session_filter` | bool | `true` | The GitHub panel's Pull Requests show only those the focused pane's agent session mentions (**This session**). |
 | `github_panel_prefer_origin` | bool | `true` | The GitHub panel shows `origin` (your fork) until you pick a remote; `false` shows `upstream` first. |
 | `github_panel_default_list` | string | `"issues"` | The list the GitHub panel opens on: `"issues"` or `"pull_requests"`. |
+| `global_hotkey` | string \| null | `"alt-space"` | System-wide chord that shows and hides tty7 (macOS), in keymap syntax; `null` or `""` turns it off. [More →](/window/hotkey-window) |
+| `global_hotkey_fullscreen` | bool | `false` | The hotkey summons tty7 over the whole screen the mouse is on, above other apps. |
+| `global_hotkey_hide_on_blur` | bool | `false` | Once the hotkey has summoned it, hide tty7 whenever it loses focus. |
+| `global_hotkey_fade_ms` | int | `150` | How long the hotkey's fade in and out takes; `0` is instant. |
 | `install_cli_on_path` | bool | `true` | Put the bundled `tty7` command on PATH at launch. |
 
 [Agent slugs →](/agents/overview#your-own-wrapper)
