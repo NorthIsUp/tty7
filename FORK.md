@@ -124,7 +124,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
 | `src/ui/app.rs` | `agent_resume_command`, `session_to_pane` (connecting leaf) | return an `agent_resume::Resume` (agent, id, argv) instead of a command line; its prompt is `agent_resume::wake_prompt`, which a connecting pane carries in `PendingSpawn::agent_prompt` |
-| `src/ui/app.rs` | `tabs_from_session` | the sleep test is one call, `agent_resume::restores_asleep` (hibernated, or with `restore_asleep` a local tab with no live pane, recorded so launch and restart wakes pick only those) |
+| `src/ui/app.rs` | `tabs_from_session` | the sleep test is one call, `agent_resume::record_restores_asleep` (hibernated, or with `restore_asleep` a local tab with no live pane, recorded so launch and restart wakes pick only those) |
 | `src/ui/app.rs` | `PendingSpawn` literals | `..Default::default()` |
 | `src/ui/agent_launch.rs` | `with_minted_session`, `launch_agent` split into `launch_agent_in` / `start_agent_in` (+ test) | mint Claude's `--session-id` at launch; launch into an explicit cwd for the new tab page |
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt`, `Default` derive | carry the prompt until a connecting pane lands; literals fill the rest with `..Default::default()` |

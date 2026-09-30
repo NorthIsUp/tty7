@@ -10044,7 +10044,7 @@ fn tabs_from_session(
         // the point. The one exception is the tab the window opens onto — a
         // tab on screen is awake, so that one is woken here, by the same
         // restore every other tab is getting.
-        if crate::ui::agent_resume::restores_asleep(workspace, alive.as_ref(), st, cx)
+        if crate::ui::agent_resume::record_restores_asleep(workspace, alive.as_ref(), st, cx)
             && index != session.active
         {
             tabs.push(asleep_tab(st, home.clone()));
