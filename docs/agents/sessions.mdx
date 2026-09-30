@@ -34,9 +34,12 @@ prompt on resume; other agents are woken without one.
 Launching with `tty7-app --continue` runs it as soon as the window's tabs are back —
 the morning-after-a-reboot button.
 
-With `resume_agents_on_launch` (on by default), every launch does the same
-without a prompt: each sleeping agent tab resumes where it left off, staggered,
-while shell-only tabs stay asleep until opened. `--continue` still sends
+With **Settings → General → Resume agents on restart** on (the default,
+`resume_agents_on_launch`), every launch does the same without a prompt: each
+sleeping agent tab resumes where it left off, staggered, while shell-only tabs
+stay asleep until opened. So does **Restart tty7 server…** when it ends the
+shells; an in-place restart keeps them running and wakes nothing. Turned off,
+agent tabs stay asleep until you open them. `--continue` still sends
 `continue_prompt`, and each tab wakes once.
 
 <Note>

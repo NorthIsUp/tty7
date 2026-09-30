@@ -38,7 +38,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
-| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
+| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; the Resume agents on restart row, the restart wake and the quit/restart dialog copy; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands; `bind_shift_enter`, the palette list's ⇧Enter |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; `LiveTab`, the per-palette ask, debounce and latest-answer check History shares |
@@ -106,6 +106,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`; `github` from `github_session::panel_state` (`github_panel_default_list`) |
 | `src/main.rs` | `main`, after `keymap::init` | `hotkey_window::init` |
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
+| `src/ui/settings/pages.rs` | `render_settings_general`, Startup & Restore group | chain `resume_agents_setting` (Resume agents on restart) |
+| `src/ui/app.rs` | `quit_stop_sessions`, `restart_daemon` | body from `agent_resume::quit_stop_body` / `restart_body`, which say whether agents resume; `agent_resume::arm_restart_wake` before a confirmed restart |
+| `src/ui/i18n/{mod,en,zh,ja}.rs` | after `SettingsHotkeyFadeDesc` | `SettingsResumeAgents`(`Desc`), `QuitStopServerBodyResume`, `AppRestartServerBodyResume` |
 | `Cargo.toml` | macOS deps | `raw-window-handle`, for the hotkey window's NSWindow; `block2`, for its AppKit notification observers |
 | `src/ui/windows.rs` | `WindowRegistry::most_recent`, `most_recent_local` | skip `hotkey_window::workspace`, so the Dock, the tray and the CLI never land in the hotkey window |
 | `.github/scripts/check-host-boundary.sh` | `ALLOW` | `hotkey_window/appkit.rs` reads its saved workspace id from the local config dir |
