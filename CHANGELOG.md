@@ -5,19 +5,6 @@ All notable changes to tty7 are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **A launched or resumed agent no longer opens a bare prompt.** Quick launch,
-  the New Tab menu's agent rows, New Agent Tab (⌘⇧A), a session resume and a
-  restored agent pane all type their command into a shell that has only just
-  started. Written that early it is typeahead, and a startup file that reads
-  the terminal — a colour or cursor-position query, a prompt theme's instant
-  prompt — swallows it, so the tab opened on an empty prompt. The line now
-  waits for the shell's first prompt, or three seconds for a shell without
-  integration, which never reports one.
-
 ## [26.9.4] - 2026-09-29
 
 ### Added

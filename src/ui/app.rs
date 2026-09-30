@@ -3905,7 +3905,7 @@ impl Tty7App {
             .flatten();
         let view = build_terminal_view(parts, font_size, window, cx);
         if let Some(cmd) = resume {
-            view.update(cx, |view, _| view.run_at_prompt(cmd));
+            view.read(cx).run_command_line(&cmd);
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -10182,7 +10182,7 @@ fn session_to_pane(
                         agent_launch_argv.as_deref(),
                         cx,
                     ) {
-                        terminal.update(cx, |view, _| view.run_at_prompt(cmd));
+                        terminal.read(cx).run_command_line(&cmd);
                     }
                 }
                 PaneSlot::Ready(_) => {}

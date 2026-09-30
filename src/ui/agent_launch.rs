@@ -147,11 +147,11 @@ pub(crate) fn fork_line(
     agent.fork_command(session_id, Some(&argv))
 }
 
-/// Type `command` into the shell `slot` holds once it reaches its first
-/// prompt, waiting for the pane to land first if it is still connecting.
+/// Type `command` into the shell `slot` holds — now if it is up, or the
+/// moment it lands if it is still connecting.
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => view.update(cx, |view, _| view.run_at_prompt(command)),
+        PaneSlot::Ready(view) => view.read(cx).run_command_line(&command),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
