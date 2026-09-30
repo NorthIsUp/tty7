@@ -38,7 +38,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
-| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types |
+| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/palette.rs` | ⌘T / ⌘P / ⌘K open Search Everywhere on New Tab / All / Agents wherever focus is (the Settings window too), and an open palette keeps every key: a keystroke interceptor, ahead of all bindings |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands; `bind_shift_enter`, the palette list's ⇧Enter |
@@ -111,9 +111,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/theme.rs` | `window_menu_items` | `hotkey_window::menu_label`: the chord after the hotkey workspace in the Workspaces menu |
 | `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
-| `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `agent_resume::AtPrompt`, which asks `Host::resume_plan` and holds the line for the first prompt |
-| `src/ui/agent_launch.rs` | `run_when_ready` | same, for a quick-launched agent |
-| `src/terminal/view.rs` | `TerminalView` field + `run_at_prompt` + `poll_foreground` | hold a line until the shell's first prompt; startup files that read the terminal swallow typeahead |
+| `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume or `run_on_land` line through `agent_resume::AtPrompt`, which asks `Host::resume_plan` and types at the first prompt |
+| `src/ui/agent_launch.rs` | `run_when_ready` → `type_at_first_prompt` (+ tests) | upstream's first-prompt wait as one helper every typed launch and resume goes through, waiting `agent_resume::prompt_patience` (30s for a shell with integration, 3s without) instead of `PROMPT_WAIT` |
+| `crates/tty7-core/src/daemon/pane.rs`, `shell_integration.rs` | `integrates` (+ test) | whether a spawn gets integration, from the daemon's own shell choice, so the wait knows a prompt is coming |
 | `src/ui/app.rs` | `render` | `on_action` for `ContinueAllAgents`, `SearchAgents` (→ `palette::open_palette_on`) |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |

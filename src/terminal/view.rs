@@ -35,9 +35,6 @@ use crate::core::shell_quote::quote_for_shell;
 use crate::daemon::protocol::{RemoteContext, ShellSpec};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 
-/// How long [`TerminalView::run_at_prompt`] waits for a prompt that a shell
-/// without integration never reports.
-const QUEUED_LINE_FALLBACK: std::time::Duration = std::time::Duration::from_secs(3);
 const GRID_PAD_X: f32 = 8.;
 const GRID_PAD_Y: f32 = 4.;
 
@@ -424,8 +421,6 @@ pub struct TerminalView {
     bell_epoch: u64,
     pub report_mouse: bool,
     last_at_prompt: bool,
-    /// A line [`Self::run_at_prompt`] is holding for the shell's first prompt.
-    queued_line: Option<(String, std::time::Instant)>,
     last_typeahead_blocked: bool,
     running_since: Option<std::time::Instant>,
     running_title: String,
@@ -1893,7 +1888,6 @@ impl TerminalView {
             bell_flash: false,
             bell_epoch: 0,
             last_at_prompt: false,
-            queued_line: None,
             last_typeahead_blocked: false,
             running_since: None,
             running_title: String::new(),
@@ -2340,18 +2334,6 @@ impl TerminalView {
 
     pub fn run_command_line(&self, cmd: &str) {
         self.terminal.write(format!("{cmd}\r").into_bytes());
-    }
-
-    /// [`Self::run_command_line`] for a shell that may still be starting: a
-    /// line written before the first prompt is typeahead, and a startup file
-    /// that reads the terminal (a focus-reporting or colour query) swallows
-    /// it. Held until the shell reports a prompt, or [`QUEUED_LINE_FALLBACK`]
-    /// for a shell without integration, which never will.
-    pub fn run_at_prompt(&mut self, cmd: String) {
-        match self.terminal.at_prompt() {
-            true => self.run_command_line(&cmd),
-            false => self.queued_line = Some((cmd, std::time::Instant::now())),
-        }
     }
 
     pub fn shell_spec(&self) -> Option<ShellSpec> {
@@ -4037,13 +4019,6 @@ impl TerminalView {
             return;
         }
         let at_prompt = self.terminal.at_prompt();
-
-        if let Some((_, since)) = &self.queued_line
-            && (at_prompt || since.elapsed() >= QUEUED_LINE_FALLBACK)
-            && let Some((line, _)) = self.queued_line.take()
-        {
-            self.run_command_line(&line);
-        }
 
         if self
             .pending_history
