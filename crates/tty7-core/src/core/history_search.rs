@@ -161,26 +161,49 @@ fn session_file(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
 
 static MENTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)github\.com/([\w.-]+)/([\w.-]+)/(pull|issues)/(\d+)|(?:^|[^\w/.#&-])(?:([\w.-]+)/([\w.-]+))?#(\d+)\b",
+        r"(?i)github\.com/([\w.-]+)/([\w.-]+)/(?:pulls?|issues?)/([1-9]\d*)\b|(?:^|[^\w/.#&=:-])(?:([\w.-]+)/([\w.-]+))?#([1-9]\d*)\b",
     )
     .expect("the mention pattern compiles")
 });
 
+/// A bare `#N` that reads as a CSS colour: six or eight digits (`#333333`),
+/// or after `color:`, `fill=` and the like. ponytail: loses a bare ref in a
+/// repo past #99999; the qualified `owner/repo#N` still counts.
+fn colour(n: &str, before: &str) -> bool {
+    let key = before
+        .trim_end_matches(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .strip_suffix([':', '='])
+        .and_then(|b| {
+            b.trim_end()
+                .rsplit(|c: char| !(c.is_alphanumeric() || c == '-'))
+                .next()
+        })
+        .map(str::to_ascii_lowercase);
+    matches!(n.len(), 6 | 8)
+        || key.is_some_and(|k| {
+            ["color", "colour", "background", "fill", "stroke", "border"]
+                .iter()
+                .any(|w| k.ends_with(w))
+        })
+}
+
 /// `bare`: whether a `#N` with no `owner/repo` is taken to be `repo`'s.
+/// A link or `owner/repo#N` to any other repository never counts.
 fn mentions_in<'a>(texts: impl Iterator<Item = &'a str>, repo: &RepoSlug, bare: bool) -> Mentions {
-    let ours = |owner: Option<regex::Match>, name: Option<regex::Match>| match (owner, name) {
-        (Some(o), Some(n)) => {
-            o.as_str().eq_ignore_ascii_case(&repo.owner)
-                && n.as_str().eq_ignore_ascii_case(&repo.name)
-        }
-        _ => bare,
+    let ours = |o: regex::Match, n: regex::Match| {
+        o.as_str().eq_ignore_ascii_case(&repo.owner) && n.as_str().eq_ignore_ascii_case(&repo.name)
     };
     let mut seen: Vec<u64> = Vec::new();
     for text in texts {
         for c in MENTION.captures_iter(text) {
-            let number = match (c.get(4), c.get(7)) {
-                (Some(n), _) if ours(c.get(1), c.get(2)) => n,
-                (None, Some(n)) if ours(c.get(5), c.get(6)) => n,
+            let number = match (c.get(3), c.get(4), c.get(5), c.get(6)) {
+                (Some(n), ..) if ours(c.get(1).unwrap(), c.get(2).unwrap()) => n,
+                (None, Some(o), Some(r), Some(n)) if ours(o, r) => n,
+                (None, None, None, Some(n))
+                    if bare && !colour(n.as_str(), &text[..n.start() - 1]) =>
+                {
+                    n
+                }
                 _ => continue,
             };
             if let Ok(number) = number.as_str().parse() {
@@ -704,6 +727,25 @@ mod tests {
         ];
         let m = mentions_in(texts.into_iter(), &repo, false);
         assert_eq!(m.numbers, vec![14, 13]);
+    }
+
+    #[test]
+    fn colours_and_other_repos_are_not_mentions() {
+        let repo = slug("NorthIsUp", "tty7");
+        let texts = [
+            "#333333 #fff #1e1e2e color: #123456 fill=\"#123\" background:#12 #007",
+            "https://github.com/northisup/TTY7/pull/61 and https://github.com/NorthIsUp/tty7/issues/9",
+            "https://github.com/NorthIsUp/tty7/pulls/7, https://github.com/l0ng-ai/tty7/pull/62, other/repo#5",
+            "we fixed #42. #0 NorthIsUp/tty7#0 https://github.com/NorthIsUp/tty7/pull/0 #00",
+        ];
+        let m = mentions_in(texts.into_iter(), &repo, true);
+        assert_eq!(m.numbers, vec![42, 7, 9, 61]);
+        let upstream = mentions_in(texts.into_iter(), &slug("l0ng-ai", "tty7"), false);
+        assert_eq!(
+            upstream.numbers,
+            vec![62],
+            "links to the fork are not upstream's"
+        );
     }
 
     #[test]
