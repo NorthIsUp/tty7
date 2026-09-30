@@ -1075,6 +1075,7 @@ l10n_keys! {
     PanelMoreChangedFiles,
     PanelSessionSubtitle,
     PanelProcessesSubtitle,
+    PanelProcessesTotal,
     PanelPortsSubtitle,
     PanelPortsUnsupported,
     PanelPortsProbeFailed,
