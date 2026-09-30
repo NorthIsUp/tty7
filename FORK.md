@@ -67,7 +67,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/osc.rs` | `Notifications` (+ tests) | OSC 99 (kitty) notifications, chunked by `i=`, beside OSC 9/777; offered upstream as `upstream/osc-notifications` |
 | `crates/tty7-core/src/daemon/pane.rs` | `OscSniffer` (+ test) | read OSC 99 too, so a hookless agent's kitty notification marks it Waiting |
 | `src/terminal/remote.rs` | `OscNotifyScanner`, `osc_notes` queue, `take_osc_notes` (+ test) | program notifications go to the view instead of straight to the desktop |
-| `src/terminal/view.rs` | `poll_foreground` → `show_program_notes`, `shows_program_note` (+ test) | the notification policy, pane focus and hooks decide; clickable, agent-named |
+| `src/terminal/view.rs` | `poll_foreground` → `show_program_notes`, `shows_notification` (+ test), the flag `poll_agent_status` gets | one rule for hook notices and program notes: the policy, held back only from the focused pane of the key window; clickable, agent-named |
 | `docs/agents/status.mdx` | Notifications | program notifications and Claude Code's `/config` channel |
 | `src/terminal/element.rs` | `mod osc8_underline`, `RenderCell::osc8_dots`, end of `snapshot_cell`, `flag_hovered_link`; test `test_colors` made `pub(super)` | `osc8_underline::mark` / `unmark` |
 | `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |

@@ -751,21 +751,15 @@ fn compose_notification_title(
     }
 }
 
-/// Whether a notification a program wrote reaches the desktop. `Unfocused`
-/// holds it back only while the reader is looking at this very pane. A pane
-/// whose agent reports through tty7's hooks already gets its Waiting and Done
-/// notices from `poll_agent_status` whenever the setting lets those through,
-/// so the program's own copy would be a duplicate there.
-fn shows_program_note(
-    mode: NotifyMode,
-    window_active: bool,
-    pane_focused: bool,
-    hooked_agent: bool,
-) -> bool {
+/// Whether a notification about this pane reaches the desktop: an agent's
+/// Waiting and Done notices from its hooks, and notifications the program
+/// wrote itself. `Unfocused` holds one back only while the reader is looking
+/// at this very pane.
+fn shows_notification(mode: NotifyMode, window_active: bool, pane_focused: bool) -> bool {
     match mode {
         NotifyMode::Never => false,
-        NotifyMode::Unfocused if window_active => !pane_focused,
-        NotifyMode::Unfocused | NotifyMode::Always => !hooked_agent,
+        NotifyMode::Unfocused => !(window_active && pane_focused),
+        NotifyMode::Always => true,
     }
 }
 
@@ -858,12 +852,14 @@ impl TerminalView {
         if notes.is_empty() {
             return;
         }
-        let show = shows_program_note(
-            cx.global::<Config>().notify_on_command_finish,
-            window.is_window_active(),
-            self.focus_handle.is_focused(window),
-            self.terminal.agent_session().is_some_and(|s| s.rich),
-        );
+        // An agent reporting through tty7's hooks gets its notices from
+        // `poll_agent_status` under the same rule; its own copy would repeat them.
+        let show = !self.terminal.agent_session().is_some_and(|s| s.rich)
+            && shows_notification(
+                cx.global::<Config>().notify_on_command_finish,
+                window.is_window_active(),
+                self.focus_handle.is_focused(window),
+            );
         log::debug!(
             "{} program notification(s) {}",
             notes.len(),
@@ -4058,6 +4054,11 @@ impl TerminalView {
             NotifyMode::Always => true,
         };
         self.show_program_notes(window, cx);
+        let agent_notify_allowed = shows_notification(
+            cx.global::<Config>().notify_on_command_finish,
+            window.is_window_active(),
+            self.focus_handle.is_focused(window),
+        );
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
@@ -4095,7 +4096,7 @@ impl TerminalView {
 
         self.poll_agent_detection(at_prompt, cx);
 
-        let turn_finished = self.poll_agent_status(notify_allowed, window, cx);
+        let turn_finished = self.poll_agent_status(agent_notify_allowed, window, cx);
 
         let session = self.terminal.agent_session();
         let tool_activity = match session.as_ref().map(|s| s.activity) {
@@ -8698,7 +8699,7 @@ mod tests {
         WheelRoute, clipboard_paths, compose_notification_title, cwd_is_on_host, display_width,
         link_path_style, loopback_plan, observe_typeahead_for_owner, typeahead_boundary,
     };
-    use super::{SCROLL_ANIM_FRAME, scroll_anim_step, shows_program_note};
+    use super::{SCROLL_ANIM_FRAME, scroll_anim_step, shows_notification};
     use super::{
         TitleSettle, files_cwd, local_path_for_pane, remote_paste_spec, settle_title,
         stages_clipboard_image, staging_cache, staging_dir_is_safe, wsl_path, wsl_share_distro,
@@ -8766,26 +8767,26 @@ mod tests {
     }
 
     #[test]
-    fn a_program_note_is_held_back_only_from_the_pane_being_watched() {
+    fn a_notification_is_held_back_only_from_the_pane_being_watched() {
         use crate::core::config::NotifyMode::*;
-        // (mode, window active, pane focused, hooked agent) -> shown
+        // (mode, window active, pane focused) -> shown; hook notices and
+        // program notes both go through this.
         let cases = [
-            (Unfocused, true, true, false, false),
-            (Unfocused, true, false, false, true),
-            (Unfocused, false, true, false, true),
-            // Hooks already notify while the window is in the background.
-            (Unfocused, false, false, true, false),
-            // They stay quiet in a key window, so another tab's note shows.
-            (Unfocused, true, false, true, true),
-            (Always, true, true, false, true),
-            (Always, false, false, true, false),
-            (Never, false, false, false, false),
+            (Unfocused, true, true, false),
+            // Another tab in the key window still hears about this one.
+            (Unfocused, true, false, true),
+            (Unfocused, false, true, true),
+            (Unfocused, false, false, true),
+            (Always, true, true, true),
+            (Always, false, false, true),
+            (Never, false, false, false),
+            (Never, true, false, false),
         ];
-        for (mode, active, focused, hooked, shown) in cases {
+        for (mode, active, focused, shown) in cases {
             assert_eq!(
-                shows_program_note(mode, active, focused, hooked),
+                shows_notification(mode, active, focused),
                 shown,
-                "{mode:?} active={active} focused={focused} hooked={hooked}"
+                "{mode:?} active={active} focused={focused}"
             );
         }
     }
