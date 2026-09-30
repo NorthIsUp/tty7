@@ -12339,16 +12339,24 @@ mod gpui_tests {
         let (_window, mut daemon) = harness(cx);
         cx.update(|cx| gpui_component::Theme::global_mut(cx).background = gpui::black());
         // What a replay sends: the modes ahead of the ring, then each ring
-        // segment, then whatever live frame comes next.
-        DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec())
-            .encode(&mut daemon)
-            .unwrap();
-        DaemonMsg::Snapshot(b"\x1b[?996n".to_vec())
-            .encode(&mut daemon)
-            .unwrap();
-        DaemonMsg::Output(b"$ ".to_vec())
-            .encode(&mut daemon)
-            .unwrap();
+        // segment behind its size. Nothing live follows: an idle pane still
+        // hears once.
+        let size = crate::daemon::protocol::WinSize {
+            cols: 80,
+            rows: 24,
+            cell_w: 8,
+            cell_h: 16,
+        };
+        let mut replay = Vec::new();
+        for frame in [
+            DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec()),
+            DaemonMsg::Size(size),
+            DaemonMsg::Snapshot(b"\x1b[?996n".to_vec()),
+            DaemonMsg::Snapshot(b"$ ".to_vec()),
+        ] {
+            frame.encode(&mut replay).unwrap();
+        }
+        std::io::Write::write_all(&mut daemon, &replay).unwrap();
         assert_eq!(
             pumped_input(cx, &mut daemon, 20).as_deref(),
             Some("\x1b[?997;1n"),

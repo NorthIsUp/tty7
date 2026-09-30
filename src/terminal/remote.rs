@@ -1255,8 +1255,8 @@ impl RemoteTerminal {
                 // (`term_modes` restores it ahead of the ring).
                 let mut modes = TerminalModes::new();
                 color_scheme_updates.store(false, Ordering::Relaxed);
-                // Set by a replay, sent on the first frame after it: a replay
-                // is a modes Snapshot plus one per ring segment.
+                // Set by a replay, sent once the buffer drains: a replay is a
+                // modes Snapshot plus one per ring segment.
                 let mut report_scheme = false;
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
@@ -1440,7 +1440,17 @@ impl RemoteTerminal {
                         }
                         let frame = match crate::daemon::protocol::take_frame(&mut pending) {
                             Ok(Some(frame)) => frame,
-                            Ok(None) => break,
+                            Ok(None) => {
+                                // Once per replay (a modes Snapshot, then one
+                                // per ring segment), when what was read runs
+                                // out: an idle pane has no next frame to wait for.
+                                if std::mem::take(&mut report_scheme)
+                                    && modes.is_on(COLOR_SCHEME_UPDATES)
+                                {
+                                    proxy.send_event(super::color_scheme::query_reply());
+                                }
+                                break;
+                            }
                             Err(e) => {
                                 teardown(Some(&format!("unframeable bytes on the link: {e}")));
                                 break 'main;
@@ -1453,14 +1463,6 @@ impl RemoteTerminal {
                                 break 'main;
                             }
                         };
-                        if report_scheme
-                            && !matches!(msg, DaemonMsg::Snapshot(_) | DaemonMsg::Size(_))
-                        {
-                            report_scheme = false;
-                            if modes.is_on(COLOR_SCHEME_UPDATES) {
-                                proxy.send_event(super::color_scheme::query_reply());
-                            }
-                        }
                         match msg {
                             // Geometry, applied at this exact stream position.
                             // During replay each ring segment is preceded by
