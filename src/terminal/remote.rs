@@ -1374,9 +1374,9 @@ impl RemoteTerminal {
                                 }
                                 if let Ok(mut notes) = osc_notes.lock() {
                                     osc.feed(&out_batch, &mut *notes);
-                                    // Pane output is untrusted: a flood keeps
+                                    // Pane output is untrusted: a burst keeps
                                     // only the newest.
-                                    let over = notes.len().saturating_sub(OSC_NOTES_KEPT);
+                                    let over = notes.len().saturating_sub(MAX_OSC_NOTES);
                                     notes.drain(..over);
                                 }
                                 mode_tok.feed(&out_batch, |payload| {
@@ -2040,16 +2040,12 @@ impl RemoteTerminal {
         self.images.clone()
     }
 
-    /// Desktop notifications the program wrote (OSC 9, 99, 777) since the
-    /// last call, oldest first: the newest few of them, so a flood shows as a
-    /// few rather than a spray. The view decides whether each is shown.
+    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
+    /// first; the view decides whether each is shown.
     pub fn take_osc_notes(&self) -> Vec<(Option<String>, String)> {
         self.osc_notes
             .lock()
-            .map(|mut notes| {
-                let stale = notes.len().saturating_sub(OSC_NOTES_SHOWN);
-                notes.drain(..).skip(stale).collect()
-            })
+            .map(|mut notes| notes.drain(..).collect())
             .unwrap_or_default()
     }
 
@@ -3258,10 +3254,9 @@ mod notification_tests {
 
 type OscNotes = Arc<Mutex<VecDeque<(Option<String>, String)>>>;
 
-/// How many unshown notifications a pane holds; older ones are dropped.
-const OSC_NOTES_KEPT: usize = 16;
-/// How many of them [`RemoteTerminal::take_osc_notes`] hands over.
-const OSC_NOTES_SHOWN: usize = 3;
+/// Notes queued for a view that has not polled: a burst keeps only its
+/// newest few, so it shows as a few rather than a spray.
+const MAX_OSC_NOTES: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,

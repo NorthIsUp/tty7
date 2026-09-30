@@ -27,3 +27,11 @@
 - **What:** the page draws its own rows, selection, scroll, kind chips and highlights instead of being an ordinary palette `Source`. Accepted divergence.
 - **Why:** gpui-component's `List` has no hook for a header row (the kind chips) or for the page's ranking and highlights (a bare word against the directory name, a typed path first). Converting would add upstream hunks in `search/view.rs`, not remove them.
 - **Fix:** revisit if `List` gains header and ranking hooks.
+
+## 2026-09-30 — the first-prompt wait guesses the daemon's integration
+
+- **Where:** src/ui/agent_resume.rs `prompt_patience`, crates/tty7-core/src/daemon/pane.rs `integrates`
+- **What:** a typed launch or resume waits up to 30s for the first prompt when the client works out, from the shell spec and config, that the daemon will inject integration; otherwise 3s. SSH and remote panes always get 3s, so a slow far shell still takes the line as typeahead. And when integration was expected but never loads (an rc that bails before it), the line waits 30s in silence before going in.
+- **Why:** the daemon knows whether it injected integration, but nothing tells the client. `Prompt` is a fixed 3-tuple and an unknown `DaemonMsg` kind is a decode error, so a new fact on the wire breaks a GUI and daemon of different versions.
+- **Fix:** have the daemon report "integration pending" for a pane (a new frame behind a protocol version check, or a field on a message that tolerates additions), including for an SSH pane whose far shell it integrates, and wait on that instead of a guess.
+
