@@ -65,6 +65,7 @@ mod tests {
     use crate::daemon::protocol::{ClientMsg, DaemonMsg};
     use crate::terminal::size::TermSize;
     use gpui::TestAppContext;
+    use std::io::Write as _;
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
@@ -175,6 +176,42 @@ mod tests {
             typed(cx, &asked, "", Duration::from_millis(200)),
             "",
             "2031 switched off"
+        );
+    }
+
+    /// A reattach replays the modes and then each ring segment as its own
+    /// Snapshot. The theme may have flipped while nothing was attached, so a
+    /// replay that leaves 2031 on is answered once, after its last frame.
+    #[gpui::test]
+    fn a_replay_that_leaves_2031_on_reports_the_scheme_once(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        set_background(cx, gpui::black());
+        let mut replayed = pane(cx);
+        // No live frame follows: an idle pane still hears once.
+        let size = crate::daemon::protocol::WinSize {
+            cols: 80,
+            rows: 24,
+            cell_w: 8,
+            cell_h: 16,
+        };
+        let mut replay = Vec::new();
+        for frame in [
+            DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec()),
+            DaemonMsg::Size(size),
+            DaemonMsg::Snapshot(b"first segment\r\n".to_vec()),
+            DaemonMsg::Snapshot(b"second segment\r\n".to_vec()),
+        ] {
+            frame.encode(&mut replay).unwrap();
+        }
+        replayed.daemon.write_all(&replay).unwrap();
+        assert_eq!(
+            typed(cx, &replayed, "", Duration::from_millis(500)),
+            "\x1b[?997;1n"
         );
     }
 }

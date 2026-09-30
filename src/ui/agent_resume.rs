@@ -35,21 +35,21 @@ impl Resume {
     /// to continue.
     fn line(&self, plan: ResumePlan) -> Option<String> {
         let argv = self.launch_argv.as_deref();
-        let fresh = match plan {
-            ResumePlan::Attach(job) => return Some(format!("claude attach {job}")),
-            ResumePlan::Fresh => self.agent.start_command(&self.session_id, argv),
-            ResumePlan::Resume => None,
-        };
-        if fresh.is_some() {
-            return fresh;
+        match plan {
+            ResumePlan::Attach(job) => Some(format!("claude attach {job}")),
+            ResumePlan::Fresh => self
+                .agent
+                .start_command(&self.session_id, argv)
+                .or_else(|| self.resumed(argv)),
+            ResumePlan::Resume => self.resumed(argv),
         }
+    }
+
+    fn resumed(&self, argv: Option<&[String]>) -> Option<String> {
         let cmd = self.agent.resume_command(&self.session_id, argv)?;
+        let prompt = self.prompt.as_deref();
         Some(
-            match self
-                .prompt
-                .as_deref()
-                .filter(|p| !p.is_empty() && self.agent.resume_takes_prompt())
-            {
+            match prompt.filter(|p| !p.is_empty() && self.agent.resume_takes_prompt()) {
                 Some(p) => format!("{cmd} {}", join_shell_args(&[p.to_string()])),
                 None => cmd,
             },
@@ -90,7 +90,13 @@ impl AtPrompt {
             AtPrompt::Line(line) => return type_at_first_prompt(view, line, cx),
             AtPrompt::Resume(resume) => resume,
         };
-        let Some(host) = view.read(cx).host(cx) else {
+        // A session on another machine: a plan read from this one's files
+        // would be wrong about it.
+        let host = view
+            .read(cx)
+            .host(cx)
+            .filter(|_| on_this_machine(view.read(cx)));
+        let Some(host) = host else {
             if let Some(line) = resume.line(ResumePlan::Resume) {
                 type_at_first_prompt(view, line, cx);
             }
@@ -116,6 +122,12 @@ impl AtPrompt {
     }
 }
 
+/// Whether `view`'s shell, and so its agent session, runs on this machine:
+/// not a remote workspace's pane, not SSH (native or typed), not WSL.
+fn on_this_machine(view: &TerminalView) -> bool {
+    view.pane_route().is_local() && view.ssh_spec().is_none() && view.remote_context().is_none()
+}
+
 /// How long a new shell may take to reach a prompt that is coming: its
 /// startup files can be slow (nvm, conda).
 const PROMPT_CAP: Duration = Duration::from_secs(30);
@@ -127,9 +139,7 @@ const PROMPT_WAIT: Duration = Duration::from_secs(3);
 /// a local shell the daemon gives integration), [`PROMPT_WAIT`] otherwise.
 pub(crate) fn prompt_patience(view: &Entity<TerminalView>, cx: &App) -> Duration {
     let view = view.read(cx);
-    let local = view.pane_route().is_local()
-        && view.ssh_spec().is_none()
-        && view.remote_context().is_none();
+    let local = on_this_machine(view);
     let configured = cx
         .global::<Config>()
         .shell
@@ -150,9 +160,11 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        let outer = cx.try_global::<WakePrompt>().and_then(|w| w.0.clone());
+        debug_assert!(outer.is_none(), "a wake inside a wake");
         cx.set_global(WakePrompt(prompt.map(str::to_string)));
         let woke = self.wake_tab(index, window, cx);
-        cx.set_global(WakePrompt(None));
+        cx.set_global(WakePrompt(outer));
         woke
     }
 

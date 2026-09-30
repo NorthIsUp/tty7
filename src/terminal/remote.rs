@@ -1261,6 +1261,9 @@ impl RemoteTerminal {
                 // (`term_modes` restores it ahead of the ring).
                 let mut modes = tty7_core::core::term_modes::TerminalModes::new();
                 color_scheme_updates.store(false, Ordering::Relaxed);
+                // Set by a replay that left 2031 on: the theme may have flipped
+                // while no window was attached, so the program hears once.
+                let mut report_scheme = false;
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
                 // coalescing (issue #213): inflating a full-window browser frame
@@ -1371,6 +1374,10 @@ impl RemoteTerminal {
                                 }
                                 if let Ok(mut notes) = osc_notes.lock() {
                                     osc.feed(&out_batch, &mut *notes);
+                                    // Pane output is untrusted: a flood keeps
+                                    // only the newest.
+                                    let over = notes.len().saturating_sub(OSC_NOTES_KEPT);
+                                    notes.drain(..over);
                                 }
                                 mode_tok.feed(&out_batch, |payload| {
                                     if let Some(mode) = payload.strip_prefix(b"133;V;") {
@@ -1441,7 +1448,16 @@ impl RemoteTerminal {
                         }
                         let frame = match crate::daemon::protocol::take_frame(&mut pending) {
                             Ok(Some(frame)) => frame,
-                            Ok(None) => break,
+                            Ok(None) => {
+                                // Once per replay (a modes Snapshot, then one
+                                // per ring segment), when what was read runs out.
+                                if std::mem::take(&mut report_scheme)
+                                    && color_scheme_updates.load(Ordering::Relaxed)
+                                {
+                                    proxy.send_event(super::color_scheme::query_reply());
+                                }
+                                break;
+                            }
                             Err(e) => {
                                 teardown(Some(&format!("unframeable bytes on the link: {e}")));
                                 break 'main;
@@ -1527,6 +1543,7 @@ impl RemoteTerminal {
                                 // A replayed `?996n` was answered long ago.
                                 super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
                                 modes.take_color_scheme_queries();
+                                report_scheme = true;
                                 // The replay carries the pane's recent marks,
                                 // so reading it is what lets a reattached
                                 // window know whether the title it just
@@ -2023,12 +2040,16 @@ impl RemoteTerminal {
         self.images.clone()
     }
 
-    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
-    /// first; the view decides whether each is shown.
+    /// Desktop notifications the program wrote (OSC 9, 99, 777) since the
+    /// last call, oldest first: the newest few of them, so a flood shows as a
+    /// few rather than a spray. The view decides whether each is shown.
     pub fn take_osc_notes(&self) -> Vec<(Option<String>, String)> {
         self.osc_notes
             .lock()
-            .map(|mut notes| notes.drain(..).collect())
+            .map(|mut notes| {
+                let stale = notes.len().saturating_sub(OSC_NOTES_SHOWN);
+                notes.drain(..).skip(stale).collect()
+            })
             .unwrap_or_default()
     }
 
@@ -3228,6 +3249,11 @@ mod notification_tests {
 }
 
 type OscNotes = Arc<Mutex<VecDeque<(Option<String>, String)>>>;
+
+/// How many unshown notifications a pane holds; older ones are dropped.
+const OSC_NOTES_KEPT: usize = 16;
+/// How many of them [`RemoteTerminal::take_osc_notes`] hands over.
+const OSC_NOTES_SHOWN: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
@@ -7138,6 +7164,34 @@ mod osc_tests {
             s.feed(c, &mut out);
         }
         out
+    }
+
+    /// Pane output is untrusted: a flood of notifications shows only its
+    /// newest few, once.
+    #[test]
+    fn a_notification_flood_shows_only_its_newest_few() {
+        use crate::daemon::protocol::DaemonMsg;
+        use crate::terminal::size::TermSize;
+
+        crate::core::config::pin_test_config_dir();
+        let (client, mut daemon) = crate::terminal::view::test_stream_pair();
+        let term = super::RemoteTerminal::from_stream(client, TermSize::new(80, 24)).unwrap();
+        let flood: Vec<u8> = (0..40)
+            .flat_map(|n| format!("\x1b]9;note {n}\x07").into_bytes())
+            .collect();
+        DaemonMsg::Output(flood).encode(&mut daemon).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let taken = loop {
+            let batch = term.take_osc_notes();
+            if !batch.is_empty() || std::time::Instant::now() > deadline {
+                break batch;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        let bodies: Vec<_> = taken.into_iter().map(|(_, body)| body).collect();
+        assert_eq!(bodies, ["note 37", "note 38", "note 39"]);
+        assert!(term.take_osc_notes().is_empty(), "the rest were dropped");
     }
 
     #[test]
