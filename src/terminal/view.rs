@@ -4029,11 +4029,13 @@ impl TerminalView {
             cx.notify();
         }
 
-        let notify_allowed = cx
-            .global::<Config>()
-            .notify_on_command_finish
-            .allows(window.is_window_active());
-        self.show_program_notes(notify_allowed, window, cx);
+        let mode = cx.global::<Config>().notify_on_command_finish;
+        let window_active = window.is_window_active();
+        let notify_allowed = mode.allows(window_active);
+        // An agent's hook notices are about this pane, so an agent in another
+        // tab of the front window still reaches the reader.
+        let hooks_notify = mode.allows(window_active && self.focus_handle.is_focused(window));
+        self.show_program_notes(hooks_notify, window, cx);
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
@@ -4071,7 +4073,7 @@ impl TerminalView {
 
         self.poll_agent_detection(at_prompt, cx);
 
-        let turn_finished = self.poll_agent_status(notify_allowed, window, cx);
+        let turn_finished = self.poll_agent_status(hooks_notify, window, cx);
 
         let session = self.terminal.agent_session();
         let tool_activity = match session.as_ref().map(|s| s.activity) {
