@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or `iterm2`. A pane whose agent reports through tty7's hooks skips the ones
   that would repeat tty7's own.
 
+- **An agent in another tab of the front window now tells you it is waiting or
+  done.** The hooks' Waiting and Done notifications used to post only while
+  tty7 was in the background. They now follow the same rule as program
+  notifications: *When unfocused* holds one back only while its pane is the
+  one focused in the front window.
+
 ## [26.9.4] - 2026-09-29
 
 ### Added
