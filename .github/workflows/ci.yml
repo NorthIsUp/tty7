@@ -77,9 +77,11 @@ jobs:
         with:
           fetch-depth: 2
       # A PR checkout is the merge commit, so its first parent is the base.
+      # `--no-renames` lists both sides of a move, or `src/x.rs` -> `docs/x.md`
+      # would show only the docs path.
       - id: diff
         run: |
-          files=$(git diff --name-only HEAD^1 HEAD)
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
           if [ "${{ github.event_name }}" != pull_request ] \
               || grep -qvE '^docs/|\.mdx?$' <<<"$files"; then
             echo "code=true" >> "$GITHUB_OUTPUT"
