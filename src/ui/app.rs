@@ -3768,7 +3768,13 @@ impl Tty7App {
 
     pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut App) {
         self.sync_window_title(window, cx);
-        if let Some(settings) = self.settings.as_ref() {
+        // Only where the page is drawn: with settings in a window of its own,
+        // its handle focused in the workspace window is focus on nothing
+        // there, and every shortcut in the workspace goes dead.
+        let settings_here = self
+            .settings_window
+            .is_none_or(|(settings, _)| settings == window.window_handle());
+        if let Some(settings) = self.settings.as_ref().filter(|_| settings_here) {
             window.focus(&settings.focus_handle, cx);
             return;
         }
@@ -13136,6 +13142,40 @@ mod unfocused_shortcut_tests {
     #[gpui::test]
     fn settings_with_orphan_focus(cx: &mut TestAppContext) {
         answers_with_focus_off_the_tree("OpenSettings", |a| a.settings.is_some(), false, cx);
+    }
+
+    /// With settings up in a window of its own, the workspace window's focus
+    /// comes back to its own panes — the page's handle is drawn elsewhere.
+    #[gpui::test]
+    fn settings_in_its_own_window_leaves_the_workspace_its_focus(cx: &mut TestAppContext) {
+        let (app, mut vcx) = open(cx);
+        let elsewhere = cx.add_window(|_, _| gpui::EmptyView);
+        app.update_in(&mut vcx, |app, window, cx| {
+            // Tests build the page in place; point it at the other window, as
+            // a real ⌘, does.
+            app.toggle_settings(window, cx);
+            app.settings_window = Some((elsewhere.into(), window.window_handle()));
+            let orphan = cx.focus_handle();
+            window.focus(&orphan, cx);
+            std::mem::forget(orphan);
+            window.refresh();
+        });
+        vcx.run_until_parked();
+        app.update_in(&mut vcx, |app, window, cx| {
+            let expected = match app.tabs.get(app.active) {
+                Some(tab) => tab.focus_target().unwrap().focus_handle(cx),
+                None => app.home_focus.clone(),
+            };
+            assert!(
+                !app.settings
+                    .as_ref()
+                    .unwrap()
+                    .focus_handle
+                    .is_focused(window),
+                "the workspace window must not park focus on a page it does not draw"
+            );
+            assert!(expected.is_focused(window));
+        });
     }
 }
 
