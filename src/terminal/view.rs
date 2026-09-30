@@ -835,11 +835,11 @@ impl TerminalView {
     /// very pane. A pane whose agent reports through tty7's hooks already gets
     /// its Waiting and Done notices from `poll_agent_status` whenever
     /// `hooks_notify`, so the program's own copy would be a duplicate there.
+    ///
+    /// At most a few per pane every few seconds reach the desktop (pane output
+    /// is untrusted), with one note saying the rest were not shown.
     fn show_program_notes(&self, hooks_notify: bool, window: &Window, cx: &mut Context<Self>) {
         let notes = self.terminal.take_osc_notes();
-        if notes.is_empty() {
-            return;
-        }
         let watched = window.is_window_active() && self.focus_handle.is_focused(window);
         let hooked = self.terminal.agent_session().is_some_and(|s| s.rich);
         let show = cx
@@ -847,15 +847,27 @@ impl TerminalView {
             .notify_on_command_finish
             .allows(watched)
             && !(hooked && hooks_notify);
-        log::debug!(
-            "{} program notification(s) {}",
-            notes.len(),
-            if show { "shown" } else { "held back" }
+        if !notes.is_empty() {
+            log::debug!(
+                "{} program notification(s) {}",
+                notes.len(),
+                if show { "shown" } else { "held back" }
+            );
+        }
+        // Asked on every poll, so the rest are said once a flood stops too,
+        // and while notes are held back, so a stale count never surfaces
+        // minutes later.
+        let (notes, dropped) = self.terminal.pace_osc_notes(
+            if show { notes } else { Vec::new() },
+            std::time::Instant::now(),
         );
         if !show {
             return;
         }
         let agent = self.terminal.foreground_agent().map(|a| a.display_name());
+        if dropped {
+            self.notify_pane(agent, &t(L10nKey::ProgramNotesDropped), cx);
+        }
         for (title, body) in notes {
             match title {
                 Some(title) => super::remote::notify_desktop_for_pane(
