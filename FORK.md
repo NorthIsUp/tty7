@@ -6,9 +6,12 @@ Search Everywhere, sidebar group colours and a niceness for pane shells. It stay
 fork-owned files, and an upstream file gets only a short hook call into them,
 listed below. The fork's work lives on `main-niu` (the default branch); `main`
 mirrors upstream and never gets fork commits. `mise run sync-upstream` syncs
-`main` from upstream and merges `upstream/main` into the current branch; when it
-stops on a conflict, the hook table says what each fork hunk in that file is
-for, so keep upstream's side, re-add the hook, and `git commit`.
+`main` from upstream and rebases the current branch onto `upstream/main`; when
+it stops on a conflict, the hook table says what each fork hunk in that file is
+for, so keep upstream's side, re-add the hook, and `git rebase --continue`. A
+fork commit upstream has since merged is dropped from the rebase rather than
+resolved. Rebasing `main-niu` rewrites it, so it goes back with
+`git push --force-with-lease`, and open fork branches rebase onto it.
 
 ## The app
 
@@ -20,7 +23,7 @@ privacy grants survive every reinstall. The running app watches the bundle's
 `local-build-id` and offers a restart when a new build lands; it never checks
 GitHub. `mise run launch` and `reload` run that bundle.
 
-A merge to main that bumps the workspace `version` in `Cargo.toml` gets tagged
+A merge to `main-niu` that bumps the workspace `version` in `Cargo.toml` gets tagged
 `v<version>` by `tag-on-bump.yml`, which starts `release.yml` on that tag.
 CI (`release.yml`, on a `v*` tag) ships `tty7-niu.app` (`com.northisup.tty7-niu`),
 notarized, and publishes the release here; its updater reads this repo's
@@ -43,7 +46,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached by path and mtime; `session_mentions`, one session's issue and PR references, tool output included; a bare `#N` only when the session ran in a checkout of the shown repo |
-| `.github/workflows/tag-on-bump.yml` | on a main push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
+| `.github/workflows/tag-on-bump.yml` | on a `main-niu` push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
 | `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) and its swatch |
 | `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows |
 | `src/ui/github_session.rs` | the GitHub tab's "This session" filter: Pull Requests narrowed to those the focused pane's agent session mentions, the rest as `#N` chips; `remote_pick`, the fork before upstream; `panel_state`, the list it opens on |
@@ -66,6 +69,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/mod.rs` | module list | `pub mod fork_update` |
 | `src/bin/tty7-updater.rs` | `install_inner`, `extract_archive` → `unpacked_app` (+ test) | find the unpacked `.app` rather than name `tty7.app`, since the fork's is `tty7-niu.app` |
 | `.github/scripts/bundle-macos.sh` | top, Info.plist, signing, notarization, after the sweep | `TTY7_APP_NAME`, `TTY7_BUNDLE_ID`, `TTY7_BIN_DIR`, `TTY7_DIST`, `TTY7_LOCAL_BUILD_ID`, `TTY7_BUNDLE_ONLY`; sign with a keychain identity when no cert is imported (no timestamp); notarize with an ASC API key (`ASC_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`) |
+| `.github/workflows/ci.yml` | `on.push.branches`, the three `save-if`s; `build` matrix, `server-musl` `if` | `main-niu`, not `main`; macOS only, Windows, Linux and musl commented out |
 | `.github/workflows/release.yml` | `Bundle macOS DMG` env; `draft-release` last step | build `tty7-niu.app` (`com.northisup.tty7-niu`) with the ASC notarization key; publish the draft on NorthIsUp/tty7 |
 | `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`, `github_panel_session_filter`, `github_panel_prefer_origin`, `github_panel_default_list`, `global_hotkey`, `global_hotkey_fullscreen`, `global_hotkey_hide_on_blur`, `global_hotkey_fade_ms`; `GroupColorSource`, `GroupBackgroundScope` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
