@@ -35,4 +35,7 @@ trap 'rm -rf "$tmp"' EXIT
 ditto "target/fast/bundle/$app_name.app" "$tmp/$app_name.app"
 if [ -e "$app" ]; then mv "$app" "$tmp/previous.app"; fi
 mv "$tmp/$app_name.app" "$app"
+# The staged copy is a second launchable tty7-niu-dev.app that Spotlight and
+# launchers index; a window started from it runs off the installed path.
+rm -rf target/fast/bundle
 echo "installed $app ($build_id, signed by $identity)"
