@@ -156,8 +156,11 @@ impl AtPrompt {
             return;
         };
         let (agent, id) = (resume.agent, resume.session_id.clone());
+        let weak = view.downgrade();
         view.update(cx, |_, cx| {
-            HostOps::run(
+            // Detached: landing inside the view's update would lease it, and
+            // `type_at_first_prompt` reads it — a panic that quit the app.
+            HostOps::run_detached(
                 host,
                 cx,
                 move |h| {
@@ -165,9 +168,9 @@ impl AtPrompt {
                         .resume_plan(agent, &id)
                         .unwrap_or(ResumePlan::Resume)
                 },
-                move |_, plan, cx| {
-                    if let Some(line) = resume.line(plan) {
-                        type_at_first_prompt(&cx.entity(), line, cx);
+                move |cx, plan| {
+                    if let (Some(view), Some(line)) = (weak.upgrade(), resume.line(plan)) {
+                        type_at_first_prompt(&view, line, cx);
                     }
                 },
             )
@@ -452,12 +455,18 @@ pub(crate) fn layout_has_live_pane(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+    use std::time::Duration;
+
     use super::{
-        RestoredDead, Resume, ResumePlan, Wake, agent_tabs, launch_wake, layout_has_live_pane,
-        record_restores_asleep, restart_wakes, take_restored, with_minted_session,
+        AtPrompt, RestoredDead, Resume, ResumePlan, Wake, agent_tabs, launch_wake,
+        layout_has_live_pane, record_restores_asleep, restart_wakes, take_restored,
+        with_minted_session,
     };
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
+    use crate::daemon::protocol::{ClientMsg, DaemonMsg};
+    use crate::terminal::view::quiet_test_pane;
     use tty7_core::core::cli_agent::CLIAgent;
     use tty7_core::core::machine::TabId;
 
@@ -470,6 +479,54 @@ mod tests {
             agent: session.map(|_| CLIAgent::Claude),
             agent_session_id: session.map(Into::into),
             agent_launch_argv: None,
+        }
+    }
+
+    #[gpui::test]
+    fn a_local_resume_types_its_line_without_panicking(cx: &mut gpui::TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        let mut vcx = cx.add_empty_window().clone();
+        let (view, mut daemon) = vcx.update(|window, cx| quiet_test_pane(1, window, cx));
+        let resume = Resume {
+            agent: CLIAgent::Codex,
+            session_id: "th_1".into(),
+            launch_argv: None,
+            prompt: None,
+        };
+        DaemonMsg::Prompt {
+            active: true,
+            at_prompt: true,
+            last_exit: None,
+        }
+        .encode(&mut daemon)
+        .unwrap();
+        daemon.flush().unwrap();
+        while !vcx.update(|_, cx| view.read(cx).terminal.at_prompt()) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // It used to land inside the view's update and panic reading it.
+        vcx.update(|_, cx| AtPrompt::Resume(resume).run(&view, cx));
+        daemon
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        for _ in 0..400 {
+            vcx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        loop {
+            match ClientMsg::read(&mut daemon) {
+                Ok(ClientMsg::Input(bytes)) => {
+                    assert_eq!(bytes, b"codex resume th_1\r");
+                    break;
+                }
+                Ok(_) => continue,
+                Err(e) => panic!("nothing typed: {e}"),
+            }
         }
     }
 
