@@ -36,10 +36,29 @@
 /// decides whether those arrows are `ESC O A` or `ESC [ A`. `1004` is focus
 /// reporting, which the client stops sending without it, and `2004` bracketed
 /// paste — without it a paste into a restored TUI arrives as plain keystrokes,
-/// which is how a paste turns into commands.
+/// which is how a paste turns into commands. `2031` is colour scheme
+/// notifications: a reattached window that lost it never tells the program the
+/// theme flipped.
 const TRACKED: &[u16] = &[
-    1, 47, 1047, 1049, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 2004,
+    1,
+    47,
+    1047,
+    1049,
+    1000,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1015,
+    1016,
+    2004,
+    COLOR_SCHEME_UPDATES,
 ];
+
+/// DEC mode 2031: report light/dark changes as `CSI ? 997 ; 1|2 n`.
+pub const COLOR_SCHEME_UPDATES: u16 = 2031;
 
 /// Bracketed paste: whether a paste may arrive framed as `ESC[200~ … ESC[201~`.
 pub const BRACKETED_PASTE: u16 = 2004;
@@ -58,6 +77,9 @@ pub struct TerminalModes {
     on: Vec<u16>,
     state: State,
     params: Vec<u8>,
+    /// `CSI ? 996 n` queries seen and not yet taken — see
+    /// [`Self::take_color_scheme_queries`].
+    color_scheme_queries: usize,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +113,12 @@ impl TerminalModes {
     /// Whether `mode` is on. Only ever true for a mode in [`TRACKED`].
     pub fn is_on(&self, mode: u16) -> bool {
         self.on.contains(&mode)
+    }
+
+    /// How many `CSI ? 996 n` (which scheme is on?) queries were fed since the
+    /// last call. The tracker only counts them; answering is the caller's job.
+    pub fn take_color_scheme_queries(&mut self) -> usize {
+        std::mem::take(&mut self.color_scheme_queries)
     }
 
     /// The bytes that put a freshly reset terminal back into these modes, or
@@ -180,6 +208,12 @@ impl TerminalModes {
                     b'h' | b'l' => {
                         if private {
                             self.apply(b == b'h');
+                        }
+                        self.state = State::Text;
+                    }
+                    b'n' => {
+                        if private && self.params == b"996" {
+                            self.color_scheme_queries += 1;
                         }
                         self.state = State::Text;
                     }
@@ -367,5 +401,21 @@ mod tests {
         assert!(modes.is_on(BRACKETED_PASTE));
         modes.feed(b"\x1b[?2004l");
         assert!(!modes.is_on(BRACKETED_PASTE));
+    }
+
+    #[test]
+    fn follows_colour_scheme_updates_and_counts_its_queries() {
+        let mut modes = TerminalModes::new();
+        modes.feed(b"\x1b[?2031h\x1b[?99");
+        assert!(modes.is_on(COLOR_SCHEME_UPDATES));
+        modes.feed(b"6n\x1b[?996n\x1b[996n\x1b[?997;1n");
+        assert_eq!(
+            modes.take_color_scheme_queries(),
+            2,
+            "a split query counts, a non-private one does not"
+        );
+        assert_eq!(modes.take_color_scheme_queries(), 0);
+        modes.feed(b"\x1b[?2031l");
+        assert!(!modes.is_on(COLOR_SCHEME_UPDATES));
     }
 }

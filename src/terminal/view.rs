@@ -1620,7 +1620,7 @@ impl TerminalView {
         view
     }
 
-    fn with_terminal(
+    pub(super) fn with_terminal(
         terminal: RemoteTerminal,
         pane_id: u64,
         window: &mut Window,
@@ -1751,6 +1751,8 @@ impl TerminalView {
             }
         })
         .detach();
+
+        super::color_scheme::watch(cx, |view| &view.terminal);
 
         let displayed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let entity_id = cx.entity().entity_id();
