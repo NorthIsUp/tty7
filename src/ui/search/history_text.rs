@@ -9,15 +9,14 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::core::history_search::HistoryHit;
-use gpui::{App, Context, Window};
+use gpui::{Context, Window};
 
+use super::SearchTab;
 use super::command::{Avatar, CommandKind, Item};
 use super::sources::Catalog;
-use super::text::pattern;
-use super::view::SearchView;
+use super::text::{Ticket, pattern};
 use crate::core::agent_history::session_key;
 use crate::ui::app::Tty7App;
 use crate::ui::host_ops::HostOps;
@@ -68,7 +67,7 @@ pub(crate) fn hit_rows(
 /// The empty tab's hint: another machine's workspace, type more, or type
 /// something else.
 pub(crate) fn empty_hint(catalog: &Catalog, query: &str) -> &'static str {
-    if catalog.history_query.is_none() {
+    if !catalog.live(SearchTab::History).is_some_and(|l| l.asks()) {
         return t(L10nKey::SearchHistoryRemote);
     }
     match pattern(query) {
@@ -77,56 +76,23 @@ pub(crate) fn empty_hint(catalog: &Catalog, query: &str) -> &'static str {
     }
 }
 
-impl Catalog {
-    pub(super) fn ask_history(&self, query: &str, cx: &mut App) {
-        if let Some(ask) = self.history_query.clone() {
-            ask(query, cx);
-        }
-    }
-}
-
-impl SearchView {
-    pub(crate) fn set_history_hits(
-        &mut self,
-        rows: Vec<Item>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_catalog(|catalog| catalog.history = rows, window, cx);
-    }
-}
-
-/// Bumped by every query; an answer carrying an older number is dropped.
-static LATEST: AtomicU64 = AtomicU64::new(0);
-
 impl Tty7App {
-    /// What the search calls as the History tab's query changes, or `None`
-    /// for a workspace on another machine: the history searched is this
-    /// one's.
-    pub(crate) fn palette_history_query(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<super::LiveQuery> {
-        self.spawn_host(cx)
-            .is_local()
-            .then(|| self.live_query(window, cx, Self::palette_history_search))
-    }
-
-    fn palette_history_search(
+    pub(super) fn palette_history_search(
         &mut self,
         query: String,
+        ticket: Ticket,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let land = ticket.clone();
         self.after_pause(
-            &LATEST,
+            ticket,
             &query,
             window,
             cx,
-            |app, seq, pattern, window, cx| {
+            move |app, pattern, window, cx| {
                 let (Some(pattern), Some(host)) = (pattern, app.active_host(cx)) else {
-                    return app.palette_history_land(seq, Vec::new(), window, cx);
+                    return app.palette_live_land(land, Vec::new(), window, cx);
                 };
                 HostOps::run_in(
                     host,
@@ -146,26 +112,11 @@ impl Tty7App {
                             &cx.global::<crate::core::config::Config>()
                                 .hidden_agent_sessions,
                         );
-                        app.palette_history_land(seq, rows, window, cx);
+                        app.palette_live_land(land, rows, window, cx);
                     },
                 );
             },
         );
-    }
-
-    fn palette_history_land(
-        &mut self,
-        seq: u64,
-        rows: Vec<Item>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if LATEST.load(Ordering::Relaxed) != seq {
-            return;
-        }
-        if let Some(view) = self.search.clone() {
-            view.update(cx, |view, cx| view.set_history_hits(rows, window, cx));
-        }
     }
 }
 
@@ -247,12 +198,14 @@ mod tests {
             Vec::new(),
             Vec::new(),
         );
-        catalog.history = hit_rows(
+        let mut live = crate::ui::search::text::LiveTab::new(SearchTab::History, None);
+        live.rows = hit_rows(
             vec![hit("a", "split the pane", 1)],
             None,
             100,
             &BTreeSet::new(),
         );
+        catalog.live = vec![live];
         cx.update(|cx| {
             for query in ["", "split"] {
                 let headers: Vec<_> = catalog

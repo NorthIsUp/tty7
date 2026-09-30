@@ -228,11 +228,8 @@ impl ListDelegate for SearchDelegate {
         {
             live(query, cx);
         }
-        if self.scope == Scope::Tab(SearchTab::Text) {
-            self.catalog.ask_text(query, cx);
-        }
-        if self.scope == Scope::Tab(SearchTab::History) {
-            self.catalog.ask_history(query, cx);
+        if let Scope::Tab(tab) = self.scope {
+            self.catalog.ask_live(tab, query, cx);
         }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
@@ -593,14 +590,8 @@ impl SearchView {
             }
             // `set_query` searches only when the text changed; the tab did.
             state.delegate_mut().refresh(cx);
-            if tab == SearchTab::Text {
-                let delegate = state.delegate();
-                delegate.catalog.ask_text(&delegate.query, cx);
-            }
-            if tab == SearchTab::History {
-                let delegate = state.delegate();
-                delegate.catalog.ask_history(&delegate.query, cx);
-            }
+            let delegate = state.delegate();
+            delegate.catalog.ask_live(tab, &delegate.query, cx);
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
             state.scroll_to_item(IndexPath::default(), ScrollStrategy::Top, window, cx);
@@ -764,7 +755,8 @@ impl SearchView {
 
     #[cfg(test)]
     pub(crate) fn text_rows(&self) -> Vec<Item> {
-        self.catalog.text.clone()
+        let text = self.catalog.live(SearchTab::Text);
+        text.map(|l| l.rows.clone()).unwrap_or_default()
     }
 
     /// The tab showing — or, in a row's own list, the one Escape returns to.

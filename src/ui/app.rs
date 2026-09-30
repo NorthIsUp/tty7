@@ -6165,8 +6165,7 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) {
         let mut catalog = self.search_catalog(window, cx);
-        catalog.text_query = Some(self.palette_text_query(window, cx));
-        catalog.history_query = self.palette_history_query(window, cx);
+        catalog.live = self.palette_live_tabs(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6405,7 +6404,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
-            SearchAgents => self.toggle_agents_search(window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Agents, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
@@ -9708,7 +9707,7 @@ impl Render for Tty7App {
                     this.continue_all_agents(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
-                    this.toggle_agents_search(window, cx)
+                    this.open_palette_on(SearchTab::Agents, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)

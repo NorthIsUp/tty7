@@ -7,9 +7,13 @@
 //! tab (`Catalog::all` leaves it out) and why nothing is asked until the
 //! query is [`MIN_QUERY_CHARS`] long and typing has paused for [`DEBOUNCE`].
 //! Only the answer to the last query asked is ever shown.
+//!
+//! [`LiveTab`] is that plumbing for any tab answered this way, History
+//! (`history_text`) included.
 
+use std::cell::Cell;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{App, Context, Window};
@@ -80,10 +84,69 @@ pub(crate) fn empty_hint(query: &str) -> &'static str {
     }
 }
 
-/// The rows of the last search that came back, for the tab they belong to
-/// (Text, or `history_text`'s History). Until the next one lands, they stay
-/// filtered by what is typed now, so extending a query narrows the list at
-/// once instead of blanking it.
+/// A tab whose rows the window answers for (Text, History): the last
+/// answer's rows, what asks for the next, and which ask is the latest.
+#[derive(Clone)]
+pub(crate) struct LiveTab {
+    pub tab: SearchTab,
+    pub rows: Vec<Item>,
+    /// `None` where the tab cannot ask: History in a remote workspace.
+    ask: Option<LiveAsk>,
+    /// Shared by every copy of this palette's catalog and by the tickets it
+    /// hands out, so an answer is judged against its own palette only.
+    latest: Rc<Cell<u64>>,
+}
+
+/// Asks the window for a query's rows; the answer comes back with the ticket
+/// through [`SearchView::set_live_rows`].
+pub(crate) type LiveAsk = Rc<dyn Fn(&str, Ticket, &mut App)>;
+
+/// One ask of one tab in one palette.
+#[derive(Clone)]
+pub(crate) struct Ticket {
+    seq: u64,
+    latest: Rc<Cell<u64>>,
+}
+
+impl Ticket {
+    /// Nothing newer has been asked of its tab since.
+    pub(crate) fn current(&self) -> bool {
+        self.latest.get() == self.seq
+    }
+}
+
+impl LiveTab {
+    pub(crate) fn new(tab: SearchTab, ask: Option<LiveAsk>) -> Self {
+        Self {
+            tab,
+            rows: Vec::new(),
+            ask,
+            latest: Rc::default(),
+        }
+    }
+
+    pub(crate) fn asks(&self) -> bool {
+        self.ask.is_some()
+    }
+
+    /// A ticket that makes every earlier one stale.
+    fn next(&self) -> Ticket {
+        self.latest.set(self.latest.get() + 1);
+        Ticket {
+            seq: self.latest.get(),
+            latest: self.latest.clone(),
+        }
+    }
+
+    /// `ticket` is this tab's latest ask.
+    fn owns(&self, ticket: &Ticket) -> bool {
+        Rc::ptr_eq(&self.latest, &ticket.latest) && ticket.current()
+    }
+}
+
+/// The rows of the last search that came back, for the tab they belong to.
+/// Until the next one lands, they stay filtered by what is typed now, so
+/// extending a query narrows the list at once instead of blanking it.
 pub(super) struct Text<'a>(pub &'a [Item], pub SearchTab);
 
 impl Source for Text<'_> {
@@ -117,108 +180,153 @@ impl Source for Text<'_> {
 }
 
 impl Catalog {
-    /// Asks the window to search file contents for `query`.
-    pub(super) fn ask_text(&self, query: &str, cx: &mut App) {
-        if let Some(ask) = self.text_query.clone() {
-            ask(query, cx);
+    pub(crate) fn live(&self, tab: SearchTab) -> Option<&LiveTab> {
+        self.live.iter().find(|l| l.tab == tab)
+    }
+
+    /// `tab`'s rows as a source, when the window answers for it.
+    pub(super) fn live_source(&self, tab: SearchTab) -> Option<Box<dyn Source + '_>> {
+        let rows = self.live(tab).map_or(&[][..], |l| &l.rows);
+        Some(Box::new(Text(rows, tab)))
+    }
+
+    /// Asks the window for `tab`'s rows for `query`, if the window answers
+    /// for that tab.
+    pub(super) fn ask_live(&self, tab: SearchTab, query: &str, cx: &mut App) {
+        if let Some(live) = self.live(tab)
+            && let Some(ask) = live.ask.clone()
+        {
+            ask(query, live.next(), cx);
         }
     }
 }
 
 impl SearchView {
-    /// The Text tab's rows, for the last query asked.
-    pub(crate) fn set_text_hits(
+    /// A live tab's answer; dropped unless `ticket` is its latest ask here.
+    pub(crate) fn set_live_rows(
         &mut self,
+        ticket: Ticket,
         rows: Vec<Item>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_catalog(|catalog| catalog.text = rows, window, cx);
+        self.update_catalog(
+            |catalog| {
+                if let Some(live) = catalog.live.iter_mut().find(|l| l.owns(&ticket)) {
+                    live.rows = rows;
+                }
+            },
+            window,
+            cx,
+        );
     }
 }
 
-/// Bumped by every query; an answer carrying an older number is dropped.
-static LATEST: AtomicU64 = AtomicU64::new(0);
-
 impl Tty7App {
-    /// What the search calls as the Text tab's query changes.
-    pub(crate) fn palette_text_query(
+    /// The tabs this window answers as they are typed in: Text, and History
+    /// when the workspace is on this machine (the history searched is its).
+    pub(crate) fn palette_live_tabs(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> super::LiveQuery {
-        self.live_query(window, cx, Self::palette_text_search)
+    ) -> Vec<LiveTab> {
+        let history = self.spawn_host(cx).is_local();
+        vec![
+            LiveTab::new(
+                SearchTab::Text,
+                Some(self.live_ask(window, cx, Self::palette_text_search)),
+            ),
+            LiveTab::new(
+                SearchTab::History,
+                history.then(|| self.live_ask(window, cx, Self::palette_history_search)),
+            ),
+        ]
     }
 
-    /// A query callback that runs `search` on this window, outside the
-    /// search's own update.
-    pub(super) fn live_query(
+    /// An ask that runs `search` on this window, outside the search's own
+    /// update.
+    fn live_ask(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
-        search: fn(&mut Self, String, &mut Window, &mut Context<Self>),
-    ) -> super::LiveQuery {
+        search: fn(&mut Self, String, Ticket, &mut Window, &mut Context<Self>),
+    ) -> LiveAsk {
         let app = cx.entity().downgrade();
         let handle = window.window_handle();
-        std::rc::Rc::new(move |query: &str, cx: &mut App| {
+        Rc::new(move |query: &str, ticket: Ticket, cx: &mut App| {
             let (app, query) = (app.clone(), query.to_owned());
             // Deferred: the query arrives from inside the search's own
             // update, and answering it updates the search.
             cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, cx| {
-                    let _ = app.update(cx, |app, cx| search(app, query, window, cx));
+                    let _ = app.update(cx, |app, cx| search(app, query, ticket, window, cx));
                 });
             });
         })
     }
 
-    /// Numbers `query` in `latest` and, once typing has paused with nothing
-    /// newer asked, runs `ask` with its number and pattern. A query too short
-    /// to ask gets `None` at once, so the tab empties without waiting.
+    /// Once typing has paused with nothing newer asked, runs `ask` with the
+    /// query's pattern. A query too short to ask gets `None` at once, so the
+    /// tab empties without waiting.
     pub(super) fn after_pause(
         &mut self,
-        latest: &'static AtomicU64,
+        ticket: Ticket,
         query: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
-        ask: impl FnOnce(&mut Self, u64, Option<String>, &mut Window, &mut Context<Self>) + 'static,
+        ask: impl FnOnce(&mut Self, Option<String>, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        let seq = latest.fetch_add(1, Ordering::Relaxed) + 1;
         let Some(pattern) = pattern(query).map(str::to_owned) else {
-            return ask(self, seq, None, window, cx);
+            return ask(self, None, window, cx);
         };
         cx.spawn_in(window, async move |app, cx| {
             cx.background_executor().timer(DEBOUNCE).await;
-            if latest.load(Ordering::Relaxed) != seq {
+            if !ticket.current() {
                 return;
             }
-            let _ = app.update_in(cx, |app, window, cx| {
-                ask(app, seq, Some(pattern), window, cx)
-            });
+            let _ = app.update_in(cx, |app, window, cx| ask(app, Some(pattern), window, cx));
         })
         .detach();
     }
 
-    fn palette_text_search(&mut self, query: String, window: &mut Window, cx: &mut Context<Self>) {
+    /// Hands a live tab's answer to the open search.
+    pub(super) fn palette_live_land(
+        &mut self,
+        ticket: Ticket,
+        rows: Vec<Item>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(view) = self.search.clone().filter(|_| ticket.current()) {
+            view.update(cx, |view, cx| view.set_live_rows(ticket, rows, window, cx));
+        }
+    }
+
+    fn palette_text_search(
+        &mut self,
+        query: String,
+        ticket: Ticket,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let land = ticket.clone();
         self.after_pause(
-            &LATEST,
+            ticket,
             &query,
             window,
             cx,
-            |app, seq, pattern, window, cx| {
+            move |app, pattern, window, cx| {
                 let Some(pattern) = pattern else {
-                    return app.palette_text_land(seq, Vec::new(), window, cx);
+                    return app.palette_live_land(land, Vec::new(), window, cx);
                 };
                 // After the pause, not before: a tab whose repository root was
                 // not yet known has had the time to resolve it.
                 // ponytail: still resolving after the pause finds nothing; the
                 // next keystroke asks again.
-                let Some((host, roots)) = app.project_roots(cx) else {
-                    return app.palette_text_land(seq, Vec::new(), window, cx);
+                let roots = app.project_roots(cx).filter(|(_, roots)| !roots.is_empty());
+                let Some((host, roots)) = roots else {
+                    return app.palette_live_land(land, Vec::new(), window, cx);
                 };
-                if roots.is_empty() {
-                    return app.palette_text_land(seq, Vec::new(), window, cx);
-                }
                 let query = ContentQuery {
                     pattern,
                     ..ContentQuery::default()
@@ -239,26 +347,11 @@ impl Tty7App {
                                 Vec::new()
                             }
                         };
-                        app.palette_text_land(seq, rows, window, cx);
+                        app.palette_live_land(land, rows, window, cx);
                     },
                 );
             },
         );
-    }
-
-    fn palette_text_land(
-        &mut self,
-        seq: u64,
-        rows: Vec<Item>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if LATEST.load(Ordering::Relaxed) != seq {
-            return;
-        }
-        if let Some(view) = self.search.clone() {
-            view.update(cx, |view, cx| view.set_text_hits(rows, window, cx));
-        }
     }
 }
 
@@ -310,19 +403,41 @@ mod tests {
         assert_eq!(rows[1].subtitle.as_deref(), Some("README.md:3"));
     }
 
+    /// Each palette numbers its own asks, so a query typed in one window's
+    /// palette never makes another window's pending answer stale.
+    #[test]
+    fn an_ask_in_one_palette_leaves_anothers_answer_current() {
+        let a = LiveTab::new(SearchTab::Text, None);
+        let b = LiveTab::new(SearchTab::Text, None);
+        let first = a.next();
+        let other = b.next();
+        assert!(first.current() && a.owns(&first));
+        assert!(
+            !a.owns(&other),
+            "an answer lands only in the palette that asked"
+        );
+
+        let copy = a.clone();
+        let second = copy.next();
+        assert!(!first.current(), "a newer ask, even through a catalog copy");
+        assert!(a.owns(&second) && other.current());
+    }
+
     fn catalog_with_hits() -> Catalog {
         let mut catalog = Catalog::new(
             vec![Item::new("Split Right", CommandKind::SplitRight)],
             Vec::new(),
             Vec::new(),
         );
-        catalog.text = hit_rows(
+        let mut live = LiveTab::new(SearchTab::Text, None);
+        live.rows = hit_rows(
             &[
                 hit("/repo/a.rs", 1, "let split_point = 3;"),
                 hit("/repo/b.rs", 2, "split right here"),
             ],
             &[PathBuf::from("/repo")],
         );
+        catalog.live = vec![live];
         catalog
     }
 
