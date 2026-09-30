@@ -35,3 +35,10 @@
 - **Why:** the daemon knows whether it injected integration, but nothing tells the client. `Prompt` is a fixed 3-tuple and an unknown `DaemonMsg` kind is a decode error, so a new fact on the wire breaks a GUI and daemon of different versions.
 - **Fix:** have the daemon report "integration pending" for a pane (a new frame behind a protocol version check, or a field on a message that tolerates additions), including for an SSH pane whose far shell it integrates, and wait on that instead of a guess.
 
+
+## 2026-09-30 — a parked wake fires on a later, unrelated adopt
+
+- **Where:** src/ui/app.rs `adopt_workspace`, src/ui/agent_resume.rs `wake_restored`
+- **What:** a launch or restart wake that finds the window empty parks in `continue_when_tabs_land`. If the rebuild it waited for brings no tabs, it stays parked and fires on the next `adopt_workspace`, e.g. switching the window to another workspace.
+- **Why:** the harm is small: it wakes only tabs that restore just recorded as dead, which that adopt would have restored asleep.
+- **Fix:** clear the parked wake when an adopt lands with no tabs, or tie it to the workspace it was asked for.
