@@ -5,19 +5,6 @@ All notable changes to tty7 are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **A program following the theme sees it change.** tty7 now supports DEC mode
-  2031 (colour palette update notifications): a program that switches it on is
-  sent `CSI ? 997 ; 1 n` (dark) or `CSI ? 997 ; 2 n` (light) whenever the
-  theme's background changes — a preset pick or a follow-system flip — and
-  `CSI ? 996 n` is answered with the current one. Claude Code's `theme: auto`
-  re-reads the background only on that report, so a running session used to
-  keep its light diff colours after the window turned dark. The mode survives a
-  reattach, and a restored pane's new shell starts with it off.
-
 ## [26.9.4] - 2026-09-29
 
 ### Added
