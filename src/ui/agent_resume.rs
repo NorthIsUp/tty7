@@ -4,12 +4,14 @@
 //! `resume_agents_on_launch`, also after Restart Server), its Settings row
 //! and dialog copy, and the line a restored agent pane types.
 
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use gpui::{AnyElement, App, Context, Entity, Global, IntoElement as _, Window};
 
 use crate::core::config::Config;
-use crate::core::session::{SessionPane, WorkspaceStore};
+use crate::core::session::{SessionPane, SessionTab, WorkspaceStore};
+use crate::terminal::PaneWorkspace;
 use crate::terminal::view::TerminalView;
 use crate::ui::agent_launch::type_at_first_prompt;
 use crate::ui::app::{Tty7App, join_shell_args};
@@ -171,38 +173,56 @@ impl Tty7App {
         woke
     }
 
-    /// Continue All Agents: [`Self::wake_agent_tabs`] with `continue_prompt`.
+    /// Continue All Agents: wake every sleeping agent tab, hibernated on
+    /// purpose or not, with `continue_prompt`.
     pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = cx.global::<Config>().fork.continue_prompt.clone();
-        self.wake_agent_tabs(Some(prompt), window, cx);
+        let ids = agent_tabs(self.asleep_layouts());
+        self.wake_agent_tabs(ids, Some(prompt), window, cx);
     }
 
-    /// Wake every sleeping tab with an agent session in it, one every
-    /// `continue_stagger_ms`, and tell each agent `prompt` — the morning after
-    /// a reboot, in one step. Tabs are found by id when their turn comes, so
-    /// closing or moving one meanwhile is harmless.
-    pub(crate) fn wake_agent_tabs(
+    /// Launch's and Restart Server's wake: only the agent tabs restore put to
+    /// sleep because nothing of them survived. A tab the user hibernated
+    /// stays asleep.
+    pub(crate) fn wake_restored(
         &mut self,
-        prompt: Option<String>,
+        wake: Wake,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.tabs.is_empty() {
-            self.continue_when_tabs_land = Some(prompt);
+            self.continue_when_tabs_land = Some(wake);
             return;
         }
+        let dead = cx.default_global::<RestoredDead>();
+        let ids = restored_wake(self.asleep_layouts(), &dead.0);
+        for tab in &self.tabs {
+            dead.0.remove(&tab.tree_id.get());
+        }
+        self.wake_agent_tabs(ids, wake.prompt, window, cx);
+    }
+
+    fn asleep_layouts(&self) -> Vec<(TabId, Option<&SessionPane>)> {
+        self.tabs
+            .iter()
+            .map(|t| (t.tree_id.get(), t.asleep_layout()))
+            .collect()
+    }
+
+    /// Wake `ids`, one every `continue_stagger_ms`, and tell each agent
+    /// `prompt` — the morning after a reboot, in one step. Tabs are found by
+    /// id when their turn comes, so closing or moving one meanwhile is
+    /// harmless.
+    fn wake_agent_tabs(
+        &mut self,
+        ids: Vec<TabId>,
+        prompt: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let stagger =
             std::time::Duration::from_millis(cx.global::<Config>().fork.continue_stagger_ms);
-        let ids = agent_tabs(
-            self.tabs
-                .iter()
-                .map(|t| (t.tree_id.get(), t.asleep_layout())),
-        );
-        log::info!(
-            "waking agents: {} of {} tabs asleep with an agent session",
-            ids.len(),
-            self.tabs.len()
-        );
+        log::info!("waking agents: {} of {} tabs", ids.len(), self.tabs.len());
         cx.spawn_in(window, async move |this, cx| {
             for (n, id) in ids.into_iter().enumerate() {
                 if n > 0 {
@@ -222,6 +242,52 @@ impl Tty7App {
     }
 }
 
+/// An automatic wake (launch, Restart Server): what it sends each agent it
+/// resumes (`None`: resume without a prompt).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Wake {
+    pub prompt: Option<String>,
+}
+
+/// The tabs the last restore put to sleep because none of their panes
+/// survived (a reboot, Quit and Stop, a restart that killed the shells), as
+/// opposed to tabs the user hibernated. Each restore re-decides its tabs, and
+/// a wake drains its window's.
+#[derive(Default)]
+struct RestoredDead(HashSet<TabId>);
+
+impl Global for RestoredDead {}
+
+/// Whether restore brings `st` back asleep: hibernated, or (with
+/// `restore_asleep`) a local tab none of whose panes survived — twelve agents
+/// come back as twelve places to click, not twelve cold starts racing each
+/// other at launch. Records which of the two it was for [`Tty7App::wake_restored`].
+pub(crate) fn restores_asleep(
+    workspace: Option<&PaneWorkspace>,
+    alive: Option<&HashMap<u64, Option<String>>>,
+    st: &SessionTab,
+    cx: &mut App,
+) -> bool {
+    // A remote listing is not asked for, so only locally can "nothing of it
+    // is running" be told apart from "nobody checked".
+    let lazy = cx.global::<Config>().fork.restore_asleep && workspace.is_none();
+    let dead = restored_dead(st, alive.filter(|_| lazy));
+    if let Some(id) = st.tree_id {
+        let set = &mut cx.default_global::<RestoredDead>().0;
+        match dead {
+            true => set.insert(id),
+            false => set.remove(&id),
+        };
+    }
+    st.hibernated || dead
+}
+
+/// Asleep because nothing of it survived, not because the user put it there.
+/// `alive: None` is "nobody checked", which proves nothing dead.
+fn restored_dead(st: &SessionTab, alive: Option<&HashMap<u64, Option<String>>>) -> bool {
+    !st.hibernated && alive.is_some_and(|a| !layout_has_live_pane(&st.pane, Some(a)))
+}
+
 /// The tabs a wake picks: asleep, with an agent session somewhere in them.
 fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>)>) -> Vec<TabId> {
     tabs.into_iter()
@@ -230,14 +296,24 @@ fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>
         .collect()
 }
 
+/// The tabs an automatic wake picks: [`agent_tabs`] that restore found dead.
+fn restored_wake<'a>(
+    tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>)>,
+    dead: &HashSet<TabId>,
+) -> Vec<TabId> {
+    agent_tabs(tabs.into_iter().filter(|(id, _)| dead.contains(id)))
+}
+
 /// What launch wakes agents with: `--continue` sends `continue_prompt`,
 /// `resume_agents_on_launch` resumes without a prompt, else nothing wakes.
 /// One answer, so a launch with both wakes each tab once.
-fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Option<String>> {
+fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Wake> {
     if continue_flag {
-        Some(Some(cfg.fork.continue_prompt.clone()))
+        Some(Wake {
+            prompt: Some(cfg.fork.continue_prompt.clone()),
+        })
     } else if cfg.fork.resume_agents_on_launch {
-        Some(None)
+        Some(Wake { prompt: None })
     } else {
         None
     }
@@ -246,7 +322,7 @@ fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Option<String>> {
 /// Launch's agent wake (`--continue`, `resume_agents_on_launch`) in the
 /// window launch opened.
 pub fn wake_launch_window(cx: &mut App, continue_flag: bool) {
-    let Some(prompt) = launch_wake(continue_flag, cx.global::<Config>()) else {
+    let Some(wake) = launch_wake(continue_flag, cx.global::<Config>()) else {
         return;
     };
     let Some(ws) = WindowRegistry::most_recent(cx) else {
@@ -260,13 +336,14 @@ pub fn wake_launch_window(cx: &mut App, continue_flag: bool) {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
-        let _ = app.update(cx, |this, cx| this.wake_agent_tabs(prompt, window, cx));
+        let _ = app.update(cx, |this, cx| this.wake_restored(wake, window, cx));
     });
 }
 
 /// Restart Server's agent wake. A restart that kills the shells brings every
 /// local window's tabs back asleep, so with `resume_agents_on_launch` each
-/// window wakes its agent tabs once the rebuild lands them, as a launch would.
+/// window wakes the agent tabs it killed once the rebuild lands them, as a
+/// launch would.
 /// An in-place handoff kills nothing and wakes nothing.
 pub(crate) fn arm_restart_wake(in_place: bool, cx: &mut App) {
     if !restart_wakes(in_place, cx.global::<Config>()) {
@@ -277,7 +354,9 @@ pub(crate) fn arm_restart_wake(in_place: bool, cx: &mut App) {
             continue;
         }
         if let Some(app) = app.upgrade() {
-            app.update(cx, |this, _| this.continue_when_tabs_land = Some(None));
+            app.update(cx, |this, _| {
+                this.continue_when_tabs_land = Some(Wake { prompt: None })
+            });
         }
     }
 }
@@ -348,7 +427,10 @@ pub(crate) fn layout_has_live_pane(
 
 #[cfg(test)]
 mod tests {
-    use super::{Resume, ResumePlan, agent_tabs, launch_wake, layout_has_live_pane, restart_wakes};
+    use super::{
+        Resume, ResumePlan, Wake, agent_tabs, launch_wake, layout_has_live_pane, restart_wakes,
+        restored_dead, restored_wake,
+    };
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
     use tty7_core::core::cli_agent::CLIAgent;
@@ -380,21 +462,58 @@ mod tests {
     }
 
     #[test]
+    fn an_automatic_wake_leaves_hibernated_tabs_asleep() {
+        use crate::core::session::SessionTab;
+        let tab = |hibernated| SessionTab {
+            name: None,
+            pane: agent_leaf(Some("s1")),
+            group: None,
+            last_auto: None,
+            tree_id: Some(TabId::new()),
+            hibernated,
+            asleep_view: None,
+        };
+        let (hibernated, dead) = (tab(true), tab(false));
+        let alive = Default::default();
+        let recorded: std::collections::HashSet<TabId> = [&hibernated, &dead]
+            .into_iter()
+            .filter(|st| restored_dead(st, Some(&alive)))
+            .filter_map(|st| st.tree_id)
+            .collect();
+        let asleep = [
+            (hibernated.tree_id.unwrap(), Some(&hibernated.pane)),
+            (dead.tree_id.unwrap(), Some(&dead.pane)),
+        ];
+        assert_eq!(
+            restored_wake(asleep, &recorded),
+            vec![dead.tree_id.unwrap()]
+        );
+        assert_eq!(agent_tabs(asleep).len(), 2, "Continue All wakes both");
+        assert!(
+            !restored_dead(&dead, None),
+            "an unanswered listing proves nothing dead"
+        );
+    }
+
+    #[test]
     fn launch_wakes_once_with_the_prompt_only_under_continue() {
         let mut cfg = Config::default();
         cfg.fork.continue_prompt = "go".into();
         assert!(cfg.fork.resume_agents_on_launch);
-        assert_eq!(launch_wake(true, &cfg), Some(Some("go".into())));
-        assert_eq!(launch_wake(false, &cfg), Some(None));
+        let go = Some(Wake {
+            prompt: Some("go".into()),
+        });
+        assert_eq!(launch_wake(true, &cfg), go);
+        assert_eq!(launch_wake(false, &cfg), Some(Wake { prompt: None }));
         cfg.fork.resume_agents_on_launch = false;
-        assert_eq!(launch_wake(true, &cfg), Some(Some("go".into())));
+        assert_eq!(launch_wake(true, &cfg), go);
         assert_eq!(launch_wake(false, &cfg), None);
     }
 
     #[test]
     fn with_resume_off_launch_and_restart_leave_agent_tabs_asleep() {
         let mut cfg = Config::default();
-        assert_eq!(launch_wake(false, &cfg), Some(None));
+        assert_eq!(launch_wake(false, &cfg), Some(Wake { prompt: None }));
         assert!(restart_wakes(false, &cfg));
         assert!(
             !restart_wakes(true, &cfg),

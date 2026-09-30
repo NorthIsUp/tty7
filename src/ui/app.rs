@@ -1010,9 +1010,9 @@ pub struct Tty7App {
     /// the tab or pane captured when the question was raised, not on whatever
     /// the app happens to be pointing at by the time it is answered.
     close_prompt_open: bool,
-    /// A launch wake asked before this window's tabs arrived from the tree,
-    /// holding the prompt to send (`None`: resume without one).
-    pub(crate) continue_when_tabs_land: Option<Option<String>>,
+    /// A launch or restart wake asked before this window's tabs arrived from the tree,
+    /// held until they land.
+    pub(crate) continue_when_tabs_land: Option<crate::ui::agent_resume::Wake>,
     window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
@@ -1971,8 +1971,8 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
-        if let Some(prompt) = self.continue_when_tabs_land.take() {
-            self.wake_agent_tabs(prompt, window, cx);
+        if let Some(wake) = self.continue_when_tabs_land.take() {
+            self.wake_restored(wake, window, cx);
         }
         cx.notify();
     }
@@ -10032,13 +10032,7 @@ fn tabs_from_session(
     let Some(session) = session.filter(|s| !s.tabs.is_empty()) else {
         return (Vec::new(), 0, 0);
     };
-    let route = crate::terminal::PaneRoute::for_workspace(workspace);
-    let alive = alive_panes_on(&route);
-    // A remote listing is not asked for, so only here can "nothing of it is
-    // running" be told apart from "nobody checked".
-    let lazy = cx.global::<Config>().fork.restore_asleep
-        && matches!(route, crate::terminal::PaneRoute::Local)
-        && alive.is_some();
+    let alive = alive_panes_on(&crate::terminal::PaneRoute::for_workspace(workspace));
     let mut tabs: Vec<Tab> = Vec::with_capacity(session.tabs.len());
     let mut dropped = 0usize;
     let home = crate::ui::path_display::home_for_host(
@@ -10050,12 +10044,9 @@ fn tabs_from_session(
         // the point. The one exception is the tab the window opens onto — a
         // tab on screen is awake, so that one is woken here, by the same
         // restore every other tab is getting.
-        //
-        // A tab none of whose panes survived (a reboot, Quit and Stop) sleeps
-        // the same way: twelve agents come back as twelve places to click,
-        // not twelve cold starts racing each other at launch.
-        let dead = lazy && !crate::ui::agent_resume::layout_has_live_pane(&st.pane, alive.as_ref());
-        if (st.hibernated || dead) && index != session.active {
+        if crate::ui::agent_resume::restores_asleep(workspace, alive.as_ref(), st, cx)
+            && index != session.active
+        {
             tabs.push(asleep_tab(st, home.clone()));
             continue;
         }

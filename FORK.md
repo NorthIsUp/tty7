@@ -38,7 +38,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/core/fork_update.rs` | the update feed's repo (`update_repo!`, NorthIsUp/tty7); a local install checks no feed and prompts to restart when `install-app` lands a new build |
 | `docs/fork/**` | spec, master plan and task plans for the fork |
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
-| `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; the Resume agents on restart row, the restart wake and the quit/restart dialog copy; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
+| `src/ui/agent_resume.rs` | Continue All Agents (every sleeping agent tab), `--continue` and the launch/restart wakes (only tabs restore found dead, never hibernated ones: `RestoredDead`, `Wake`), which dead tabs restore asleep; the Resume agents on restart row, the restart wake and the quit/restart dialog copy; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands; `bind_shift_enter`, the palette list's ⇧Enter |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; `LiveTab`, the per-palette ask, debounce and latest-answer check History shares |
@@ -124,7 +124,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::ContinueAllAgents`, `CommandKind::SearchAgents` |
 | `src/ui/app.rs` | `search_catalog` | `catalog.open_agent_sessions = self.open_agent_session_ids(cx)` |
 | `src/ui/app.rs` | `agent_resume_command`, `session_to_pane` (connecting leaf) | return an `agent_resume::Resume` (agent, id, argv) instead of a command line; its prompt is `agent_resume::wake_prompt`, which a connecting pane carries in `PendingSpawn::agent_prompt` |
-| `src/ui/app.rs` | `tabs_from_session` | restore a tab with no live pane asleep (`restore_asleep`) |
+| `src/ui/app.rs` | `tabs_from_session` | the sleep test is one call, `agent_resume::restores_asleep` (hibernated, or with `restore_asleep` a local tab with no live pane, recorded so launch and restart wakes pick only those) |
 | `src/ui/app.rs` | `PendingSpawn` literals | `..Default::default()` |
 | `src/ui/agent_launch.rs` | `with_minted_session`, `launch_agent` split into `launch_agent_in` / `start_agent_in` (+ test) | mint Claude's `--session-id` at launch; launch into an explicit cwd for the new tab page |
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt`, `Default` derive | carry the prompt until a connecting pane lands; literals fill the rest with `..Default::default()` |
