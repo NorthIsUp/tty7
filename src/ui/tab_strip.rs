@@ -19,6 +19,7 @@ use crate::core::actions::{
 };
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, RightPanelTab};
+use crate::core::group_key::GroupKey;
 use crate::core::shells::DetectedShell;
 use crate::daemon::protocol::ShellSpec;
 use crate::ui::app::{SpawnWhere, TILE_GLYPH, TILE_SIZE, Tab, Tty7App, tile_trailing_inset};
@@ -1904,8 +1905,8 @@ impl Tty7App {
         index: usize,
         below_wording: bool,
         app: &gpui::WeakEntity<Self>,
-        window: &Window,
-        cx: &App,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
         let Some(entity) = app.upgrade() else {
             return menu;
@@ -1978,48 +1979,66 @@ impl Tty7App {
             );
         }
 
-        // Where this tab sits, and where it could be put instead.
+        // Where this tab sits, and where it could be put instead: every group
+        // the sidebar draws, auto ones included, behind a submenu — a sidebar
+        // grouping by repo can hold dozens, far too many to lay out flat.
         //
-        // Laid out flat rather than behind a "Move to Group ▸" submenu: there
-        // are never many pinned groups — they are kept by hand — so a submenu
-        // would cost a second click to show two or three items, and
-        // `PopupMenu::submenu` wants a `&mut Context` this function does not
-        // have. The label above them says what the block is.
+        // An auto group's membership is its tabs' cwds, so a tab can only be
+        // put in one by keeping the group: picking it pins the group (as its
+        // header's pin does) and the tab with it. Ungrouped hands the tab back
+        // to auto grouping.
         //
-        // No way back to auto grouping here: that is a drag below the divider,
-        // the one place in the sidebar where "not kept by hand" is drawn.
-        // Offered only with the tabs in the sidebar for the same reason — a
-        // group is something the sidebar draws, and "move to group" from the
-        // top tab bar would name something the user cannot see.
+        // Offered only with the tabs in the sidebar — a group is something the
+        // sidebar draws, and "move to group" from the top tab bar would name
+        // something the user cannot see.
         if cx.global::<Config>().tab_bar_position == crate::core::config::TabBarPosition::Left {
-            let here = this
-                .tabs
-                .get(index)
-                .and_then(|t| t.group.get())
-                .filter(|g| this.sidebar_groups.contains(*g));
-            menu = menu
-                .separator()
-                .item(PopupMenuItem::label(t(L10nKey::SidebarMoveToGroup)));
-            for (id, name) in this.pinned_group_names() {
-                menu = menu.item(
-                    PopupMenuItem::new(name)
-                        .checked(here == Some(id))
-                        .on_click({
+            let keys = this.sidebar_group_keys(cx);
+            let targets = crate::ui::tab_sidebar::move_targets(&keys, &this.sidebar_groups, index);
+            let app = app.clone();
+            menu = menu.separator().submenu(
+                t(L10nKey::SidebarMoveToGroup),
+                window,
+                cx,
+                move |mut sub, _window, _cx| {
+                    let ungrouped = targets.len() - 1;
+                    for (i, target) in targets.iter().enumerate() {
+                        if i == ungrouped && i > 0 {
+                            sub = sub.separator();
+                        }
+                        let mut item =
+                            PopupMenuItem::new(target.name.clone()).checked(target.checked);
+                        if !target.checked {
                             let app = app.clone();
-                            move |_, _window, cx| {
+                            let key = target.key.clone();
+                            item = item.on_click(move |_, _window, cx| {
+                                let key = key.clone();
+                                let _ = app.update(cx, |this, cx| {
+                                    let group = match key {
+                                        Some(GroupKey::Pinned(id)) => Some(id),
+                                        Some(GroupKey::Auto(auto)) => {
+                                            Some(this.pin_auto_group(auto, cx))
+                                        }
+                                        None => None,
+                                    };
+                                    this.set_tab_group(index, group, cx);
+                                });
+                            });
+                        }
+                        sub = sub.item(item);
+                    }
+                    let app = app.clone();
+                    sub.separator()
+                        .item(PopupMenuItem::new(t(L10nKey::SidebarNewGroup)).on_click(
+                            move |_, window, cx| {
                                 let _ = app
-                                    .update(cx, |this, cx| this.set_tab_group(index, Some(id), cx));
-                            }
-                        }),
-                );
-            }
-            menu = menu.item(PopupMenuItem::new(t(L10nKey::SidebarNewGroup)).on_click({
-                let app = app.clone();
-                move |_, window, cx| {
-                    let _ = app.update(cx, |this, cx| this.new_tab_group(index, window, cx));
-                }
-            }));
+                                    .update(cx, |this, cx| this.new_tab_group(index, window, cx));
+                            },
+                        ))
+                },
+            );
         }
+        // Read again: the submenu above needed `cx` mutably.
+        let this = entity.read(cx);
 
         let in_repo = this.tab_is_in_repo(index, window, cx);
         if in_repo {
