@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use gpui::{AnyElement, Context, SharedString, Window, div, prelude::*, px, rems};
@@ -19,7 +20,7 @@ use gpui_component::{ActiveTheme as _, h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::github::api::{self, ListQuery};
-use tty7_core::core::github::{Item, Kind, RepoSlug, StateFilter};
+use tty7_core::core::github::{ApiError, Item, Kind, RepoSlug, StateFilter};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
 
@@ -53,9 +54,19 @@ pub(crate) struct SessionState {
     /// The Session tab is showing, instead of `kind`'s list.
     pub(crate) tab: bool,
     cache: Option<SessionCache>,
-    /// Rows read one at a time; `None` for a number that did not resolve.
+    /// Rows read one at a time; `None` for a number GitHub has no issue or
+    /// pull request under.
     looked_up: HashMap<(RepoSlug, u64), Option<Item>>,
-    looking_up: bool,
+    /// The lookup in flight per repository, by the `seq` it started under.
+    looking_up: HashMap<RepoSlug, u64>,
+    /// A lookup failed short of a 404 (rate limit, 401, network): the
+    /// repository waits [`STALE_AFTER`] before the next one.
+    backoff: HashMap<RepoSlug, Instant>,
+    /// Bumped by refresh and by the Session list moving to another
+    /// repository; a worker stops between items once it moves, and its
+    /// results are dropped.
+    seq: Arc<AtomicU64>,
+    shown: Option<RepoSlug>,
 }
 
 impl Default for SessionState {
@@ -64,7 +75,10 @@ impl Default for SessionState {
             tab: true,
             cache: None,
             looked_up: HashMap::new(),
-            looking_up: false,
+            looking_up: HashMap::new(),
+            backoff: HashMap::new(),
+            seq: Arc::new(AtomicU64::new(0)),
+            shown: None,
         }
     }
 }
@@ -74,7 +88,25 @@ pub(crate) fn mark_due(session: &mut SessionState) {
     if let Some(c) = &mut session.cache {
         c.fetched = None;
     }
+    session.seq.fetch_add(1, Ordering::Relaxed);
     session.looked_up.clear();
+    session.looking_up.clear();
+    session.backoff.clear();
+}
+
+/// Per number, the row read last (highest `updated_at`) among every source.
+fn newest<'a>(items: impl Iterator<Item = &'a Item>) -> HashMap<u64, &'a Item> {
+    let mut out: HashMap<u64, &Item> = HashMap::new();
+    for item in items {
+        out.entry(item.number)
+            .and_modify(|had| {
+                if item.updated_at > had.updated_at {
+                    *had = item;
+                }
+            })
+            .or_insert(item);
+    }
+    out
 }
 
 /// The remote to prefer: the user's pick, else `origin` (the fork) when
@@ -171,50 +203,82 @@ impl Tty7App {
         if mentions.numbers.is_empty() {
             return Some(self.panel_empty(t(L10nKey::GitHubNoSessionMentions), None, cx));
         }
-        let queries = [Kind::Issues, Kind::Pulls].map(|k| all_query(slug, k));
-        for q in &queries {
-            self.github_ensure_list(q, cx);
+        if self.github.session.shown.as_ref() != Some(slug) {
+            self.github.session.shown = Some(slug.clone());
+            self.github.session.seq.fetch_add(1, Ordering::Relaxed);
         }
-        let lists_in = queries.iter().all(|q| {
-            self.github
-                .lists
-                .get(q)
-                .is_some_and(|l| l.loaded && !l.loading)
-        });
-        if lists_in && !self.github.session.looking_up {
-            let missing = to_look_up(&mentions.numbers, &self.github_known(slug), |n| {
-                self.github
-                    .session
-                    .looked_up
-                    .contains_key(&(slug.clone(), n))
-            });
-            if !missing.is_empty() {
-                self.github_look_up(slug.clone(), missing, cx);
-            }
-        }
+        self.github_session_lists(slug, cx);
         let known = self.github_known(slug);
+        let missing = self.github_session_missing(slug, &mentions.numbers, &known);
         let rows = session_rows(
             &mentions.numbers,
             &known,
             self.github.state,
             self.github.label.as_deref(),
         );
-        if rows.is_empty() {
-            return Some(self.panel_empty(t(L10nKey::GitHubNoSessionMatches), None, cx));
-        }
-        let now = crate::ui::github::now_unix();
-        let mut list = v_flex().px(px(CONTENT_INSET));
-        for row in rows {
-            list = list.child(match row {
-                Row::Known(item) => self.github_item_row(slug, item, now, cx),
-                Row::Unknown(n) => self.github_unknown_row(slug, n, cx),
-            });
-        }
-        Some(v_flex().pb(px(12.)).child(list).into_any_element())
+        let body = if rows.is_empty() {
+            self.panel_empty(t(L10nKey::GitHubNoSessionMatches), None, cx)
+        } else {
+            let now = crate::ui::github::now_unix();
+            let mut list = v_flex().px(px(CONTENT_INSET));
+            for row in rows {
+                list = list.child(match row {
+                    Row::Known(item) => self.github_item_row(slug, item, now, cx),
+                    Row::Unknown(n) => self.github_unknown_row(slug, n, cx),
+                });
+            }
+            v_flex().pb(px(12.)).child(list).into_any_element()
+        };
+        drop(known);
+        self.github_look_up(slug.clone(), missing, cx);
+        Some(body)
     }
 
-    /// Every row the panel holds for `slug`, by number; a detail or a lookup
-    /// over a list page, being the fresher read.
+    /// The repository's `state=all` lists, which answer most mentions.
+    fn github_session_lists(&mut self, slug: &RepoSlug, cx: &mut Context<Self>) {
+        for kind in [Kind::Issues, Kind::Pulls] {
+            self.github_ensure_list(&all_query(slug, kind), cx);
+        }
+    }
+
+    /// The mentions to look up one by one now: none until both lists have
+    /// landed cleanly, while one is in flight or backing off, or signed out
+    /// (60 requests an hour is the whole panel's budget).
+    fn github_session_missing(
+        &self,
+        slug: &RepoSlug,
+        numbers: &[u64],
+        known: &HashMap<u64, &Item>,
+    ) -> Vec<u64> {
+        let session = &self.github.session;
+        let lists_in = [Kind::Issues, Kind::Pulls].iter().all(|&k| {
+            self.github
+                .lists
+                .get(&all_query(slug, k))
+                .is_some_and(|l| l.loaded && !l.loading && l.error.is_none())
+        });
+        let signed_in = self
+            .github
+            .connection
+            .as_ref()
+            .is_some_and(|c| c.transport.authenticated());
+        if !lists_in
+            || !signed_in
+            || session.looking_up.contains_key(slug)
+            || session
+                .backoff
+                .get(slug)
+                .is_some_and(|t| t.elapsed() < STALE_AFTER)
+        {
+            return Vec::new();
+        }
+        to_look_up(numbers, known, |n| {
+            session.looked_up.contains_key(&(slug.clone(), n))
+        })
+    }
+
+    /// Every row the panel holds for `slug` (lists, lookups, details), the
+    /// newest read of each number.
     fn github_known(&self, slug: &RepoSlug) -> HashMap<u64, &Item> {
         let lists = self
             .github
@@ -235,38 +299,55 @@ impl Tty7App {
             .iter()
             .filter(|((s, _), _)| s == slug)
             .filter_map(|(_, d)| d.detail.as_ref().map(|d| &d.item));
-        lists
-            .chain(looked_up)
-            .chain(details)
-            .map(|i| (i.number, i))
-            .collect()
+        newest(lists.chain(looked_up).chain(details))
     }
 
-    /// Read `numbers`' rows one after another on one worker.
+    /// Read `numbers`' rows one after another on one worker, stopping at
+    /// the first failure other than a 404 or once `seq` moves on.
     fn github_look_up(&mut self, slug: RepoSlug, numbers: Vec<u64>, cx: &mut Context<Self>) {
+        if numbers.is_empty() {
+            return;
+        }
         let Some(connection) = self.github_connection(cx) else {
             return;
         };
-        self.github.session.looking_up = true;
+        let seq = self.github.session.seq.clone();
+        let mine = seq.load(Ordering::Relaxed);
+        self.github.session.looking_up.insert(slug.clone(), mine);
         cx.spawn(async move |this, cx| {
             let transport = connection.transport.clone();
             let asked = slug.clone();
             let got = off_ui(move || {
-                numbers
-                    .into_iter()
-                    .map(|n| {
-                        let item = api::item(&*transport, &asked, n)
-                            .inspect_err(|e| log::warn!("github: {}#{n}: {e}", asked.full()))
-                            .ok();
-                        (n, item)
-                    })
-                    .collect::<Vec<_>>()
+                let mut got = Vec::new();
+                for n in numbers {
+                    if seq.load(Ordering::Relaxed) != mine {
+                        return (got, false);
+                    }
+                    match api::item(&*transport, &asked, n) {
+                        Ok(item) => got.push((n, Some(item))),
+                        Err(ApiError::NotFound) => got.push((n, None)),
+                        Err(e) => {
+                            log::warn!("github: {}#{n}: {e}", asked.full());
+                            return (got, true);
+                        }
+                    }
+                }
+                (got, false)
             })
             .await;
             let _ = this.update(cx, |this, cx| {
                 let session = &mut this.github.session;
-                session.looking_up = false;
-                for (n, item) in got.unwrap_or_default() {
+                if session.looking_up.get(&slug) == Some(&mine) {
+                    session.looking_up.remove(&slug);
+                }
+                if session.seq.load(Ordering::Relaxed) != mine {
+                    return;
+                }
+                let (got, failed) = got.unwrap_or_default();
+                if failed {
+                    session.backoff.insert(slug.clone(), Instant::now());
+                }
+                for (n, item) in got {
                     session.looked_up.insert((slug.clone(), n), item);
                 }
                 cx.notify();
@@ -469,5 +550,194 @@ mod tests {
             &[1, 4],
             "known and already tried ones skipped"
         );
+    }
+
+    #[test]
+    fn the_newest_read_of_a_number_wins_whatever_the_order() {
+        let mut stale = item(5);
+        stale.updated_at = 1;
+        let mut fresh = item(5);
+        fresh.updated_at = 2;
+        fresh.state = ItemState::Merged;
+        for pair in [[&stale, &fresh], [&fresh, &stale]] {
+            assert_eq!(newest(pair.into_iter())[&5].state, ItemState::Merged);
+        }
+    }
+}
+
+/// The lookup's lifecycle against a fake GitHub: when it runs, what it
+/// keeps, and what a refresh throws away.
+#[cfg(test)]
+mod gpui_tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+
+    use gpui::{Entity, TestAppContext, VisualTestContext};
+    use tty7_core::core::github::{ItemState, Reply, Transport};
+
+    use super::*;
+    use crate::ui::app::test_window;
+    use crate::ui::github::Connection;
+
+    #[derive(Default)]
+    struct Fake {
+        asked: Mutex<Vec<String>>,
+        lists_fail: bool,
+        /// `/issues/N` waits while this is set.
+        hold: AtomicBool,
+    }
+
+    impl Transport for Fake {
+        fn get(&self, path: &str) -> Result<Reply, ApiError> {
+            self.asked.lock().unwrap().push(path.to_string());
+            let body = if path.starts_with("/repos/acme/widgets/issues?") {
+                if self.lists_fail {
+                    return Err(ApiError::RateLimited { reset: None });
+                }
+                "[]".to_string()
+            } else if path.starts_with("/repos/acme/widgets/pulls?") {
+                r#"[{"number": 5, "title": "Merged since", "state": "closed",
+                     "merged_at": "2026-09-03T10:00:00Z", "draft": false,
+                     "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-03T10:00:00Z",
+                     "html_url": "https://github.com/acme/widgets/pull/5",
+                     "head": {"ref": "x"}, "base": {"ref": "main"}}]"#
+                    .to_string()
+            } else if let Some(n) = path.strip_prefix("/repos/acme/widgets/issues/") {
+                while self.hold.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                format!(
+                    r#"{{"number": {n}, "title": "looked up", "state": "open",
+                         "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-01T10:00:00Z",
+                         "html_url": "x"}}"#
+                )
+            } else {
+                return Err(ApiError::NotFound);
+            };
+            Ok(Reply {
+                body: body.into_bytes(),
+                has_next: false,
+            })
+        }
+
+        fn authenticated(&self) -> bool {
+            true
+        }
+    }
+
+    fn slug() -> RepoSlug {
+        RepoSlug {
+            owner: "acme".into(),
+            name: "widgets".into(),
+        }
+    }
+
+    fn setup(cx: &mut TestAppContext, fake: Arc<Fake>) -> (Entity<Tty7App>, VisualTestContext) {
+        let (app, mut vcx) = test_window::harness(cx);
+        let transport: Arc<dyn Transport> = fake;
+        app.update_in(&mut vcx, |app, _, _| {
+            app.github.connector = Some(Arc::new(move || Connection {
+                transport: transport.clone(),
+            }));
+        });
+        (app, vcx)
+    }
+
+    /// What one Session render does to the network, `times` over.
+    fn passes(app: &Entity<Tty7App>, vcx: &mut VisualTestContext, numbers: &[u64], times: usize) {
+        for _ in 0..times {
+            app.update_in(vcx, |app, _, cx| {
+                let slug = slug();
+                app.github_session_lists(&slug, cx);
+                let known = app.github_known(&slug);
+                let missing = app.github_session_missing(&slug, numbers, &known);
+                app.github_look_up(slug, missing, cx);
+            });
+            vcx.background_executor.run_until_parked();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    fn lookups(fake: &Fake) -> usize {
+        fake.asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|p| p.starts_with("/repos/acme/widgets/issues/"))
+            .count()
+    }
+
+    #[gpui::test]
+    fn a_failed_list_stops_the_lookups(cx: &mut TestAppContext) {
+        let fake = Arc::new(Fake {
+            lists_fail: true,
+            ..Default::default()
+        });
+        let (app, mut vcx) = setup(cx, fake.clone());
+        passes(&app, &mut vcx, &[9, 5], 20);
+        assert!(
+            fake.asked.lock().unwrap().len() >= 2,
+            "the lists were asked"
+        );
+        assert_eq!(lookups(&fake), 0);
+    }
+
+    #[gpui::test]
+    fn a_stale_lookup_does_not_hide_a_fresher_list_row(cx: &mut TestAppContext) {
+        let fake = Arc::new(Fake::default());
+        let (app, mut vcx) = setup(cx, fake.clone());
+        let old = Item {
+            number: 5,
+            title: "looked up".into(),
+            state: ItemState::Open,
+            is_pr: true,
+            author: String::new(),
+            labels: Vec::new(),
+            comments: 0,
+            created_at: 0,
+            updated_at: 1,
+            html_url: String::new(),
+        };
+        app.update_in(&mut vcx, |app, _, _| {
+            app.github.session.looked_up.insert((slug(), 5), Some(old));
+        });
+        // Until 9 is looked up, the lists have landed.
+        for _ in 0..200 {
+            passes(&app, &mut vcx, &[9, 5], 1);
+            if lookups(&fake) > 0 {
+                break;
+            }
+        }
+        let state = app.update_in(&mut vcx, |app, _, _| app.github_known(&slug())[&5].state);
+        assert_eq!(state, ItemState::Merged);
+        assert_eq!(lookups(&fake), 1, "5 was not looked up again, 9 was");
+    }
+
+    #[gpui::test]
+    fn refresh_drops_a_lookup_in_flight(cx: &mut TestAppContext) {
+        let fake = Arc::new(Fake::default());
+        fake.hold.store(true, Ordering::SeqCst);
+        let (app, mut vcx) = setup(cx, fake.clone());
+        for _ in 0..200 {
+            passes(&app, &mut vcx, &[9, 10], 1);
+            if lookups(&fake) > 0 {
+                break;
+            }
+        }
+        assert_eq!(lookups(&fake), 1, "the worker is holding on #9");
+        app.update_in(&mut vcx, |app, _, _| mark_due(&mut app.github.session));
+        fake.hold.store(false, Ordering::SeqCst);
+        for _ in 0..20 {
+            vcx.background_executor.run_until_parked();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(lookups(&fake), 1, "it stopped before #10");
+        let kept = app.update_in(&mut vcx, |app, _, _| {
+            (
+                app.github.session.looked_up.len(),
+                app.github.session.looking_up.len(),
+            )
+        });
+        assert_eq!(kept, (0, 0));
     }
 }

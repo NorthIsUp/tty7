@@ -462,6 +462,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn an_item_is_one_issue_read_and_knows_a_merged_pull_request() {
+        let mut t = Fixture::new();
+        t.on(
+            "/repos/l0ng-ai/tty7/issues/8",
+            r#"{"number": 8, "title": "Fix typo", "state": "closed", "user": {"login": "cy"},
+                "labels": [], "comments": 0, "created_at": "2026-09-02T10:00:00Z",
+                "updated_at": "2026-09-03T10:00:00Z", "html_url": "https://github.com/l0ng-ai/tty7/pull/8",
+                "pull_request": {"url": "x", "merged_at": "2026-09-03T10:00:00Z"}}"#,
+            false,
+        );
+        let got = item(&t, &slug(), 8).unwrap();
+        assert!(got.is_pr);
+        assert_eq!(got.state, ItemState::Merged);
+        assert_eq!(*t.asked.lock().unwrap(), ["/repos/l0ng-ai/tty7/issues/8"]);
+        assert_eq!(item(&t, &slug(), 9), Err(ApiError::NotFound));
+    }
+
+    #[test]
     fn issues_come_from_issues_with_the_pull_requests_filtered_out() {
         let mut t = Fixture::new();
         t.on(
