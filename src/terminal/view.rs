@@ -12266,42 +12266,15 @@ mod gpui_tests {
         }
     }
 
-    /// What a pane types back to its daemon, collected off a reader thread so
-    /// the test can keep the executor running while it waits.
-    fn typed_back(daemon: &Stream) -> std::sync::mpsc::Receiver<Vec<u8>> {
-        let mut reader = daemon.try_clone().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            while let Ok(msg) = ClientMsg::read(&mut reader) {
-                if let ClientMsg::Input(bytes) = msg {
-                    let _ = tx.send(bytes);
-                }
-            }
-        });
-        rx
-    }
-
-    /// Everything typed back within `wait`, stopping early once it contains
-    /// `until`.
-    fn typed(
-        cx: &mut TestAppContext,
-        input: &std::sync::mpsc::Receiver<Vec<u8>>,
-        until: &str,
-        wait: std::time::Duration,
-    ) -> String {
-        let mut out = Vec::new();
-        let end = std::time::Instant::now() + wait;
-        while std::time::Instant::now() < end {
-            cx.run_until_parked();
-            while let Ok(bytes) = input.try_recv() {
-                out.extend(bytes);
-            }
-            if !until.is_empty() && String::from_utf8_lossy(&out).contains(until) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        String::from_utf8(out).unwrap()
+    /// `next_input_until_timeout` with the executor run between reads: a reply
+    /// crosses the reader thread and the view before it is written.
+    fn pumped_input(cx: &mut TestAppContext, daemon: &mut Stream, tries: usize) -> Option<String> {
+        (0..tries)
+            .find_map(|_| {
+                cx.run_until_parked();
+                next_input_until_timeout(daemon)
+            })
+            .map(|bytes| String::from_utf8(bytes).unwrap())
     }
 
     #[gpui::test]
@@ -12310,65 +12283,75 @@ mod gpui_tests {
             cx.update(|cx| gpui_component::Theme::global_mut(cx).background = bg)
         };
         let (_asked_window, mut asked) = harness(cx);
-        let (_plain_window, plain) = harness(cx);
+        let (_plain_window, mut plain) = harness(cx);
         set_background(cx, gpui::white());
-        let asked_input = typed_back(&asked);
-        let plain_input = typed_back(&plain);
-        let wait = std::time::Duration::from_secs(5);
-        let quiet = std::time::Duration::from_millis(200);
 
         DaemonMsg::Output(b"\x1b[?2031h\x1b[?996n".to_vec())
             .encode(&mut asked)
             .unwrap();
         assert_eq!(
-            typed(cx, &asked_input, "997", wait),
-            "\x1b[?997;2n",
+            pumped_input(cx, &mut asked, 20).as_deref(),
+            Some("\x1b[?997;2n"),
             "996 answers the current scheme"
         );
 
         set_background(cx, gpui::black());
-        assert_eq!(typed(cx, &asked_input, "997", wait), "\x1b[?997;1n");
+        assert_eq!(
+            pumped_input(cx, &mut asked, 20).as_deref(),
+            Some("\x1b[?997;1n")
+        );
         DaemonMsg::Output(b"\x1b]11;?\x07".to_vec())
             .encode(&mut asked)
             .unwrap();
         assert!(
-            typed(cx, &asked_input, "rgb:", wait).contains("11;rgb:0000/0000/0000"),
+            pumped_input(cx, &mut asked, 20)
+                .is_some_and(|reply| reply.contains("11;rgb:0000/0000/0000")),
             "OSC 11 answers with the background the flip left"
         );
 
         set_background(cx, gpui::white());
-        assert_eq!(typed(cx, &asked_input, "997", wait), "\x1b[?997;2n");
         assert_eq!(
-            typed(cx, &plain_input, "", quiet),
-            "",
+            pumped_input(cx, &mut asked, 20).as_deref(),
+            Some("\x1b[?997;2n")
+        );
+        assert_eq!(
+            pumped_input(cx, &mut plain, 2),
+            None,
             "a pane that never set 2031 is not written to"
         );
 
         DaemonMsg::Output(b"\x1b[?2031l".to_vec())
             .encode(&mut asked)
             .unwrap();
-        let _ = typed(cx, &asked_input, "", std::time::Duration::from_millis(100));
+        assert_eq!(pumped_input(cx, &mut asked, 1), None);
         set_background(cx, gpui::black());
-        assert_eq!(typed(cx, &asked_input, "", quiet), "", "2031 switched off");
+        assert_eq!(pumped_input(cx, &mut asked, 2), None, "2031 switched off");
     }
 
     #[gpui::test]
     fn a_reattach_that_replays_2031_reports_the_scheme_once(cx: &mut TestAppContext) {
         let (_window, mut daemon) = harness(cx);
         cx.update(|cx| gpui_component::Theme::global_mut(cx).background = gpui::black());
-        let input = typed_back(&daemon);
-        DaemonMsg::Snapshot(b"\x1b[?2031h\x1b[?996n".to_vec())
+        // What a replay sends: the modes ahead of the ring, then each ring
+        // segment, then whatever live frame comes next.
+        DaemonMsg::Snapshot(b"\x1b[?2031h".to_vec())
+            .encode(&mut daemon)
+            .unwrap();
+        DaemonMsg::Snapshot(b"\x1b[?996n".to_vec())
+            .encode(&mut daemon)
+            .unwrap();
+        DaemonMsg::Output(b"$ ".to_vec())
             .encode(&mut daemon)
             .unwrap();
         assert_eq!(
-            typed(cx, &input, "997", std::time::Duration::from_secs(5)),
-            "\x1b[?997;1n",
+            pumped_input(cx, &mut daemon, 20).as_deref(),
+            Some("\x1b[?997;1n"),
             "the theme may have flipped while detached"
         );
         assert_eq!(
-            typed(cx, &input, "", std::time::Duration::from_millis(200)),
-            "",
-            "the replayed 996 is not answered again"
+            pumped_input(cx, &mut daemon, 2),
+            None,
+            "one report for the whole replay, and the replayed 996 is not answered"
         );
     }
 

@@ -1255,6 +1255,9 @@ impl RemoteTerminal {
                 // (`term_modes` restores it ahead of the ring).
                 let mut modes = TerminalModes::new();
                 color_scheme_updates.store(false, Ordering::Relaxed);
+                // Set by a replay, sent on the first frame after it: a replay
+                // is a modes Snapshot plus one per ring segment.
+                let mut report_scheme = false;
                 let mut pending: Vec<u8> = buffered;
                 // Kitty-graphics decode runs on its own thread with newest-frame
                 // coalescing (issue #213): inflating a full-window browser frame
@@ -1450,6 +1453,14 @@ impl RemoteTerminal {
                                 break 'main;
                             }
                         };
+                        if report_scheme
+                            && !matches!(msg, DaemonMsg::Snapshot(_) | DaemonMsg::Size(_))
+                        {
+                            report_scheme = false;
+                            if modes.is_on(COLOR_SCHEME_UPDATES) {
+                                proxy.send_event(super::color_scheme::query_reply());
+                            }
+                        }
                         match msg {
                             // Geometry, applied at this exact stream position.
                             // During replay each ring segment is preceded by
@@ -1525,9 +1536,7 @@ impl RemoteTerminal {
                                 // was detached, so say what it is now.
                                 super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
                                 modes.take_color_scheme_queries();
-                                if modes.is_on(COLOR_SCHEME_UPDATES) {
-                                    proxy.send_event(super::color_scheme::query_reply());
-                                }
+                                report_scheme = true;
                                 // The replay carries the pane's recent marks,
                                 // so reading it is what lets a reattached
                                 // window know whether the title it just
