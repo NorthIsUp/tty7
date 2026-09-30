@@ -3895,17 +3895,7 @@ mod fold_tests {
         let mark = vcx
             .debug_bounds("sidebar-group-unpin")
             .expect("a folder group draws its pin mark");
-        // As a pointer does it: arrive, dwell long enough for the tooltip,
-        // then press and let go.
-        let at = mark.center();
-        vcx.simulate_mouse_move(at, None, gpui::Modifiers::none());
-        vcx.run_until_parked();
-        vcx.executor()
-            .advance_clock(std::time::Duration::from_secs(2));
-        vcx.run_until_parked();
-        vcx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::none());
-        vcx.run_until_parked();
-        vcx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+        vcx.simulate_click(mark.center(), gpui::Modifiers::none());
         vcx.run_until_parked();
 
         app.update(&mut vcx, |app, _| {
