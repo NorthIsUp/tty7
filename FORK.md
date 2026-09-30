@@ -40,7 +40,6 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `docs/window/new-tab-page.mdx` | user docs for the new tab page |
 | `src/ui/agent_resume.rs` | Continue All Agents, `--continue`, which dead tabs restore asleep; `wake_tab_with` (a wake whose resumes carry a prompt, via the scoped `WakePrompt`); `Resume`/`AtPrompt`, the one command a restored agent pane types; `prompt_patience` |
 | `src/ui/new_tab_page.rs` | the new tab page picker (agent or terminal, and a directory), drawn as Search Everywhere's New Tab tab |
-| `src/ui/palette.rs` | ⌘T / ⌘P / ⌘K open Search Everywhere on New Tab / All / Agents wherever focus is (the Settings window too), and an open palette keeps every key: a keystroke interceptor, ahead of all bindings |
 | `src/ui/background_tab.rs` | ⇧ opens a tab in the background: `in_background`, `seat_new_tab`, which palette rows take it, where `active` lands; `bind_shift_enter`, the palette list's ⇧Enter |
 | `src/ui/search/text.rs` | Search Everywhere's Text tab: find in files over `Host::search_content`, debounced, never on All; `LiveTab`, the per-palette ask, debounce and latest-answer check History shares |
 | `src/ui/search/agents.rs` | Search Everywhere's Agents tab (⌘K): the Terminals tab's open tabs, then the Sessions tab's rows not open in any pane |
@@ -139,6 +138,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `hotkey_window`, `new_tab_page`, `palette` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
+| `src/ui/palette.rs` | imports; `chord_tab` (was `is_palette_chord`) and its two call sites, the new tab page's keys in `intercept`, `open_palette_on` (+ tests) | upstream's since #1026, for ⌘P; the fork adds ⌘T (New Tab) and ⌘K (Agents) as tabs the same chord logic opens, and the new tab page's own keys ahead of the modal rule |
 | `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `background_tab::bind_shift_enter` first, so the base snapshot keeps it; the palette takes ⌘K first on macOS |
 | `src/ui/settings_window.rs` | `SettingsWindow::app` | `pub(crate)`, so a palette chord in Settings opens the palette over its workspace |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents`, `SearchAgents` in Search Everywhere |
