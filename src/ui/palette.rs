@@ -41,10 +41,17 @@ fn is_palette_chord(ks: &Keystroke, cx: &App) -> bool {
 }
 
 /// The query field's own editing chords, which the modal rule leaves alone.
+/// Shift only with Z (redo): ⌘⇧A is New Agent Tab on macOS, and any other
+/// shifted letter is the workspace's to bind.
 fn edits_text(ks: &Keystroke) -> bool {
-    ks.modifiers.secondary()
-        && !ks.modifiers.alt
-        && matches!(ks.key.as_str(), "a" | "c" | "v" | "x" | "z")
+    let m = &ks.modifiers;
+    m.secondary()
+        && !m.alt
+        && match ks.key.as_str() {
+            "a" | "c" | "v" | "x" => !m.shift,
+            "z" => true,
+            _ => false,
+        }
 }
 
 fn recording_a_shortcut(app: &Entity<Tty7App>, cx: &App) -> bool {
@@ -239,6 +246,18 @@ mod tests {
         // A workspace chord the query field does not handle stays in the palette.
         let second_tab = key("ActivateTab2", &mut vcx);
         vcx.simulate_keystrokes(&second_tab);
+        vcx.run_until_parked();
+        assert_eq!(app.read_with(&vcx, |app, _| app.active), 0, "no tab switch");
+        // Nor one on a shifted editing letter (⌘⇧A is New Agent Tab on macOS):
+        // only the unshifted chords, and redo, are the field's.
+        vcx.update(|_, cx| {
+            cx.bind_keys([KeyBinding::new(
+                "secondary-shift-a",
+                crate::core::actions::ActivateTab2,
+                None,
+            )])
+        });
+        vcx.simulate_keystrokes("secondary-shift-a");
         vcx.run_until_parked();
         assert_eq!(app.read_with(&vcx, |app, _| app.active), 0, "no tab switch");
         // Focus pulled back onto the pane: the palette takes it back, and the key.
