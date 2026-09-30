@@ -2115,21 +2115,29 @@ impl RemoteTerminal {
         }
     }
 
+    /// `remote_start_dir` is a directory on the far host, carried as
+    /// [`ClientMsg::SpawnNativeSsh`]'s `cwd`.
     pub fn spawn_native_ssh(
         size: TermSize,
         cell_w: u16,
         cell_h: u16,
-        cwd: Option<PathBuf>,
+        remote_start_dir: Option<PathBuf>,
         spec: Box<NativeSshSpec>,
     ) -> anyhow::Result<(Self, u64)> {
-        match Self::spawn_native_ssh_once(size, cell_w, cell_h, cwd.clone(), spec.clone()) {
+        match Self::spawn_native_ssh_once(
+            size,
+            cell_w,
+            cell_h,
+            remote_start_dir.clone(),
+            spec.clone(),
+        ) {
             Err(first_err) if daemon_disconnected_before_spawn_reply(&first_err) => {
                 if let Err(restart_err) = crate::daemon::spawn::restart() {
                     return Err(anyhow::anyhow!(
                         "daemon disconnected before SpawnNativeSsh reply ({first_err}); restart failed: {restart_err}"
                     ));
                 }
-                Self::spawn_native_ssh_once(size, cell_w, cell_h, cwd, spec).map_err(|second_err| {
+                Self::spawn_native_ssh_once(size, cell_w, cell_h, remote_start_dir, spec).map_err(|second_err| {
                     anyhow::anyhow!(
                         "daemon disconnected before SpawnNativeSsh reply ({first_err}); restarted daemon but it still failed: {second_err}"
                     )
@@ -2143,7 +2151,7 @@ impl RemoteTerminal {
         size: TermSize,
         cell_w: u16,
         cell_h: u16,
-        cwd: Option<PathBuf>,
+        remote_start_dir: Option<PathBuf>,
         spec: Box<NativeSshSpec>,
     ) -> anyhow::Result<(Self, u64)> {
         let mut stream = connect()?;
@@ -2153,7 +2161,7 @@ impl RemoteTerminal {
         let auto_supplied_password = spec.password.is_some();
 
         ClientMsg::SpawnNativeSsh {
-            cwd,
+            cwd: remote_start_dir,
             size: win,
             spec,
         }
@@ -3203,9 +3211,9 @@ mod notification_tests {
 
 type OscNotes = Arc<Mutex<VecDeque<Note>>>;
 
-/// Notes queued for a view that has not polled; a pane nobody is drawing
-/// keeps only the newest.
-const MAX_OSC_NOTES: usize = 8;
+/// Notes queued for a view that has not polled: a burst keeps only its
+/// newest few, so it shows as a few rather than a spray.
+const MAX_OSC_NOTES: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
@@ -7121,6 +7129,33 @@ mod osc_tests {
             s.feed(c, &mut out);
         }
         out.into()
+    }
+
+    /// A burst of notifications shows only its newest few, once.
+    #[test]
+    fn a_burst_of_notes_is_handed_over_as_its_newest_few() {
+        use crate::daemon::protocol::DaemonMsg;
+        use crate::terminal::size::TermSize;
+
+        crate::core::config::pin_test_config_dir();
+        let (client, mut daemon) = crate::terminal::view::test_stream_pair();
+        let term = super::RemoteTerminal::from_stream(client, TermSize::new(80, 24)).unwrap();
+        let burst: Vec<u8> = (0..40)
+            .flat_map(|n| format!("\x1b]9;note {n}\x07").into_bytes())
+            .collect();
+        DaemonMsg::Output(burst).encode(&mut daemon).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let taken = loop {
+            let batch = term.take_osc_notes();
+            if !batch.is_empty() || std::time::Instant::now() > deadline {
+                break batch;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        let bodies: Vec<_> = taken.into_iter().map(|(_, body)| body).collect();
+        assert_eq!(bodies, ["note 37", "note 38", "note 39"]);
+        assert!(term.take_osc_notes().is_empty(), "the rest were dropped");
     }
 
     #[test]

@@ -257,6 +257,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CloseTabBusyTitle => "Close this tab?",
         L10nKey::CloseBusyCommandBody => "{what} is still running. Closing ends it.",
         L10nKey::CloseBusyAgentBody => "{agent} is still working. Closing ends its turn.",
+        L10nKey::CloseIdleBody => "Its shell ends with it.",
+        L10nKey::CloseTabsTitle => "Close {count} tabs?",
+        L10nKey::CloseTabsBody => "The shells in them end too.",
         L10nKey::Keep => "Keep",
         L10nKey::SettingsNavAppearance => "Appearance",
         L10nKey::SettingsNavTerminal => "Terminal",
@@ -333,6 +336,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsDimInactivePanes => "Dim inactive panes",
         L10nKey::SettingsDimInactivePanesDesc => {
             "Fade unfocused panes so the active one stands out."
+        }
+        L10nKey::SettingsAutoHideTitlebarButtons => "Show title bar buttons on hover",
+        L10nKey::SettingsAutoHideTitlebarButtonsDesc => {
+            "Keep the new tab and sidebar buttons out of sight until the pointer is over the title bar."
         }
         L10nKey::SettingsOpenThemesFolder => "Open themes folder",
         L10nKey::SettingsChangeThemeImage => "Change…",
@@ -730,6 +737,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsTabs => "Tabs",
         L10nKey::SettingsNewTabPosition => "New tab position",
         L10nKey::SettingsNewTabPositionDesc => "Where a freshly opened tab is inserted.",
+        L10nKey::SettingsConfirmClose => "Confirm before closing",
+        L10nKey::SettingsConfirmCloseDesc => {
+            "When closing a tab or pane asks first. SSH hosts set to warn before closing are always asked about."
+        }
+        L10nKey::ConfirmCloseNever => "Never",
+        L10nKey::ConfirmCloseWhenBusy => "When busy",
+        L10nKey::ConfirmCloseAlways => "Always",
         L10nKey::SettingsTabBarPosition => "Tab bar position",
         L10nKey::SettingsTabBarPositionDesc => "A strip on top or a sidebar on the left.",
         L10nKey::SettingsSidebarGrouping => "Auto grouping",
@@ -951,6 +965,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchDimInactivePanesKeywords => {
             "fade unfocused inactive split pane focus opacity highlight active dimming"
         }
+        L10nKey::SettingsSearchAutoHideTitlebarButtonsKeywords => {
+            "auto hide autohide title bar titlebar buttons chrome hover pointer minimal clean new tab sidebar toggle"
+        }
         L10nKey::SettingsSearchFocusFollowsMouseKeywords => "pane hover activate",
         L10nKey::SettingsSearchFontFamilyKeywords => "typeface monospace typography",
         L10nKey::SettingsSearchFontLigaturesKeywords => "typography glyph fira",
@@ -981,6 +998,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "interface font family ui typeface typography chrome sidebar tab"
         }
         L10nKey::SettingsSearchNewTabPositionKeywords => "tabs order end after current",
+        L10nKey::SettingsSearchConfirmCloseKeywords => {
+            "confirm close closing tab pane ask prompt warn busy running idle always never"
+        }
         L10nKey::SettingsSearchNotifyOnCommandFinishKeywords => {
             "notification alert done osc desktop banner long command"
         }
@@ -2366,6 +2386,8 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SftpReplaceBody, "other") => {
             "{names} already exist in this folder. Uploading overwrites them."
         }
+        (L10nKey::CloseTabsTitle, "one") => "Close 1 tab?",
+        (L10nKey::CloseTabsTitle, "other") => "Close {count} tabs?",
         (L10nKey::AppTabsNotRestored, "one") => "1 tab from last time could not be reopened",
         (L10nKey::AppTabsNotRestored, "other") => {
             "{count} tabs from last time could not be reopened"
