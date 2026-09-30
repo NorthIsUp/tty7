@@ -19,7 +19,6 @@ use crate::core::actions::{
 };
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, RightPanelTab};
-use crate::core::group_key::GroupKey;
 use crate::core::shells::DetectedShell;
 use crate::daemon::protocol::ShellSpec;
 use crate::ui::app::{SpawnWhere, TILE_GLYPH, TILE_SIZE, Tab, Tty7App, tile_trailing_inset};
@@ -1912,6 +1911,18 @@ impl Tty7App {
             return menu;
         };
         let this = entity.read(cx);
+        // Taken before `this` is let go for the Move to Group submenu below.
+        let sidebar =
+            cx.global::<Config>().tab_bar_position == crate::core::config::TabBarPosition::Left;
+        let move_targets = sidebar.then(|| {
+            let keys = this.sidebar_group_keys(cx);
+            crate::ui::tab_sidebar::move_targets(&keys, &this.sidebar_groups, index)
+        });
+        let in_kept_group = this
+            .tabs
+            .get(index)
+            .and_then(|t| t.group.get())
+            .is_some_and(|g| this.sidebar_groups.contains(g));
         let tab_count = this.tabs.len();
         let cwd = this.tab_cwd_text(index, window, cx);
         let has_cwd = cwd.is_some();
@@ -1991,18 +2002,17 @@ impl Tty7App {
         // Offered only with the tabs in the sidebar — a group is something the
         // sidebar draws, and "move to group" from the top tab bar would name
         // something the user cannot see.
-        if cx.global::<Config>().tab_bar_position == crate::core::config::TabBarPosition::Left {
-            let keys = this.sidebar_group_keys(cx);
-            let targets = crate::ui::tab_sidebar::move_targets(&keys, &this.sidebar_groups, index);
+        if let Some(targets) = move_targets {
             let app = app.clone();
             menu = menu.separator().submenu(
                 t(L10nKey::SidebarMoveToGroup),
                 window,
                 cx,
                 move |mut sub, _window, _cx| {
-                    let ungrouped = targets.len() - 1;
                     for (i, target) in targets.iter().enumerate() {
-                        if i == ungrouped && i > 0 {
+                        // Pinned groups, then the auto ones, as the divider
+                        // splits them in the sidebar.
+                        if i > 0 && targets[i - 1].key.is_pinned() && !target.key.is_pinned() {
                             sub = sub.separator();
                         }
                         let mut item =
@@ -2011,29 +2021,34 @@ impl Tty7App {
                             let app = app.clone();
                             let key = target.key.clone();
                             item = item.on_click(move |_, _window, cx| {
-                                let key = key.clone();
                                 let _ = app.update(cx, |this, cx| {
-                                    let group = match key {
-                                        Some(GroupKey::Pinned(id)) => Some(id),
-                                        Some(GroupKey::Auto(auto)) => {
-                                            Some(this.pin_auto_group(auto, cx))
-                                        }
-                                        None => None,
-                                    };
-                                    this.set_tab_group(index, group, cx);
+                                    this.move_tab_to(index, key.clone(), cx)
                                 });
                             });
                         }
                         sub = sub.item(item);
                     }
-                    let app = app.clone();
-                    sub.separator()
-                        .item(PopupMenuItem::new(t(L10nKey::SidebarNewGroup)).on_click(
+                    if !targets.is_empty() {
+                        sub = sub.separator();
+                    }
+                    let remove = app.clone();
+                    let new = app.clone();
+                    sub.item(
+                        PopupMenuItem::new(t(L10nKey::SidebarRemoveFromGroup))
+                            .disabled(!in_kept_group)
+                            .on_click(move |_, _window, cx| {
+                                let _ = remove
+                                    .update(cx, |this, cx| this.set_tab_group(index, None, cx));
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(t(L10nKey::SidebarNewGroup)).on_click(
                             move |_, window, cx| {
-                                let _ = app
+                                let _ = new
                                     .update(cx, |this, cx| this.new_tab_group(index, window, cx));
                             },
-                        ))
+                        ),
+                    )
                 },
             );
         }
