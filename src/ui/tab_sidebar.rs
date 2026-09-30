@@ -981,6 +981,11 @@ impl Tty7App {
 
                 let row = h_flex()
                     .id(("tab-row", i))
+                    // What a screen reader announces and presses: the full
+                    // title, not the elided one drawn.
+                    .role(gpui::Role::Tab)
+                    .aria_label(SharedString::from(title_text.to_string()))
+                    .aria_selected(is_active)
                     .group(SharedString::from(format!("tab-row-{i}")))
                     .cursor_pointer()
                     .on_drag(DragTab, {
@@ -1102,23 +1107,26 @@ impl Tty7App {
                         let mut fade_from = backing;
                         fade_from.a = 0.;
                         row.child(
+                            // The row's full height, not the button's: on a
+                            // two-line row the diff count sits under the
+                            // button's band, and a band-high backing left the
+                            // bottom of "+2" showing beneath the ×.
                             h_flex()
                                 .absolute()
-                                .top(px((row_h - crate::ui::tab_strip::MIN_TARGET) / 2.))
+                                .top_0()
+                                .bottom_0()
                                 .right(px(6.))
                                 .opacity(0.)
                                 .group_hover(SharedString::from(format!("tab-row-{i}")), |s| {
                                     s.opacity(1.)
                                 })
-                                .child(div().w(px(10.)).h(px(crate::ui::tab_strip::MIN_TARGET)).bg(
-                                    linear_gradient(
-                                        90.,
-                                        linear_color_stop(fade_from, 0.),
-                                        linear_color_stop(backing, 1.),
-                                    ),
-                                ))
+                                .child(div().w(px(10.)).h_full().bg(linear_gradient(
+                                    90.,
+                                    linear_color_stop(fade_from, 0.),
+                                    linear_color_stop(backing, 1.),
+                                )))
                                 .child(
-                                    div().bg(backing).child(
+                                    div().h_full().flex().items_center().bg(backing).child(
                                         crate::ui::tab_strip::hit_target(
                                             Button::new(("sidebar-close", i))
                                                 .icon(IconName::Close)
@@ -1728,6 +1736,7 @@ impl Tty7App {
                         cx,
                     )
                     .rounded(px(crate::ui::tab_strip::RAIL_TILE_RADIUS))
+                    .accessible_label(t(L10nKey::TabTooltipHideSidebar))
                     .tooltip_element(crate::ui::tab_strip::chord_tooltip(
                         t(L10nKey::TabTooltipHideSidebar),
                         "ToggleLeftPanel",
@@ -2894,6 +2903,15 @@ pub(crate) struct SpawnPlace {
 }
 
 impl SpawnPlace {
+    /// Seed the auto group with SSH host `host`, for a tab dialling a machine
+    /// whose pane has not reported its remote context yet.
+    pub(crate) fn on_host(mut self, host: Option<String>) -> Self {
+        if let Some(auto) = auto_key(host.as_deref(), None) {
+            self.auto = Some(auto);
+        }
+        self
+    }
+
     /// Put `tab` where this says.
     pub(crate) fn seat(&self, tab: &Tab) {
         if let Some(id) = self.group {
@@ -3413,6 +3431,24 @@ mod fold_tests {
                 Some(Some(AutoKey::Repo(PathBuf::from("/w/probed")))),
                 "and the cwd seeds the auto group from the warm cache"
             );
+        });
+    }
+
+    /// ⌘T from an SSH tab dials the same host, and the new tab is filed
+    /// under that host before its pane has reported where it is — not in
+    /// Ungrouped, which is where the local shell it used to open landed.
+    #[gpui::test]
+    fn a_tab_dialling_a_host_is_filed_under_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+
+        app.update(&mut vcx, |app, cx| {
+            let place = app.spawn_group(None, cx).on_host(Some("hermes_ali".into()));
+            assert_eq!(
+                place.auto,
+                Some(Some(AutoKey::SshHost("hermes_ali".into())))
+            );
+            let place = app.spawn_group(None, cx).on_host(None);
+            assert_eq!(place.auto, None, "no host, no opinion");
         });
     }
 
