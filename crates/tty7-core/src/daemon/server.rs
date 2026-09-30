@@ -109,6 +109,10 @@ impl crate::host::server::PaneDirectory for Registry {
         hibernate_pane(self, pane_id);
     }
 
+    fn close_pane(&self, pane_id: u64) {
+        kill_pane(self, pane_id);
+    }
+
     fn agent_states(&self) -> Vec<crate::daemon::control::PaneAgentState> {
         let panes: Vec<Arc<DaemonPane>> = self.panes.lock().unwrap().values().cloned().collect();
         let mut states: Vec<_> = panes.iter().filter_map(|p| p.agent_state()).collect();
@@ -233,6 +237,14 @@ fn spawn_snapshot_keeper(registry: Arc<Registry>) {
                     let (segments, title, mark) = pane.scrollback_snapshot();
                     crate::daemon::scrollback::save(pane.id, &segments, title.as_deref());
                     marks.insert(pane.id, mark);
+                }
+                // Before the sweep, so a closed tab that has aged out takes its
+                // screens with it on this pass rather than the next.
+                if let Some(store) = crate::core::machine::observed_store() {
+                    let now = crate::core::machine::unix_now();
+                    for pane in store.expire_closed_tabs(now) {
+                        kill_pane(&registry, pane);
+                    }
                 }
                 let restorable = restorable_pane_ids(&registry);
                 crate::daemon::scrollback::sweep(&restorable);
@@ -830,8 +842,13 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
             )
         }
 
-        ClientMsg::SpawnNativeSsh { cwd: _, size, spec } => {
+        ClientMsg::SpawnNativeSsh { cwd, size, spec } => {
             let allow_remote_clipboard_write = spec.remote_clipboard_write;
+            // A far-host path that only travels as a `PathBuf`: taken as the
+            // text it was sent as, never resolved against this machine. One
+            // that is not UTF-8 could only reach the far shell mangled, so it
+            // is dropped and the shell starts where it would have anyway.
+            let remote_start_dir = cwd.and_then(|p| p.into_os_string().into_string().ok());
             let id = registry.alloc_id();
             let on_dead = {
                 let registry = registry.clone();
@@ -844,7 +861,8 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                         .ok();
                 }
             };
-            let pane = match DaemonPane::spawn_native_ssh(id, size, spec, on_dead) {
+            let pane = match DaemonPane::spawn_native_ssh(id, size, spec, remote_start_dir, on_dead)
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let mut w = write_stream;
