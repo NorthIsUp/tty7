@@ -6,10 +6,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
-use gpui::{App, Hsla, IntoElement, Rgba, Styled, div, px};
+use gpui::{App, Hsla, Rgba};
 use gpui_component::ActiveTheme as _;
 
-use crate::core::config::Config;
 use crate::ui::presets::surface_is_dark;
 
 /// The swatch's side, and the room the header gives it before the name.
@@ -91,21 +90,6 @@ pub(crate) fn group_color(
 
 pub(crate) fn dark_rail(cx: &App) -> bool {
     surface_is_dark(cx.theme().background)
-}
-
-/// The dot before a group header's name.
-pub(crate) fn swatch(name: &str, slot: Option<usize>, cx: &App) -> impl IntoElement {
-    let color = group_color(
-        name,
-        slot,
-        &cx.global::<Config>().fork.group_colors,
-        dark_rail(cx),
-    );
-    div()
-        .flex_shrink_0()
-        .size(px(SWATCH))
-        .rounded_full()
-        .bg(color)
 }
 
 #[cfg(test)]
