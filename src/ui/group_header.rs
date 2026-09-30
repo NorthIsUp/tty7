@@ -60,7 +60,7 @@ pub(crate) fn source_color(
 }
 
 /// `slot` is the group's place in the sidebar, `None` for Ungrouped.
-pub(crate) fn header_style(name: &str, slot: Option<usize>, rail: Hsla, cx: &App) -> HeaderStyle {
+fn header_style(name: &str, slot: Option<usize>, rail: Hsla, cx: &App) -> HeaderStyle {
     let cfg = cx.global::<Config>();
     let dark = dark_rail(cx);
     let theme = cx.theme();
@@ -95,26 +95,95 @@ fn wears(scope: GroupBackgroundScope, block: bool) -> bool {
     }
 }
 
-/// The header bar's fill and outline, when they cover the header alone.
-pub(crate) fn decorate<E: Styled>(el: E, style: &HeaderStyle) -> E {
-    match wears(style.scope, false) {
-        true => paint(el, style),
-        false => el,
-    }
+/// One sidebar group's decoration for one frame: its colours, its fill and
+/// outline, and how far open it is drawn while it folds. Worked out once per
+/// group, so the render loop only asks it for each piece.
+pub(crate) struct Deco {
+    /// `None` for the one section without a header (Ungrouped with nothing
+    /// above it), which gets no decoration.
+    style: Option<HeaderStyle>,
+    swatch: Hsla,
+    open: f32,
+    rail: Hsla,
 }
 
-/// The group block's fill and outline, when they cover the whole group. A
-/// section without a header (Ungrouped with nothing above it) gets neither.
-pub(crate) fn decorate_block<E: Styled>(
-    el: E,
-    name: Option<&str>,
-    slot: Option<usize>,
-    rail: Hsla,
-    cx: &App,
-) -> E {
-    match name.map(|n| header_style(n, slot, rail, cx)) {
-        Some(style) if wears(style.scope, true) => paint(el, &style),
-        _ => el,
+impl Deco {
+    /// `ix` is the group's place in the sidebar; the hue follows it for every
+    /// group but Ungrouped (`key == None`).
+    pub(crate) fn new(
+        name: Option<&str>,
+        key: Option<&GroupKey>,
+        folded: bool,
+        ix: usize,
+        rail: Hsla,
+        window: &Window,
+        cx: &mut Context<Tty7App>,
+    ) -> Self {
+        let slot = key.is_some().then_some(ix);
+        let open = match name {
+            Some(_) => openness(key, folded, window, cx),
+            None => 1.,
+        };
+        let cfg = cx.global::<Config>();
+        let swatch = group_color(
+            name.unwrap_or_default(),
+            slot,
+            &cfg.fork.group_colors,
+            dark_rail(cx),
+        );
+        Deco {
+            style: name.map(|n| header_style(n, slot, rail, cx)),
+            swatch,
+            open,
+            rail,
+        }
+    }
+
+    /// A folded group's rows are gone only once its slide has finished.
+    pub(crate) fn folded_away(&self, folded: bool) -> bool {
+        folded && self.open <= 0.
+    }
+
+    /// The header bar's fill and outline, when they cover the header alone.
+    pub(crate) fn bar<E: Styled>(&self, el: E) -> E {
+        match &self.style {
+            Some(style) if wears(style.scope, false) => paint(el, style),
+            _ => el,
+        }
+    }
+
+    /// The group block's fill and outline, when they cover the whole group.
+    pub(crate) fn block<E: Styled>(&self, el: E) -> E {
+        match &self.style {
+            Some(style) if wears(style.scope, true) => paint(el, style),
+            _ => el,
+        }
+    }
+
+    /// ▸ shut, turning clockwise to ▾ open.
+    pub(crate) fn chevron(&self) -> Icon {
+        chevron(self.open)
+    }
+
+    /// The dot before the header's name.
+    pub(crate) fn swatch(&self) -> impl IntoElement {
+        gpui::div()
+            .flex_shrink_0()
+            .size(px(crate::ui::group_color::SWATCH))
+            .rounded_full()
+            .bg(self.swatch)
+    }
+
+    /// What the header's hover buttons paint under themselves so they cover
+    /// the branch: the rail with the header's fill laid over it.
+    pub(crate) fn backing(&self) -> Hsla {
+        self.style.as_ref().map_or(self.rail, |s| s.backing)
+    }
+
+    /// The rows, clipped to how open the group is while it slides; `full` is
+    /// their height open, `gap` the space between them.
+    pub(crate) fn clip(&self, rows: Vec<AnyElement>, full: f32, gap: f32) -> Vec<AnyElement> {
+        clip_rows(rows, self.open, full, gap)
     }
 }
 
@@ -134,7 +203,7 @@ fn paint<E: Styled>(el: E, style: &HeaderStyle) -> E {
 }
 
 /// ▸ at `open == 0`, turning clockwise to ▾ at `open == 1`.
-pub(crate) fn chevron(open: f32) -> Icon {
+fn chevron(open: f32) -> Icon {
     Icon::new(IconName::ChevronRight)
         .xsmall()
         .rotate(radians(open * FRAC_PI_2))
@@ -143,6 +212,7 @@ pub(crate) fn chevron(open: f32) -> Icon {
 struct Fold {
     folded: bool,
     since: Option<Instant>,
+    drawn: Instant,
 }
 
 /// The last fold state each window's groups were drawn in, and when it last
@@ -150,12 +220,17 @@ struct Fold {
 #[derive(Default)]
 struct Folds(HashMap<(EntityId, Option<GroupKey>), Fold>);
 
+/// How long a fold state outlives its group's last draw: a deleted group's,
+/// or a closed window's. One dropped by mistake only costs a slide, since it
+/// comes back at rest.
+const FOLD_FORGET: Duration = Duration::from_secs(60);
+
 impl Global for Folds {}
 
 /// How open group `key` is drawn this frame, 0 shut to 1 open. A change in
 /// `folded` since the last frame starts the slide; while it runs the window
 /// asks for another frame.
-pub(crate) fn openness(
+fn openness(
     key: Option<&GroupKey>,
     folded: bool,
     window: &Window,
@@ -164,14 +239,14 @@ pub(crate) fn openness(
     let animate = cx.global::<Config>().fork.animations;
     let app = cx.entity_id();
     let now = Instant::now();
-    let fold = cx
-        .default_global::<Folds>()
-        .0
-        .entry((app, key.cloned()))
-        .or_insert(Fold {
-            folded,
-            since: None,
-        });
+    let folds = &mut cx.default_global::<Folds>().0;
+    folds.retain(|_, f| now - f.drawn < FOLD_FORGET);
+    let fold = folds.entry((app, key.cloned())).or_insert(Fold {
+        folded,
+        since: None,
+        drawn: now,
+    });
+    fold.drawn = now;
     if fold.folded != folded {
         let in_flight = fold.since.map(|s| now - s);
         fold.since = animate.then(|| now - restart(in_flight));
@@ -204,7 +279,7 @@ fn restart(in_flight: Option<Duration>) -> Duration {
 
 /// A group's rows, clipped to `open` of their `full` height while they slide;
 /// at rest they pass through untouched.
-pub(crate) fn clip_rows(rows: Vec<AnyElement>, open: f32, full: f32, gap: f32) -> Vec<AnyElement> {
+fn clip_rows(rows: Vec<AnyElement>, open: f32, full: f32, gap: f32) -> Vec<AnyElement> {
     if open >= 1. || rows.is_empty() {
         return rows;
     }

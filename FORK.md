@@ -47,8 +47,8 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/search/history_text.rs` | Search Everywhere's History tab: full text over past agent conversations, one row per session, Enter resumes it |
 | `crates/tty7-core/src/core/history_search.rs` | the History tab's scan: Claude, Qoder and Codex transcripts streamed newest first, what was said cached (`history_cache`); `session_mentions`, one session's issue and PR references (`#N`, `owner/repo#N`, `/pull/N` and `/issues/N` links), tool output included; only the shown repo's, a bare `#N` only when the session ran in a checkout of it, never a colour like `#333333` or `#0` |
 | `.github/workflows/tag-on-bump.yml` | on a `main-niu` push that bumps the workspace version: tag `v<version>` and dispatch `release.yml` on it |
-| `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) and its swatch |
-| `src/ui/group_header.rs` | a group header's outline and fill (header or whole group), its chevron, the fold slide, the repo default branch it names, and their Settings rows; `pin_clicked`, the pin's click (unpin a folder group, delete a label group after a confirm) |
+| `src/ui/group_color.rs` | a group's colour (override, else a golden-angle hue by sidebar place; Ungrouped grey) |
+| `src/ui/group_header.rs` | `Deco`, one group's decoration per frame (outline and fill on the header or whole group, swatch, chevron, the fold slide and its clip), fold states forgotten a minute after their group or window stops drawing, the repo default branch it names, and their Settings rows; `pin_clicked`, the pin's click (unpin a folder group, delete a label group after a confirm) |
 | `src/ui/github_session.rs` | the GitHub tab's Session list, its default: every issue and pull request the focused pane's agent session mentions, latest first, rows from the lists, details and a capped one-at-a-time lookup; a mention shows only once a real item answers it (nothing above the highest number held is looked up, a 404 drops it); `remote_pick`, the fork before upstream |
 | `crates/tty7-core/src/daemon/nice.rs` | `setpriority` on a pane's shell from `Config::nice` |
 | `crates/tty7-core/src/daemon/procstat.rs` | per-process RSS, CPU time and start stamp for Info → Processes; `compact_bytes` |
@@ -89,7 +89,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/config.rs` | `NotifyMode::allows` (+ test) | the notice policy `view/program_notes.rs` applies; identical to upstream/osc-notifications |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
-| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → `adopt_argv_session`, `PaneState::argv_session_miss` (+ test) | `claude_background::adopt_argv_session`, so Claude resumes without hooks |
+| `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → `adopt_argv_session`; `PaneState::fork` (`claude_background::PaneFork`, `Default::default()` in each literal) (+ test) | `claude_background::adopt_argv_session`, so Claude resumes without hooks |
 | `crates/tty7-core/src/daemon/mod.rs` | module list | `pub(crate) mod nice`, `pub mod procstat` |
 | `crates/tty7-core/Cargo.toml` | `windows-sys` features | `Win32_System_ProcessStatus` for `procstat`'s working set |
 | `crates/tty7-core/src/daemon/protocol.rs` | `ProcEntry` | `rss`, `cpu_ns`, `started` (serde default), `Default` derive |
@@ -135,12 +135,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/agent_launch.rs` | `launch_agent` split into `launch_agent_in` / `start_agent_in` | mint Claude's `--session-id` at launch (`agent_resume::with_minted_session`); launch into an explicit cwd for the new tab page |
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt`, `Default` derive | carry the prompt until a connecting pane lands; literals fill the rest with `..Default::default()` |
 | `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | test `PendingSpawn` literals | `..Default::default()` |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` group header | width budget for, and the child, `group_color::swatch`; the `hue_slot` (section index, `None` for Ungrouped) passed to it, `header_style` and `decorate_block` |
+| `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, after `folded` | `let deco = group_header::Deco::new(..)` once per group; then `deco.folded_away(folded)` (rows stay drawn until a fold's slide ends), `rows_h` summed per row, the header's width budget for the chevron and swatch, `deco.bar`, `deco.chevron()` on every header, `deco.swatch()`, `deco.backing()` under the hover buttons, `deco.block`, `deco.clip(rows, ..)` |
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git`; `SharedGit` `pub(crate)` | `group_header::header_git`: the header names the repo's default branch, not the rows' checkout |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` group header bar | `group_header::decorate`, `group_header::chevron` on every header, its `backing` under the hover buttons |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, after `folded` | `group_header::openness`; rows stay drawn until a fold's slide ends; `rows_h` summed per row |
 | `src/ui/tab_sidebar.rs` | test `folding_a_group_takes_its_rows_off_the_sidebar` | `animations = false`: it checks where a fold ends, not its slide |
-| `src/ui/tab_sidebar.rs` | `tab_sidebar` group block | `group_header::decorate_block` (whole-group fill), `group_header::clip_rows` round the rows |
 | `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
 | `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |

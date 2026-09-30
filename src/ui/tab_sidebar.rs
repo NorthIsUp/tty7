@@ -532,13 +532,16 @@ impl Tty7App {
             // never answer to Ungrouped's fold.
             let folded =
                 section.name.is_some() && folds_apply && groups.is_folded(group_key.as_ref());
-            // Fork: how open the group is drawn while it slides (see `group_header`).
-            let open = match section.name {
-                Some(_) => {
-                    crate::ui::group_header::openness(group_key.as_ref(), folded, window, cx)
-                }
-                None => 1.,
-            };
+            // Fork: the group's colours and fold slide (see `group_header`).
+            let deco = crate::ui::group_header::Deco::new(
+                section.name.as_deref(),
+                group_key.as_ref(),
+                folded,
+                group_ix,
+                rail_fill,
+                window,
+                cx,
+            );
             let mut rows_h = 0.;
             let mut rows: Vec<ContextMenu<Stateful<Div>>> = Vec::new();
             // The header keeps counting every row the group has; folding only
@@ -554,7 +557,7 @@ impl Tty7App {
             // behind the chevron: the pane area shows the fresh shell and the
             // header count goes up, but the row waits for the group to open.
             let row_count = visible_by_section[group_ix].len();
-            let visible: Vec<usize> = match folded && open <= 0. {
+            let visible: Vec<usize> = match deco.folded_away(folded) {
                 true => Vec::new(),
                 false => visible_by_section[group_ix].clone(),
             };
@@ -1310,12 +1313,9 @@ impl Tty7App {
                 let label = elide_label(&ts, &header_font, header_size, &name, name_avail);
                 let name_w = measure_text(&ts, &header_font, header_size, &label);
                 let hover_group = SharedString::from(format!("sidebar-group-{group_ix}"));
-                let hue_slot = section.key.is_some().then_some(group_ix);
-                let header_style =
-                    crate::ui::group_header::header_style(&name, hue_slot, rail_fill, cx);
                 let bar = h_flex()
                     .id(("sidebar-group", group_ix))
-                    .map(|bar| crate::ui::group_header::decorate(bar, &header_style))
+                    .map(|bar| deco.bar(bar))
                     .group(hover_group.clone())
                     .relative()
                     .w_full()
@@ -1364,11 +1364,7 @@ impl Tty7App {
                             }
                         })
                     })
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .child(crate::ui::group_header::chevron(open)),
-                    )
+                    .child(div().flex_shrink_0().child(deco.chevron()))
                     // Every kept group carries the mark; it is what sets them
                     // apart from the derived groups below, and the way to stop
                     // keeping one — a click unpins, and its tabs fall back to
@@ -1400,7 +1396,7 @@ impl Tty7App {
                                 })),
                         )
                     })
-                    .child(crate::ui::group_color::swatch(&name, hue_slot, cx))
+                    .child(deco.swatch())
                     .child(match renaming_group {
                         Some(input) => div()
                             .id(("sidebar-group-rename", group_ix))
@@ -1534,7 +1530,7 @@ impl Tty7App {
                         group_ix,
                         group_key.clone(),
                         hover_group,
-                        header_style.backing,
+                        deco.backing(),
                         cx,
                     ));
                 // Renaming is offered on a menu rather than a double click:
@@ -1622,15 +1618,7 @@ impl Tty7App {
             let block = v_flex()
                 .w_full()
                 .gap(px(ROW_GAP))
-                .map(|b| {
-                    crate::ui::group_header::decorate_block(
-                        b,
-                        section.name.as_deref(),
-                        section.key.is_some().then_some(group_ix),
-                        rail_fill,
-                        cx,
-                    )
-                })
+                .map(|b| deco.block(b))
                 .when(preview.is_some_and(|p| Some(p.from) == slot), |b| {
                     b.opacity(0.75)
                 })
@@ -1640,12 +1628,7 @@ impl Tty7App {
                     |b| b.rounded_md().bg(cx.theme().drag_border.opacity(0.15)),
                 )
                 .children(header)
-                .children(crate::ui::group_header::clip_rows(
-                    rows,
-                    open,
-                    rows_h - ROW_GAP,
-                    ROW_GAP,
-                ))
+                .children(deco.clip(rows, rows_h - ROW_GAP, ROW_GAP))
                 .children(empty_row)
                 .child(
                     canvas(

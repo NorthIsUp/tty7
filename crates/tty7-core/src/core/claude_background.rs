@@ -90,6 +90,14 @@ pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> Res
     ResumePlan::Fresh
 }
 
+/// The fork's per-pane daemon state, one field on upstream's `PaneState` so a
+/// new piece of it touches no struct literal there.
+#[derive(Default)]
+pub(crate) struct PaneFork {
+    /// See [`adopt_argv_session`].
+    pub(crate) argv_session_miss: Option<Vec<String>>,
+}
+
 /// Fill in the session id `argv` names for a pane no hook has spoken for
 /// yet, which is what lets a reboot resume Claude without its hooks. `true`
 /// when `session` changed. `miss` remembers the argv that named nothing, so
