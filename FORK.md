@@ -139,10 +139,10 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/settings_window.rs` | `SettingsWindow::app` | `pub(crate)`, so a palette chord in Settings opens the palette over its workspace |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `ContinueAllAgents`, `SearchAgents` in Search Everywhere |
 | `src/ui/search/command.rs` | `CommandKind`, `id`, `key_spec`, `actions` | `SearchText` (Search Text in Files…) |
-| `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `Agents` and `NewTab` tabs, off the row |
+| `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list, `CARD_MAX_W` re-export (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `Agents` and `NewTab` tabs, off the row |
 | `src/ui/search/sources.rs` | `Catalog` fields, `new`, `source`, `all` | `live` (`text::LiveTab`s), `open_agent_sessions`; `all` leaves Text and History out; New Tab has no rows of its own; `rank`, `by_section` are `pub(super)` for Agents |
 | `src/ui/search/view.rs` | `perform_search`, `set_tab`, `render_empty`, `update_catalog` visibility | `Catalog::ask_live` for the tab showing; the too-short and remote hints |
-| `src/ui/search/view.rs` | `SearchView::new_tab`, `set_new_tab`, `new_tab_page`, `focus`; `render` card | the New Tab tab draws `NewTabPage` in place of the list; `palette` puts focus back in the field |
+| `src/ui/search/view.rs` | `SearchView::new_tab`, `set_new_tab`, `new_tab_page`, `focus`; `render` card; `CARD_MAX_W` `pub(crate)` | the New Tab tab draws `NewTabPage` in place of the list, on the palette's own card width; `palette` puts focus back in the field |
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.live = palette_live_tabs(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |

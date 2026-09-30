@@ -20,18 +20,16 @@ use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
 use crate::ui::app::Tty7App;
+use crate::ui::dialog::CARD_RADIUS;
 use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::path_display::{abbreviate_home, local_home};
-use crate::ui::search::{SearchTab, fuzzy_score};
+use crate::ui::search::{CARD_MAX_W, SearchTab, fuzzy_score};
 use crate::ui::switcher::CARD_TOP;
 use tty7_core::host::Host;
 use tty7_core::host::local::LocalHost;
 
-/// The palette's card width, so switching tabs does not move the card.
-const CARD_MAX_W: f32 = 620.0;
-const CARD_RADIUS: f32 = 12.0;
 const LIST_H: f32 = 336.0;
 const ROW_H: f32 = 28.0;
 
