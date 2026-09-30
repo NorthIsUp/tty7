@@ -19,7 +19,7 @@ use objc2_foundation::{NSNotification, NSNotificationCenter, NSRect, NSUserDefau
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::carbon::{self, Plan, carbon_chord};
-use super::{Dock, LEVEL, Stack, Toggle, above, configured, dock, presentation, toggle};
+use super::{Dock, LEVEL, Stack, Toggle, above, configured, cover, dock, presentation, toggle};
 use crate::core::config::{Config, config_path, write_atomic};
 use crate::core::session::WorkspaceId;
 use crate::ui::windows::WindowRegistry;
@@ -474,7 +474,7 @@ async fn fade(cx: &AsyncApp, ns: &NSWindow, from: f64, to: f64, ms: u64, generat
     }
 }
 
-/// Fullscreen style: cover the screen the mouse is on, above other apps'
+/// Fullscreen style: cover the screen the mouse is on below its menu bar, above other apps'
 /// windows but under system ones (see [`LEVEL`]), on whichever Space is
 /// current. Window style: undo that if it was done.
 fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
@@ -513,7 +513,11 @@ fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
             | NSWindowCollectionBehavior::FullScreenAuxiliary,
     );
     ns.setLevel(LEVEL);
-    ns.setFrame_display(screen.frame(), true);
+    let mut frame = screen.frame();
+    let visible = screen.visibleFrame();
+    (frame.origin.y, frame.size.height) =
+        cover(frame.origin.y, visible.origin.y, visible.size.height);
+    ns.setFrame_display(frame, true);
 }
 
 /// Sets or puts back the presentation options as the key window says: on
@@ -544,7 +548,7 @@ fn set_presented(cx: &mut App, hotkey_is_key: bool, fullscreen: bool) {
     }
 }
 
-/// Gets the Dock and menu bar out of the full screen hotkey window's way
+/// Gets the Dock out of the full screen hotkey window's way
 /// while tty7 is active, or (`false`) puts them back.
 fn present(fullscreen: bool) {
     let Some(mtm) = MainThreadMarker::new() else {
@@ -559,11 +563,10 @@ fn present(fullscreen: bool) {
                 Some(ns_string!("com.apple.dock")),
             )
             .is_some_and(|d| d.boolForKey(ns_string!("autohide")));
-            let dock = match dock(autohides) {
+            match dock(autohides) {
                 Dock::AutoHide => NSApplicationPresentationOptions::AutoHideDock,
                 Dock::Hide => NSApplicationPresentationOptions::HideDock,
-            };
-            dock | NSApplicationPresentationOptions::AutoHideMenuBar
+            }
         }
     };
     NSApplication::sharedApplication(mtm).setPresentationOptions(options);
