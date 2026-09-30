@@ -214,4 +214,69 @@ mod tests {
             "\x1b[?997;1n"
         );
     }
+    /// A program that switched 2031 on and died without switching it off
+    /// leaves a replay whose last word is still `?2031h`. The shell that owns
+    /// the pane now never asked, so neither a reattach nor a theme flip may
+    /// type a report into its command line.
+    #[gpui::test]
+    fn a_dead_programs_2031_never_reaches_the_shell(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        set_background(cx, gpui::white());
+        let dead = b"\x1b]133;C;claude\x07\x1b[?2031hclaude output\r\n";
+        let prompt = b"\x1b]133;D;137\x07\x1b]133;A\x07$ \x1b]133;B\x07";
+        let restored = crate::daemon::pane::restore_preamble(Some("this shell is new"));
+        let wait = Duration::from_millis(300);
+
+        for tail in [&prompt[..], &restored[..]] {
+            let mut pane = pane(cx);
+            let mut replay = Vec::new();
+            for frame in [
+                DaemonMsg::Snapshot(dead.to_vec()),
+                DaemonMsg::Snapshot(tail.to_vec()),
+            ] {
+                frame.encode(&mut replay).unwrap();
+            }
+            pane.daemon.write_all(&replay).unwrap();
+            assert_eq!(typed(cx, &pane, "", wait), "", "a reattach reports nothing");
+            set_background(cx, gpui::black());
+            assert_eq!(typed(cx, &pane, "", wait), "", "nor does a flip");
+            set_background(cx, gpui::white());
+            let _ = typed(cx, &pane, "", wait);
+        }
+
+        // Live, the same: the program's exit and the next prompt end it.
+        let mut live = pane(cx);
+        DaemonMsg::Output(dead.to_vec())
+            .encode(&mut live.daemon)
+            .unwrap();
+        let _ = typed(cx, &live, "", wait);
+        set_background(cx, gpui::black());
+        assert_eq!(
+            typed(cx, &live, "997", Duration::from_secs(5)),
+            "\x1b[?997;1n"
+        );
+        DaemonMsg::Output(prompt.to_vec())
+            .encode(&mut live.daemon)
+            .unwrap();
+        let _ = typed(cx, &live, "", wait);
+        set_background(cx, gpui::white());
+        assert_eq!(
+            typed(cx, &live, "", wait),
+            "",
+            "a shell at its prompt hears nothing"
+        );
+        DaemonMsg::Output(b"\x1b[?996n".to_vec())
+            .encode(&mut live.daemon)
+            .unwrap();
+        assert_eq!(
+            typed(cx, &live, "997", Duration::from_secs(5)),
+            "\x1b[?997;2n",
+            "a live 996 is still answered"
+        );
+    }
 }
