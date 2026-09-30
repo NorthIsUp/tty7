@@ -59,7 +59,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/core/history_cache.rs` | the History tab's transcript cache: by path, size and mtime, least recently read dropped past the cap, deleted files forgotten |
 | `src/terminal/view/program_notes.rs` | which notices about a pane reach the desktop (command finish, agent, and what the program wrote over OSC 9/99/777), and showing the program's own, drained even after the shell exits |
 | `crates/tty7-core/src/core/fork_config.rs` | `ForkConfig`: the fork's settings (resume, new tab page, group decoration, `nice`, GitHub panel, global hotkey), flattened into `Config`; `GroupColorSource`, `GroupBackgroundScope`, `GitHubPanelList` |
-| `src/ui/hotkey_window.rs` | the global hotkey (`global_hotkey`, ⌥Space): Carbon `RegisterEventHotKey`, one dedicated hotkey window (its workspace saved in `hotkey-window`, picked from a switcher row's menu) shown / focused / ordered out with a fade, the full screen modal, windows activated over it lifted above it, hide on focus loss, and its Settings rows (macOS; a no-op elsewhere) |
+| `src/ui/hotkey_window/` | the global hotkey (`global_hotkey`, ⌥Space), macOS only: `mod.rs` the platform-free rules (toggle, the lift stack, restore, the switcher row's item and badge, the Workspaces menu label); `carbon.rs` the chord table and `RegisterEventHotKey`; `appkit.rs` the one dedicated hotkey window (its workspace saved in `hotkey-window`) shown / focused / ordered out with a fade, full screen, windows activated over it lifted above it, hide on focus loss; `settings.rs` its Settings rows |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 | `src/terminal/color_scheme.rs` | DEC mode 2031: `CSI ? 997 ; 1\|2 n` to a pane whose program switched it on when the theme's background changes, and the `CSI ? 996 n` answer (Claude Code's `theme: auto` re-reads OSC 11 only on a 997) |
 
@@ -108,9 +108,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
 | `Cargo.toml` | macOS deps | `raw-window-handle`, for the hotkey window's NSWindow; `block2`, for its AppKit notification observers |
 | `src/ui/windows.rs` | `WindowRegistry::most_recent`, `most_recent_local` | skip `hotkey_window::workspace`, so the Dock, the tray and the CLI never land in the hotkey window |
-| `.github/scripts/check-host-boundary.sh` | `ALLOW` | `hotkey_window.rs` reads its saved workspace id from the local config dir |
+| `.github/scripts/check-host-boundary.sh` | `ALLOW` | `hotkey_window/appkit.rs` reads its saved workspace id from the local config dir |
 | `src/core/session.rs` | `WorkspaceStore::restore_one` | `hotkey_window::to_restore`: a launch or a Dock click never reopens the hotkey window as a plain one |
-| `src/ui/switcher.rs` | `row_menu`, `render_row` (after the slot number) | `hotkey_window::menu_item` (Set as / Unset Hotkey Workspace) and `row_badge` (the chord's keycaps on the hotkey workspace's row) |
+| `src/ui/switcher.rs` | `row_menu` (one line after the workspace verbs), `render_row` (after the slot number) | `hotkey_window::menu_item` (Set as / Unset Hotkey Workspace) and `row_badge` (the chord's keycaps on the hotkey workspace's row) |
 | `src/ui/theme.rs` | `window_menu_items` | `hotkey_window::menu_label`: the chord after the hotkey workspace in the Workspaces menu |
 | `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |

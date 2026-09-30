@@ -3289,12 +3289,12 @@ fn row_menu(
     // them work, the way the tab pane already says it for the same rows.
     let menu = match adopt {
         true => menu.item(PopupMenuItem::label(t(L10nKey::SwitcherOpenToManage))),
-        false => crate::ui::hotkey_window::menu_item(
-            menu.item(PopupMenuItem::new(t(L10nKey::SwitcherRename)).on_click(
-                move |_, window, cx| {
+        false => menu
+            .item(
+                PopupMenuItem::new(t(L10nKey::SwitcherRename)).on_click(move |_, window, cx| {
                     let _ = a1.update(cx, |this, cx| this.switcher_rename(id, window, cx));
-                },
-            ))
+                }),
+            )
             .item(
                 PopupMenuItem::new(t(L10nKey::SwitcherOpenInNewWindow)).on_click(
                     move |_, window, cx| {
@@ -3304,33 +3304,30 @@ fn row_menu(
                         });
                     },
                 ),
+            )
+            .separator()
+            .item(
+                PopupMenuItem::new(t(L10nKey::AppMenuStopWorkspace))
+                    .disabled(!stoppable)
+                    .on_click(move |_, window, cx| {
+                        let _ = a3.update(cx, |this, cx| {
+                            this.close_switcher(window, cx);
+                            this.stop_workspace(id, window, cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(t(L10nKey::AppMenuDeleteWorkspace)).on_click(
+                    move |_, window, cx| {
+                        let _ = a4.update(cx, |this, cx| {
+                            this.close_switcher(window, cx);
+                            this.delete_workspace(id, window, cx);
+                        });
+                    },
+                ),
             ),
-            id,
-            app.clone(),
-            cx,
-        )
-        .separator()
-        .item(
-            PopupMenuItem::new(t(L10nKey::AppMenuStopWorkspace))
-                .disabled(!stoppable)
-                .on_click(move |_, window, cx| {
-                    let _ = a3.update(cx, |this, cx| {
-                        this.close_switcher(window, cx);
-                        this.stop_workspace(id, window, cx);
-                    });
-                }),
-        )
-        .item(
-            PopupMenuItem::new(t(L10nKey::AppMenuDeleteWorkspace)).on_click(
-                move |_, window, cx| {
-                    let _ = a4.update(cx, |this, cx| {
-                        this.close_switcher(window, cx);
-                        this.delete_workspace(id, window, cx);
-                    });
-                },
-            ),
-        ),
     };
+    let menu = crate::ui::hotkey_window::menu_item(menu, id, !adopt, app.clone(), cx);
     host_menu(menu, host, app)
 }
 

@@ -57,7 +57,7 @@ src/ui/app.rs|std::fs::create_dir_all
 # local config dir, like the themes above — not a file in any workspace.
 src/ui/editor_session.rs|std::fs::read
 # The hotkey window's saved workspace id, app state under the local config dir.
-src/ui/hotkey_window.rs|std::fs::read_to_string
+src/ui/hotkey_window/appkit.rs|std::fs::read_to_string
 
 # Reading a private key off *this* machine to hash it into a keychain account
 # (`core::keychain`). The key is the client's credential; the far side never
