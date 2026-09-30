@@ -20,7 +20,7 @@ use crate::core::session::{
 use crate::core::shells::ShellInventory;
 use crate::core::ssh_config;
 use crate::core::window_state::{WindowGeometry as _, WindowState};
-use crate::daemon::protocol::{RemoteContext, ShellSpec, ssh_option_takes_value};
+use crate::daemon::protocol::{RemoteContext, RemoteKind, ShellSpec, ssh_option_takes_value};
 use crate::daemon::spawn::DaemonMismatch;
 use crate::terminal::view::{ChildExited, TerminalView};
 use crate::ui::forwards::{ForwardFields, added_forward, rule_of};
@@ -998,7 +998,7 @@ pub struct Tty7App {
     /// it (where focus goes back to on close). `None` while settings is shut —
     /// and always in tests, which keep drawing settings over the workspace so
     /// they can drive it through the one test window they have.
-    settings_window: Option<(gpui::AnyWindowHandle, gpui::AnyWindowHandle)>,
+    pub(crate) settings_window: Option<(gpui::AnyWindowHandle, gpui::AnyWindowHandle)>,
     pub(crate) ssh_prompt: crate::ui::ssh_prompt::SshPromptState,
     /// A close question is on screen. It carries no target: the answer acts on
     /// the tab or pane captured when the question was raised, not on whatever
@@ -1610,6 +1610,13 @@ impl Tty7App {
         let app_id = cx.entity_id();
         cx.on_release(move |_, cx| crate::ui::lsp::LspStore::sync_window(app_id, Vec::new(), cx))
             .detach();
+        cx.on_release(move |_, cx| {
+            if cx.has_global::<crate::terminal::git_data::ScmData>() {
+                cx.global_mut::<crate::terminal::git_data::ScmData>()
+                    .release_window(app_id.as_u64());
+            }
+        })
+        .detach();
         cx.on_app_quit(|app, cx| {
             app.save_session(cx);
             crate::core::window_state::WindowState::from_bounds(app.window_bounds).save();
@@ -1621,6 +1628,13 @@ impl Tty7App {
             this.window_bounds = window_bounds_to_remember(window);
         })
         .detach();
+
+        // With focus on nothing, or on a handle whose element is gone (a panel
+        // closed under it, a context menu that dismissed), gpui dispatches keys
+        // on the window root alone, one level above every listener on
+        // `tty7-root`, and ⌘P, ⌘T, ⌘W and the rest go dead.
+        cx.on_focus_lost(window, |this, window, cx| this.focus_active(window, cx))
+            .detach();
 
         // The home page's cursor, on the terminal's own schedule. It ticks
         // whether or not the page is up — a timer that wakes twice a second to
@@ -3761,7 +3775,13 @@ impl Tty7App {
 
     pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut App) {
         self.sync_window_title(window, cx);
-        if let Some(settings) = self.settings.as_ref() {
+        // Only where the page is drawn: with settings in a window of its own,
+        // its handle focused in the workspace window is focus on nothing
+        // there, and every shortcut in the workspace goes dead.
+        let settings_here = self
+            .settings_window
+            .is_none_or(|(settings, _)| settings == window.window_handle());
+        if let Some(settings) = self.settings.as_ref().filter(|_| settings_here) {
             window.focus(&settings.focus_handle, cx);
             return;
         }
@@ -3873,7 +3893,28 @@ impl Tty7App {
         let parts = match parts {
             Ok(parts) => parts,
             Err(reason) => {
-                pending.update(cx, |p, cx| p.fail(reason, cx));
+                let retry = pending.update(cx, |p, cx| {
+                    p.fail(reason, cx);
+                    p.next_auto_retry()
+                });
+                if let Some(delay) = retry {
+                    let pending = pending.clone();
+                    cx.spawn_in(window, async move |this, cx| {
+                        cx.background_executor().timer(delay).await;
+                        let _ = this.update_in(cx, |app, window, cx| {
+                            let still_there = app.tabs.iter().any(|tab| {
+                                tab.pane.leaves().iter().any(|l| l.entity_id() == slot_id)
+                            });
+                            // Try Again got there first, or the tab is gone.
+                            if !still_there || !pending.read(cx).is_failed() {
+                                return;
+                            }
+                            pending.update(cx, |p, cx| p.retrying(cx));
+                            start_pane_spawn(pending.clone(), window, cx);
+                        });
+                    })
+                    .detach();
+                }
                 return;
             }
         };
@@ -3891,19 +3932,21 @@ impl Tty7App {
             return;
         }
         let was_focused = pending.read(cx).focus_handle.contains_focused(window, cx);
-        let resume = (!parts.restored)
+        let restored = parts.restored;
+        let view = build_terminal_view(parts, font_size, window, cx);
+        let resume = (!restored)
             .then(|| {
                 let spawn = &pending.read(cx).spawn;
                 agent_resume_command(
                     &spawn.agent,
                     spawn.agent_session_id.as_deref(),
                     spawn.agent_launch_argv.as_deref(),
+                    view.read(cx),
                     cx,
                 )
                 .or_else(|| spawn.run_on_land.clone())
             })
             .flatten();
-        let view = build_terminal_view(parts, font_size, window, cx);
         if let Some(cmd) = resume {
             view.read(cx).run_command_line(&cmd);
         }
@@ -3929,8 +3972,50 @@ impl Tty7App {
         }
     }
 
+    /// ⌘T. From an SSH pane it dials the same host again, the way ⌘D does:
+    /// a local shell opened from one would land in a directory the pane never
+    /// showed, and in Ungrouped rather than under the host the user was on.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_tab_with_shell(None, window, cx);
+        let source = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.pane.focused_or_first(window, cx))
+            .map(|view| {
+                let view = view.read(cx);
+                let remote = view
+                    .remote_context()
+                    .filter(|r| matches!(r.kind, RemoteKind::Ssh | RemoteKind::NativeSsh));
+                (view.ssh_spec(), remote, view.cwd())
+            });
+        match source {
+            Some((Some(spec), remote, _)) => {
+                let place = self.spawn_group(None, cx).on_host(remote.map(|r| r.target));
+                let spec = crate::ui::ssh_connect::resolve_persisted_ssh_spec(spec, cx);
+                let before = self.tabs.len();
+                self.open_native_ssh_tab(spec, window, cx);
+                if self.tabs.len() > before
+                    && let Some(tab) = self.tabs.get(self.active)
+                {
+                    place.seat(tab);
+                    self.save_session(cx);
+                }
+            }
+            // A shell that ssh'd onward from a local prompt: the far side is
+            // only reachable by typing the same command again, from the
+            // directory it was typed in.
+            Some((None, Some(remote), cwd)) if remote.kind == RemoteKind::Ssh => {
+                let line = crate::terminal::git_data::shell_quote(&remote.argv);
+                let place = self.spawn_group(None, cx).on_host(Some(remote.target));
+                if let Some(slot) = self.new_tab_slot(cwd, None, window, cx) {
+                    if let Some(tab) = self.tabs.get(self.active) {
+                        place.seat(tab);
+                        self.save_session(cx);
+                    }
+                    crate::ui::agent_launch::run_when_ready(&slot, line, cx);
+                }
+            }
+            _ => self.new_tab_with_shell(None, window, cx),
+        }
     }
 
     pub(crate) fn new_tab_at(
@@ -6098,7 +6183,7 @@ impl Tty7App {
         out
     }
 
-    fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.search.is_some() {
             self.close_search(window, cx);
             return;
@@ -9811,6 +9896,7 @@ fn agent_resume_command(
     agent: &Option<crate::core::cli_agent::CLIAgent>,
     session_id: Option<&str>,
     launch_argv: Option<&[String]>,
+    view: &TerminalView,
     cx: &App,
 ) -> Option<String> {
     if !cx.global::<Config>().restore_agent_sessions {
@@ -9824,7 +9910,28 @@ fn agent_resume_command(
         );
         return None;
     };
-    agent.resume_command(session_id, launch_argv)
+    agent.restore_command(
+        session_id,
+        launch_argv,
+        pane_shell_program(view, cx).as_deref(),
+    )
+}
+
+/// The shell `view` is running, for deciding what a line typed into it may
+/// use. A pane spawned without an explicit shell got the configured one or,
+/// failing that, the login shell — but only a local pane got this machine's;
+/// a workspace pane's default lives on its host, so it stays unknown.
+fn pane_shell_program(view: &TerminalView, cx: &App) -> Option<String> {
+    if let Some(spec) = view.shell_spec() {
+        return Some(spec.program);
+    }
+    if view.workspace().is_some() || view.ssh_spec().is_some() || view.remote_context().is_some() {
+        return None;
+    }
+    Some(match &cx.global::<Config>().shell {
+        Some(shell) if !shell.program.trim().is_empty() => shell.program.clone(),
+        _ => crate::core::shells::login_shell(),
+    })
 }
 
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
@@ -10117,6 +10224,19 @@ fn redial_native_ssh(layout: &SessionPane) -> SessionPane {
     }
 }
 
+/// Whether a native SSH pane can be attached to by its old id: only when the
+/// server lists it. A failed attach falls through to a fresh *local* shell,
+/// and after a server restart that put the user's own machine behind a tab
+/// that had been — and still looked like — a session on another one. Without
+/// a listing the host is dialled again: a second connection is recoverable,
+/// typing into the wrong machine is not.
+fn native_ssh_pane_alive(
+    alive: Option<&std::collections::HashMap<u64, Option<String>>>,
+    id: u64,
+) -> bool {
+    alive.is_some_and(|alive| alive.contains_key(&id))
+}
+
 fn leaf_shares_the_window_daemon(window_is_remote: bool, leaf_is_native_ssh: bool) -> bool {
     !(window_is_remote && leaf_is_native_ssh)
 }
@@ -10147,7 +10267,11 @@ fn session_to_pane(
                 // Not `pane_attachable`: a dead pane's id is what the restore
                 // is keyed on, so it has to survive being dead. The attach is
                 // still attempted first and still gives way to a fresh spawn.
-                false => (*pane_id).filter(|id| same_daemon && pane_free_for(alive, *id, owner)),
+                false => (*pane_id).filter(|id| {
+                    same_daemon
+                        && pane_free_for(alive, *id, owner)
+                        && (ssh_spec.is_none() || native_ssh_pane_alive(alive, *id))
+                }),
             };
             if restore.is_none() {
                 if let Some(spec) = ssh_spec.clone() {
@@ -10180,6 +10304,7 @@ fn session_to_pane(
                         agent,
                         agent_session_id.as_deref(),
                         agent_launch_argv.as_deref(),
+                        terminal.read(cx),
                         cx,
                     ) {
                         terminal.read(cx).run_command_line(&cmd);
@@ -10970,9 +11095,10 @@ mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_W, Dir, Pane, Rename, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab,
         TabAgentSession, clear_window_override_values, close_prompt, document_column_px,
-        join_shell_args, leaf_shares_the_window_daemon, mru_order, one_slot_move, pane_free_for,
-        parse_ssh_connect_input, parse_ssh_option_words, rename_outcome, side_panel_max,
-        split_shell_args, step_in_order, strip_band, wd_path_saveable,
+        join_shell_args, leaf_shares_the_window_daemon, mru_order, native_ssh_pane_alive,
+        one_slot_move, pane_free_for, parse_ssh_connect_input, parse_ssh_option_words,
+        rename_outcome, side_panel_max, split_shell_args, step_in_order, strip_band,
+        wd_path_saveable,
     };
     use gpui::{Edges, point, px, size};
 
@@ -11461,6 +11587,21 @@ mod tests {
         assert!(leaf_shares_the_window_daemon(true, false));
         assert!(leaf_shares_the_window_daemon(false, true));
         assert!(leaf_shares_the_window_daemon(false, false));
+    }
+
+    #[test]
+    fn a_native_ssh_pane_the_server_no_longer_has_is_dialled_again() {
+        let mut alive = std::collections::HashMap::new();
+        alive.insert(4u64, None);
+        assert!(native_ssh_pane_alive(Some(&alive), 4));
+        assert!(
+            !native_ssh_pane_alive(Some(&alive), 9),
+            "gone: dial, don't attach"
+        );
+        assert!(
+            !native_ssh_pane_alive(None, 4),
+            "no listing: dial, don't guess"
+        );
     }
 
     #[test]
@@ -13028,6 +13169,140 @@ mod new_window_action_tests {
                 1,
                 "NewWindow has to reach windows::open with no window to bubble through"
             );
+        });
+    }
+}
+
+#[cfg(test)]
+mod unfocused_shortcut_tests {
+    use crate::core::config::Config;
+    use crate::core::session::Session;
+    use crate::ui::app::Tty7App;
+    use crate::ui::windows::WindowRegistry;
+    use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+
+    fn open(cx: &mut TestAppContext) -> (Entity<Tty7App>, VisualTestContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+            crate::ui::keymap::init(cx);
+            WindowRegistry::init(cx);
+        });
+        let window = cx.add_window(|window, cx| {
+            let app =
+                cx.new(|cx| Tty7App::with_session(None, Some(Session::default()), window, cx));
+            gpui_component::Root::new(app, window, cx)
+        });
+        let app = window
+            .update(cx, |root, _, _| {
+                root.view().clone().downcast::<Tty7App>().ok().unwrap()
+            })
+            .unwrap();
+        let vcx = VisualTestContext::from_window(window.into(), cx);
+        vcx.run_until_parked();
+        (app, vcx)
+    }
+
+    /// Focus on a handle no element tracks — a panel that closed under it, a
+    /// field that went away — leaves gpui dispatching keys on the window root
+    /// alone, and `Tty7App`'s listeners sit one level below that. The
+    /// shortcuts have to answer anyway.
+    fn answers_with_focus_off_the_tree(
+        action: &str,
+        opened: fn(&Tty7App) -> bool,
+        blur: bool,
+        cx: &mut TestAppContext,
+    ) {
+        let (app, mut vcx) = open(cx);
+        let key = vcx
+            .update(|_, cx| crate::ui::keymap::effective_key(action, cx))
+            .unwrap();
+        vcx.update(|window, cx| {
+            if blur {
+                window.blur();
+            } else {
+                let orphan = cx.focus_handle();
+                window.focus(&orphan, cx);
+                std::mem::forget(orphan);
+            }
+            window.refresh();
+        });
+        vcx.run_until_parked();
+        assert!(!app.read_with(&vcx, |app, _| opened(app)));
+        vcx.simulate_keystrokes(&key);
+        vcx.run_until_parked();
+        assert!(
+            app.read_with(&vcx, |app, _| opened(app)),
+            "{action} ({key}) did nothing with focus off Tty7App's tree (blur: {blur})"
+        );
+    }
+
+    #[gpui::test]
+    fn palette_with_app_focus(cx: &mut TestAppContext) {
+        let (app, mut vcx) = open(cx);
+        let key = vcx
+            .update(|_, cx| crate::ui::keymap::effective_key("TogglePalette", cx))
+            .unwrap();
+        app.update_in(&mut vcx, |app, window, cx| app.focus_active(window, cx));
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes(&key);
+        vcx.run_until_parked();
+        assert!(app.read_with(&vcx, |app, _| app.search.is_some()));
+    }
+
+    #[gpui::test]
+    fn palette_after_blur(cx: &mut TestAppContext) {
+        answers_with_focus_off_the_tree("TogglePalette", |a| a.search.is_some(), true, cx);
+    }
+
+    #[gpui::test]
+    fn palette_with_orphan_focus(cx: &mut TestAppContext) {
+        answers_with_focus_off_the_tree("TogglePalette", |a| a.search.is_some(), false, cx);
+    }
+
+    #[gpui::test]
+    fn switcher_with_orphan_focus(cx: &mut TestAppContext) {
+        answers_with_focus_off_the_tree("ToggleSwitcher", |a| a.switcher.is_some(), false, cx);
+    }
+
+    #[gpui::test]
+    fn settings_with_orphan_focus(cx: &mut TestAppContext) {
+        answers_with_focus_off_the_tree("OpenSettings", |a| a.settings.is_some(), false, cx);
+    }
+
+    /// With settings up in a window of its own, the workspace window's focus
+    /// comes back to its own panes — the page's handle is drawn elsewhere.
+    #[gpui::test]
+    fn settings_in_its_own_window_leaves_the_workspace_its_focus(cx: &mut TestAppContext) {
+        let (app, mut vcx) = open(cx);
+        let elsewhere = cx.add_window(|_, _| gpui::EmptyView);
+        app.update_in(&mut vcx, |app, window, cx| {
+            // Tests build the page in place; point it at the other window, as
+            // a real ⌘, does.
+            app.toggle_settings(window, cx);
+            app.settings_window = Some((elsewhere.into(), window.window_handle()));
+            let orphan = cx.focus_handle();
+            window.focus(&orphan, cx);
+            std::mem::forget(orphan);
+            window.refresh();
+        });
+        vcx.run_until_parked();
+        app.update_in(&mut vcx, |app, window, cx| {
+            let expected = match app.tabs.get(app.active) {
+                Some(tab) => tab.focus_target().unwrap().focus_handle(cx),
+                None => app.home_focus.clone(),
+            };
+            assert!(
+                !app.settings
+                    .as_ref()
+                    .unwrap()
+                    .focus_handle
+                    .is_focused(window),
+                "the workspace window must not park focus on a page it does not draw"
+            );
+            assert!(expected.is_focused(window));
         });
     }
 }

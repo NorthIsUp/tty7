@@ -62,9 +62,16 @@ fn default_shell_name(_cmd: &CommandBuilder) -> String {
     crate::core::shells::windows_default_shell().to_string()
 }
 
+/// The shell `cmd` will actually run. `get_shell` names the login shell
+/// whatever `cmd` holds, and the detected-shell override swaps the program
+/// for another one: tty7 launched from bash with zsh as the login shell ran
+/// bash with zsh's integration, which is none at all.
 #[cfg(not(windows))]
 fn default_shell_name(cmd: &CommandBuilder) -> String {
-    cmd.get_shell()
+    match cmd.get_argv().first() {
+        Some(program) if !cmd.is_default_prog() => program.to_string_lossy().into_owned(),
+        _ => cmd.get_shell(),
+    }
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -471,6 +478,13 @@ fn pane_environment(
         ),
         ("TERM_PROGRAM".to_string(), TERM_PROGRAM_NAME.to_string()),
         ("TERM_PROGRAM_VERSION".to_string(), version.to_string()),
+        // tty7 renders OSC 8 links, but `supports-hyperlinks` (Claude Code,
+        // most Node CLIs) only trusts a fixed TERM_PROGRAM list and strips
+        // them otherwise; this is the override it honours. It is checked
+        // before the isTTY test, so such a tool now writes OSC 8 into
+        // `> file` and `| less` too. `FORCE_HYPERLINK=0` in the `env` config
+        // or the shell's rc turns it back off.
+        ("FORCE_HYPERLINK".to_string(), "1".to_string()),
         (TTY7_PANE_ENV.to_string(), pane.to_string()),
     ];
     #[cfg(windows)]
@@ -722,6 +736,11 @@ struct PaneState {
     /// and will never be superseded. Cleared whenever `remote` changes, so a
     /// second hop is proved on its own terms.
     remote_prompt_seen: bool,
+    /// A native SSH pane's connection phase, as last sent. Status frames go
+    /// only to whoever is attached at the time, so a window reattaching to a
+    /// live session learned nothing and drew it as an unknown remote — no
+    /// "connected" dot, and no warning before closing it.
+    ssh_phase: Option<crate::daemon::protocol::SshPhase>,
     /// The private modes the pane's output has switched on — the alternate
     /// screen and mouse reporting above all. Folded from the same bytes the
     /// ring gets, because the ring cannot be trusted to still hold them: a
@@ -1760,6 +1779,7 @@ impl DaemonPane {
                 osc_title: restored_title,
                 shell: ShellState::default(),
                 remote_prompt_seen: false,
+                ssh_phase: None,
                 modes: TerminalModes::default(),
                 shell_spec: spawn.shell.clone(),
                 remote: spawn.remote.clone(),
@@ -1995,6 +2015,7 @@ impl DaemonPane {
                     mark_at_prompt: false,
                 },
                 remote_prompt_seen: false,
+                ssh_phase: None,
                 modes: TerminalModes::default(),
                 remote: carried.remote,
                 agent: carried.agent,
@@ -2052,6 +2073,7 @@ impl DaemonPane {
             osc_title: None,
             shell: ShellState::default(),
             remote_prompt_seen: false,
+            ssh_phase: None,
             modes: TerminalModes::default(),
             remote: Some(remote),
             agent: None,
@@ -2067,7 +2089,11 @@ impl DaemonPane {
         let broker = {
             let state = state.clone();
             crate::daemon::ssh::PromptBroker::new(Box::new(move |msg: DaemonMsg| {
-                match &state.lock().unwrap().subscriber {
+                let mut st = state.lock().unwrap();
+                if let DaemonMsg::SshStatus { phase } = &msg {
+                    st.ssh_phase = Some(phase.clone());
+                }
+                match &st.subscriber {
                     Some(sub) => sub.send(msg).is_ok(),
                     None => false,
                 }
@@ -3109,6 +3135,11 @@ fn replay_state(st: &PaneState, subscriber: &Sender<DaemonMsg>, foreground_comma
     }
     if st.remote.is_some() {
         let _ = subscriber.send(DaemonMsg::RemoteContext(st.remote.clone()));
+    }
+    if let Some(phase) = &st.ssh_phase {
+        let _ = subscriber.send(DaemonMsg::SshStatus {
+            phase: phase.clone(),
+        });
     }
     if st.agent.is_some() {
         let _ = subscriber.send(DaemonMsg::Agent(st.agent));
@@ -4246,7 +4277,8 @@ mod tests {
             .iter()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(argv, vec![detected_shell]);
+        assert_eq!(argv, vec![detected_shell.clone()]);
+        assert_eq!(default_shell_name(&cmd), detected_shell);
     }
 
     #[cfg(not(windows))]
@@ -4897,6 +4929,25 @@ mod tests {
     }
 
     #[test]
+    fn a_window_reattaching_to_an_ssh_pane_learns_it_is_connected() {
+        use crate::daemon::protocol::SshPhase;
+        let mut st = test_state(true);
+        st.ssh_phase = Some(SshPhase::Connected);
+        let (tx, rx) = std::sync::mpsc::channel();
+        replay_state(&st, &tx, false);
+        drop(tx);
+        assert!(
+            rx.iter().any(|m| matches!(
+                m,
+                DaemonMsg::SshStatus {
+                    phase: SshPhase::Connected
+                }
+            )),
+            "the replay must carry the connection phase"
+        );
+    }
+
+    #[test]
     fn a_title_is_kept_until_it_changes_and_a_reset_clears_it() {
         let mut st = test_state(true);
         apply_signals(
@@ -5481,6 +5532,7 @@ mod tests {
             osc_title: None,
             shell: ShellState::default(),
             remote_prompt_seen: false,
+            ssh_phase: None,
             modes: TerminalModes::default(),
             remote: None,
             agent: None,
@@ -7478,6 +7530,7 @@ mod tests {
         let version = env!("CARGO_PKG_VERSION");
 
         assert_eq!(env.get("TERM_PROGRAM").map(String::as_str), Some("tty7"));
+        assert_eq!(env.get("FORCE_HYPERLINK").map(String::as_str), Some("1"));
         assert_eq!(
             env.get("TERM_PROGRAM_VERSION").map(String::as_str),
             Some(version)
