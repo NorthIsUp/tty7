@@ -3948,7 +3948,7 @@ impl Tty7App {
             })
             .flatten();
         if let Some(cmd) = resume {
-            view.read(cx).run_command_line(&cmd);
+            crate::ui::agent_launch::type_at_first_prompt(&view, cmd, cx);
         }
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -10307,7 +10307,7 @@ fn session_to_pane(
                         terminal.read(cx),
                         cx,
                     ) {
-                        terminal.read(cx).run_command_line(&cmd);
+                        crate::ui::agent_launch::type_at_first_prompt(terminal, cmd, cx);
                     }
                 }
                 PaneSlot::Ready(_) => {}

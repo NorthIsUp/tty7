@@ -17,12 +17,13 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use gpui::{App, Axis, Context, Window};
+use gpui::{App, Axis, Context, Entity, Window};
 use gpui_component::WindowExt as _;
 
 use crate::core::cli_agent::{CLIAgent, launch_program, program_on_path};
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::core::session::WorkspaceStore;
+use crate::terminal::view::TerminalView;
 use crate::ui::app::{SpawnAs, SpawnWhere, Tty7App, join_shell_args};
 use crate::ui::i18n::{L10nKey, t_fmt};
 use crate::ui::pane::PaneSlot;
@@ -152,33 +153,36 @@ pub(crate) fn fork_line(
 const PROMPT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 const PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
-/// Type `command` into the shell `slot` holds — now if it is up, or the
-/// moment it lands if it is still connecting.
+/// Type `command` into `view`'s shell at its first prompt.
 ///
 /// A shell that is up is not yet at its prompt: typed straight in, the line
 /// was echoed by the tty above everything the shell prints while it starts (a
 /// banner, `fastfetch`) and read only afterwards. It waits for the shell's
 /// first prompt instead — up to [`PROMPT_WAIT`], for a shell with no
 /// integration to say when that is.
+pub(crate) fn type_at_first_prompt(view: &Entity<TerminalView>, command: String, cx: &mut App) {
+    let view = view.downgrade();
+    cx.spawn(async move |cx| {
+        let deadline = std::time::Instant::now() + PROMPT_WAIT;
+        loop {
+            let ready = view
+                .read_with(cx, |view, _| view.terminal.at_prompt())
+                .unwrap_or(true);
+            if ready || std::time::Instant::now() >= deadline {
+                break;
+            }
+            cx.background_executor().timer(PROMPT_POLL).await;
+        }
+        let _ = view.read_with(cx, |view, _| view.run_command_line(&command));
+    })
+    .detach();
+}
+
+/// Type `command` into the shell `slot` holds — at its first prompt if it is
+/// up, or the moment it lands if it is still connecting.
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => {
-            let view = view.downgrade();
-            cx.spawn(async move |cx| {
-                let deadline = std::time::Instant::now() + PROMPT_WAIT;
-                loop {
-                    let ready = view
-                        .read_with(cx, |view, _| view.terminal.at_prompt())
-                        .unwrap_or(true);
-                    if ready || std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                    cx.background_executor().timer(PROMPT_POLL).await;
-                }
-                let _ = view.read_with(cx, |view, _| view.run_command_line(&command));
-            })
-            .detach();
-        }
+        PaneSlot::Ready(view) => type_at_first_prompt(view, command, cx),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
