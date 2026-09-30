@@ -2088,6 +2088,21 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsGroupScopeGroup => "グループ全体",
         L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
         L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
+        L10nKey::SettingsHotkeyWindow => "ホットキーウィンドウ",
+        L10nKey::SettingsHotkeyOn => "グローバルホットキー",
+        L10nKey::SettingsHotkeyOnDesc => "どのアプリからでも tty7 を表示・非表示にします。",
+        L10nKey::SettingsHotkeyKey => "ホットキー",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "クリックしてキーを押します。Esc で取り消し、Backspace でオフ。"
+        }
+        L10nKey::SettingsHotkeyFullscreen => "フルスクリーン",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "マウスのある画面全体に、他のアプリより前面に tty7 を表示します。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "フォーカスを失ったら隠す",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
+        L10nKey::SettingsHotkeyFade => "フェード",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
         L10nKey::AppCmdShellTitle => "Shell: {title}",

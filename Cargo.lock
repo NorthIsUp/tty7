@@ -11558,6 +11558,7 @@ dependencies = [
  "percent-encoding",
  "plist",
  "qrcode",
+ "raw-window-handle",
  "regex",
  "reqwest_client",
  "resvg",

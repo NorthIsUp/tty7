@@ -52,6 +52,8 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/proc_usage.rs` | CPU% from two samples, the Processes row's CPU / memory / pid cells and its Total line |
 | `src/terminal/element/osc8_underline.rs` | an OSC 8 link's resting faint dotted underline (iTerm2's), solid under the pointer; an SGR underline keeps its own |
 | `crates/tty7-core/src/core/claude_background.rs` | Claude sessions running in the background: session ↔ job id from `sessions/<pid>.json`, and a resume line turned into `claude attach <job>` |
+| `src/ui/hotkey_window.rs` | the global hotkey (`global_hotkey`, ⌥Space): Carbon `RegisterEventHotKey`, show / focus / hide with a fade, the full screen modal, hide on focus loss, and its Settings rows (macOS; a no-op elsewhere) |
+| `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 
 ## Hooks in upstream files
 
@@ -65,7 +67,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/bin/tty7-updater.rs` | `install_inner`, `extract_archive` → `unpacked_app` (+ test) | find the unpacked `.app` rather than name `tty7.app`, since the fork's is `tty7-niu.app` |
 | `.github/scripts/bundle-macos.sh` | top, Info.plist, signing, notarization, after the sweep | `TTY7_APP_NAME`, `TTY7_BUNDLE_ID`, `TTY7_BIN_DIR`, `TTY7_DIST`, `TTY7_LOCAL_BUILD_ID`, `TTY7_BUNDLE_ONLY`; sign with a keychain identity when no cert is imported (no timestamp); notarize with an ASC API key (`ASC_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`) |
 | `.github/workflows/release.yml` | `Bundle macOS DMG` env; `draft-release` last step | build `tty7-niu.app` (`com.northisup.tty7-niu`) with the ASC notarization key; publish the draft on NorthIsUp/tty7 |
-| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`, `github_panel_session_filter`, `github_panel_prefer_origin`, `github_panel_default_list`; `GroupColorSource`, `GroupBackgroundScope` |
+| `crates/tty7-core/src/core/config.rs` | `Config` fields, `Default`, `default_*` fns | `restore_asleep`, `continue_prompt`, `continue_stagger_ms`, `resume_agents_on_launch`, `new_tab_page`, `dir_roots`, `dir_frecency`, `group_colors`, `group_outline`, `group_background`, `group_outline_color`, `group_background_color`, `group_background_scope`, `animations`, `nice`, `github_panel_session_filter`, `github_panel_prefer_origin`, `github_panel_default_list`, `global_hotkey`, `global_hotkey_fullscreen`, `global_hotkey_hide_on_blur`, `global_hotkey_fade_ms`; `GroupColorSource`, `GroupBackgroundScope` |
 | `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
 | `crates/tty7-core/src/daemon/pane.rs` | `spawn`, after `spawn_command` | `nice::apply(pid)` on the new shell |
 | `crates/tty7-core/src/daemon/pane.rs` | `apply_agent` → new `adopt_argv_session` (+ test) | adopt the argv's session id so Claude resumes without hooks; `claude attach <job>` maps back through `claude_background` |
@@ -88,6 +90,9 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `crates/tty7-core/src/host/mod.rs`, `host/local.rs` | `Host::claude_background_job` (default `None`; the local host reads `claude_background`) | the resume line checks for a background session off the UI thread |
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land`; `github` from `github_session::panel_state` (`github_panel_default_list`) |
+| `src/main.rs` | `main`, after `keymap::init` | `hotkey_window::init` |
+| `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
+| `Cargo.toml` | macOS deps | `raw-window-handle`, for the hotkey window's NSWindow |
 | `src/ui/app.rs` | `adopt_workspace` | run a launch wake (`--continue`, `resume_agents_on_launch`) that arrived before the tabs did, with its prompt |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
 | `src/ui/app.rs` | `land_pane`, `session_to_pane` | type a resume through `run_at_prompt`, not ahead of the shell's startup |
@@ -112,7 +117,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
 | `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
-| `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `new_tab_page`, `palette` |
+| `src/ui/mod.rs` | module list | `agent_resume`, `background_tab`, `github_session`, `group_color`, `group_header`, `hotkey_window`, `new_tab_page`, `palette` |
 | `src/core/actions.rs` | actions list | `ContinueAllAgents`, `SearchAgents` |
 | `src/ui/keymap.rs` | `shipped_bindings`, `authored_entry`, `make_binding` | `ContinueAllAgents`; `SearchAgents` on ⌘K, so `ClearScrollback` moves to ⌘⇧K (macOS) |
 | `src/ui/keymap.rs` | `init`; `fixed_bindings` ⌘K ⌘D comment | `palette::init`; the palette takes ⌘K first on macOS |
@@ -129,7 +134,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/app.rs` | `Tty7App::open_in_background` field + init; `new_tab_slot` → `seat_new_tab`; `new_tab_insert_at` made `pub(crate)` | insert without activating inside `in_background` |
 | `src/ui/app.rs` | `run_command` `LaunchAgent`, `ResumeSession`, `ForkSession` | wrap in `in_background` when ⇧ is held |
 | `src/ui/search/view.rs` | `render` `on_key_down`, `render_footer` | ⇧Enter confirms the row (the list binds bare Enter only); the ⇧↵ footer hint on tab-opening rows |
-| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents`, `GitHubThisSession`, `GitHubNoSessionPulls`, `GitHubShowAllPulls`, `GitHubMoreMentioned`, `SearchHintBackground` |
+| `src/ui/i18n/mod.rs` | `L10nKey` | `CmdContinueAllAgents*`, `NewTabPage*`, `SettingsGroup*`, `CmdSearchText`, `SearchTabText`, `SearchPlaceholderText`, `SearchTextTooShort`, `SearchTabHistory`, `SearchPlaceholderHistory`, `SearchHistory*`, `CmdSearchAgents`, `SearchTabAgents`, `SearchPlaceholderAgents`, `GitHubThisSession`, `GitHubNoSessionPulls`, `GitHubShowAllPulls`, `GitHubMoreMentioned`, `SearchHintBackground`, `SettingsHotkey*` |
 | `src/ui/i18n/en.rs`, `zh.rs`, `ja.rs` | `translate_*` | those keys; `QuitStopServerBody` says tabs come back asleep |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
 | `docs/reference/configuration.mdx` | config table | the fork's config fields |
@@ -137,4 +142,4 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `docs/window/side-panel.mdx` | GitHub list bullets | the This session filter |
 | `docs/window/search-everywhere.mdx` | intro; Tabs table; Sessions | ⌘T/⌘P/⌘K from anywhere, modal; the Text, History, Agents and New Tab tabs; ⇧ opens in the background |
 | `docs/reference/keyboard-shortcuts.mdx` | New Tab, Search Everywhere, Clear Scrollback rows; after View | ⌘K is Agents; Clear Scrollback moved to ⌘⇧K; ⌘T is the palette's New Tab tab; the three chords work from anywhere and the palette is modal |
-| `docs/docs.json` | "The window" pages | `window/new-tab-page` |
+| `docs/docs.json` | "The window" pages | `window/new-tab-page`, `window/hotkey-window` |

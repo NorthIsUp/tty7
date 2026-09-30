@@ -2025,6 +2025,21 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsGroupScopeGroup => "Whole group",
         L10nKey::SettingsGroupAnimations => "Animate folding",
         L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
+        L10nKey::SettingsHotkeyWindow => "Hotkey window",
+        L10nKey::SettingsHotkeyOn => "Global hotkey",
+        L10nKey::SettingsHotkeyOnDesc => "Show and hide tty7 from any app.",
+        L10nKey::SettingsHotkeyKey => "Hotkey",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "Click, then press a chord. Esc cancels, Backspace turns it off."
+        }
+        L10nKey::SettingsHotkeyFullscreen => "Full screen",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "Summon tty7 over the whole screen the mouse is on, above other apps."
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "Hide on focus loss",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
+        L10nKey::SettingsHotkeyFade => "Fade",
+        L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
         L10nKey::AppAgentLaunchSaved => "{name} will now launch as: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => {
             "{name} did not report the arguments it was started with"
