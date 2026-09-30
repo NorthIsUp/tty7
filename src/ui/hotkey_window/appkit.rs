@@ -7,19 +7,19 @@ use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use gpui::{AnyWindowHandle, App, AsyncApp, Global, Subscription, Window};
-use objc2::MainThreadMarker;
 use objc2::rc::Retained;
+use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationOptions, NSApplicationDidResignActiveNotification,
-    NSEvent, NSNormalWindowLevel, NSRunningApplication, NSScreen, NSStatusWindowLevel, NSView,
-    NSWindow, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel,
+    NSApplicationPresentationOptions, NSEvent, NSNormalWindowLevel, NSRunningApplication, NSScreen,
+    NSView, NSWindow, NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification, NSWindowLevel,
     NSWorkspace,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSRect};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSRect, NSUserDefaults, ns_string};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::carbon::{self, Plan, carbon_chord};
-use super::{Stack, Toggle, above, configured, toggle};
+use super::{Dock, LEVEL, Stack, Toggle, above, configured, dock, toggle};
 use crate::core::config::{Config, config_path, write_atomic};
 use crate::core::session::WorkspaceId;
 use crate::ui::windows::WindowRegistry;
@@ -170,6 +170,7 @@ fn release(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
     restore_saved(hk, handle, ns);
+    present(false);
 }
 
 /// Puts back what a full screen summon changed on `handle`'s window.
@@ -406,6 +407,7 @@ fn hide(cx: &mut App, ns: Retained<NSWindow>, give_back: bool) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
     let previous = hk.previous.take();
+    present(false);
     cx.spawn(async move |cx| {
         // A show that took over mid-fade owns the alpha now.
         if fade(cx, &ns, ns.alphaValue(), 0.0, ms, generation).await {
@@ -465,11 +467,13 @@ async fn fade(cx: &AsyncApp, ns: &NSWindow, from: f64, to: f64, ms: u64, generat
     }
 }
 
-/// Fullscreen style: cover the screen the mouse is on, above other apps,
-/// on whichever Space is current. Window style: undo that if it was done.
+/// Fullscreen style: cover the screen the mouse is on, above other apps'
+/// windows but under system ones (see [`LEVEL`]), on whichever Space is
+/// current. Window style: undo that if it was done.
 fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
     let hk = cx.global_mut::<HotkeyWindow>();
+    present(fullscreen);
     if !fullscreen {
         restore_saved(hk, handle, ns);
         return;
@@ -502,8 +506,33 @@ fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::FullScreenAuxiliary,
     );
-    ns.setLevel(NSStatusWindowLevel);
+    ns.setLevel(LEVEL);
     ns.setFrame_display(screen.frame(), true);
+}
+
+/// Gets the Dock and menu bar out of the full screen hotkey window's way
+/// while tty7 is active, or (`false`) puts them back.
+fn present(fullscreen: bool) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let options = match fullscreen {
+        false => NSApplicationPresentationOptions::Default,
+        true => {
+            // Read on every show, so a Dock setting changed since applies.
+            let autohides = NSUserDefaults::initWithSuiteName(
+                NSUserDefaults::alloc(),
+                Some(ns_string!("com.apple.dock")),
+            )
+            .is_some_and(|d| d.boolForKey(ns_string!("autohide")));
+            let dock = match dock(autohides) {
+                Dock::AutoHide => NSApplicationPresentationOptions::AutoHideDock,
+                Dock::Hide => NSApplicationPresentationOptions::HideDock,
+            };
+            dock | NSApplicationPresentationOptions::AutoHideMenuBar
+        }
+    };
+    NSApplication::sharedApplication(mtm).setPresentationOptions(options);
 }
 
 /// The hotkey window taking focus goes back on top; any other tty7
@@ -558,5 +587,6 @@ fn resigned(cx: &mut App) {
     if ns.level() > NSNormalWindowLevel {
         ns.setLevel(NSNormalWindowLevel);
     }
+    present(false);
     lower(cx.global_mut::<HotkeyWindow>().stack.dismissed());
 }

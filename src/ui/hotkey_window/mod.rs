@@ -84,9 +84,37 @@ impl<W: PartialEq> Stack<W> {
     }
 }
 
+/// The full screen hotkey window's level: NSFloatingWindowLevel, over other
+/// apps' windows but under every system window. Force Quit and the out of
+/// application memory dialog are loginwindow's, at kCGModalPanelWindowLevel
+/// (8), so this and the windows lifted over it stay below that; the Dock and
+/// menu bar get out of its way through presentation options, not a level.
+const LEVEL: isize = 3;
+
+/// kCGModalPanelWindowLevel, where loginwindow puts Force Quit.
+#[cfg(test)]
+const SYSTEM_MODAL_LEVEL: isize = 8;
+
 /// The level a window activated over a floating hotkey window takes.
 fn above(hotkey_level: isize) -> isize {
     hotkey_level + 1
+}
+
+/// How the Dock makes room for the full screen hotkey window, following the
+/// user's own Dock setting: an auto-hiding Dock still slides in over it, an
+/// always-shown one is hidden while it has focus. The menu bar always
+/// auto-hides (AppKit only allows that combined with one of these).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Dock {
+    AutoHide,
+    Hide,
+}
+
+fn dock(autohides: bool) -> Dock {
+    match autohides {
+        true => Dock::AutoHide,
+        false => Dock::Hide,
+    }
 }
 
 /// The workspace a launch or a Dock click reopens: never the hotkey window's.
@@ -280,6 +308,18 @@ mod tests {
             !plain.activated("settings"),
             "a normal-level window needs no lift"
         );
+    }
+
+    #[test]
+    fn the_hotkey_window_and_what_is_lifted_over_it_stay_under_force_quit() {
+        assert!(LEVEL > 0, "over other apps' normal windows");
+        assert!(above(LEVEL) < SYSTEM_MODAL_LEVEL);
+    }
+
+    #[test]
+    fn an_auto_hiding_dock_slides_over_the_hotkey_window_and_a_fixed_one_hides() {
+        assert_eq!(dock(true), Dock::AutoHide);
+        assert_eq!(dock(false), Dock::Hide);
     }
 
     #[test]
