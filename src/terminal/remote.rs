@@ -2003,12 +2003,17 @@ impl RemoteTerminal {
         self.images.clone()
     }
 
-    /// Desktop notifications the program wrote (OSC 9, 99, 777), oldest
-    /// first; the view decides whether each is shown.
+    /// Desktop notifications the program wrote (OSC 9, 99, 777) since the
+    /// last call, oldest first: the newest [`OSC_NOTES_SHOWN`] of them, so a
+    /// burst shows as a few rather than a spray. The view decides whether
+    /// each is shown.
     pub fn take_osc_notes(&self) -> Vec<Note> {
         self.osc_notes
             .lock()
-            .map(|mut notes| notes.drain(..).collect())
+            .map(|mut notes| {
+                let stale = notes.len().saturating_sub(OSC_NOTES_SHOWN);
+                notes.drain(..).skip(stale).collect()
+            })
             .unwrap_or_default()
     }
 
@@ -3214,6 +3219,9 @@ type OscNotes = Arc<Mutex<VecDeque<Note>>>;
 /// Notes queued for a view that has not polled; a pane nobody is drawing
 /// keeps only the newest.
 const MAX_OSC_NOTES: usize = 8;
+
+/// How many queued notes [`RemoteTerminal::take_osc_notes`] hands over.
+const OSC_NOTES_SHOWN: usize = 3;
 
 struct OscNotifyScanner {
     tok: OscTokenizer,
@@ -7129,6 +7137,33 @@ mod osc_tests {
             s.feed(c, &mut out);
         }
         out.into()
+    }
+
+    /// A burst of notifications shows only its newest few, once.
+    #[test]
+    fn a_burst_of_notes_is_handed_over_as_its_newest_few() {
+        use crate::daemon::protocol::DaemonMsg;
+        use crate::terminal::size::TermSize;
+
+        crate::core::config::pin_test_config_dir();
+        let (client, mut daemon) = crate::terminal::view::test_stream_pair();
+        let term = super::RemoteTerminal::from_stream(client, TermSize::new(80, 24)).unwrap();
+        let burst: Vec<u8> = (0..40)
+            .flat_map(|n| format!("\x1b]9;note {n}\x07").into_bytes())
+            .collect();
+        DaemonMsg::Output(burst).encode(&mut daemon).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let taken = loop {
+            let batch = term.take_osc_notes();
+            if !batch.is_empty() || std::time::Instant::now() > deadline {
+                break batch;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        let bodies: Vec<_> = taken.into_iter().map(|(_, body)| body).collect();
+        assert_eq!(bodies, ["note 37", "note 38", "note 39"]);
+        assert!(term.take_osc_notes().is_empty(), "the rest were dropped");
     }
 
     #[test]

@@ -4005,6 +4005,13 @@ impl TerminalView {
     }
 
     fn poll_foreground(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let notify_allowed = cx
+            .global::<Config>()
+            .notify_on_command_finish
+            .allows(window.is_window_active());
+        // Ahead of the exit check: what a program said just before its shell
+        // exited is still shown.
+        self.show_program_notes(notify_allowed, window, cx);
         if self.terminal.exited {
             return;
         }
@@ -4034,12 +4041,6 @@ impl TerminalView {
             self.last_at_prompt = at_prompt;
             cx.notify();
         }
-
-        let notify_allowed = cx
-            .global::<Config>()
-            .notify_on_command_finish
-            .allows(window.is_window_active());
-        self.show_program_notes(notify_allowed, window, cx);
 
         let running = !at_prompt;
         if running && self.running_agent.is_none() {
