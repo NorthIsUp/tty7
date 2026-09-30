@@ -1104,7 +1104,7 @@ const ROW_RADIUS: f32 = 7.;
 /// The card's breathing room from the window's bottom edge, and its width.
 /// Its corner and its footer are `ui::dialog`'s, the switcher's numbers.
 const CARD_MARGIN: f32 = 24.;
-const CARD_MAX_W: f32 = 620.;
+pub(crate) const CARD_MAX_W: f32 = 620.;
 
 /// The search row gpui-component's `List` draws above the rows: a 32px field
 /// with 6px above and below and a 1px rule.

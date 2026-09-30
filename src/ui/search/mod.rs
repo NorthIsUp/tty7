@@ -21,7 +21,7 @@ pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};
 pub(crate) use score::fuzzy_score;
 pub(crate) use sources::{Catalog, LiveQuery, host_items};
-pub(crate) use view::{KEY_CONTEXT, SearchEvent, SearchView};
+pub(crate) use view::{CARD_MAX_W, KEY_CONTEXT, SearchEvent, SearchView};
 
 use crate::ui::i18n::{L10nKey, t};
 
