@@ -167,7 +167,7 @@ pub fn integrates(shell: Option<ShellSpec>, configured: Option<(String, Vec<Stri
         Some(c) => c.program.clone(),
         None => default_shell_name(&default_prog()),
     };
-    !has_custom_args(chosen.as_ref()) && shell_integration::integrates(Some(&program))
+    shell_integration::integrated_kind(Some(&program), has_custom_args(chosen.as_ref())).is_some()
 }
 
 fn build_spawn_config(

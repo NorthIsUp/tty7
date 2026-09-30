@@ -434,6 +434,9 @@ mod tests {
         use crate::daemon::transport::Stream;
         use crate::terminal::view::quiet_test_pane;
 
+        const NONE: Duration = Duration::from_millis(100);
+        const SOME: Duration = Duration::from_secs(2);
+
         fn pane(cx: &mut TestAppContext) -> (VisualTestContext, Entity<TerminalView>, Stream) {
             crate::core::config::pin_test_config_dir();
             cx.executor().allow_parking();
@@ -446,13 +449,18 @@ mod tests {
             (vcx, view, daemon)
         }
 
-        /// What was typed into the pane, if anything, after `wait` of test time.
-        fn typed_after(wait: Duration, vcx: &mut VisualTestContext, daemon: &mut Stream) -> bool {
+        /// Whether the line was typed into the pane after `wait` of test time,
+        /// reading for up to `read` of real time: short when none is expected,
+        /// long enough for a slow CI runner when one is.
+        fn typed_after(
+            wait: Duration,
+            read: Duration,
+            vcx: &mut VisualTestContext,
+            daemon: &mut Stream,
+        ) -> bool {
             vcx.executor().advance_clock(wait);
             vcx.run_until_parked();
-            daemon
-                .set_read_timeout(Some(Duration::from_millis(100)))
-                .unwrap();
+            daemon.set_read_timeout(Some(read)).unwrap();
             loop {
                 match ClientMsg::read(daemon) {
                     Ok(ClientMsg::Input(bytes)) => {
@@ -496,16 +504,21 @@ mod tests {
             let (mut vcx, view, mut daemon) = pane(cx);
             report_prompt(&view, &mut vcx, &mut daemon);
             type_it(&view, Duration::from_secs(3), &mut vcx);
-            assert!(typed_after(Duration::ZERO, &mut vcx, &mut daemon));
+            assert!(typed_after(Duration::ZERO, SOME, &mut vcx, &mut daemon));
         }
 
         #[gpui::test]
         fn the_line_waits_for_the_first_prompt(cx: &mut TestAppContext) {
             let (mut vcx, view, mut daemon) = pane(cx);
             type_it(&view, Duration::from_secs(30), &mut vcx);
-            assert!(!typed_after(Duration::from_secs(1), &mut vcx, &mut daemon));
+            assert!(!typed_after(
+                Duration::from_secs(1),
+                NONE,
+                &mut vcx,
+                &mut daemon
+            ));
             report_prompt(&view, &mut vcx, &mut daemon);
-            assert!(typed_after(PROMPT_POLL, &mut vcx, &mut daemon));
+            assert!(typed_after(PROMPT_POLL, SOME, &mut vcx, &mut daemon));
         }
 
         #[gpui::test]
@@ -514,11 +527,13 @@ mod tests {
             type_it(&view, Duration::from_secs(3), &mut vcx);
             assert!(!typed_after(
                 Duration::from_millis(2900),
+                NONE,
                 &mut vcx,
                 &mut daemon
             ));
             assert!(typed_after(
                 Duration::from_millis(200),
+                SOME,
                 &mut vcx,
                 &mut daemon
             ));
@@ -528,8 +543,18 @@ mod tests {
         fn an_integrated_shell_that_never_prompts_gets_it_at_the_cap(cx: &mut TestAppContext) {
             let (mut vcx, view, mut daemon) = pane(cx);
             type_it(&view, Duration::from_secs(30), &mut vcx);
-            assert!(!typed_after(Duration::from_secs(4), &mut vcx, &mut daemon));
-            assert!(typed_after(Duration::from_secs(27), &mut vcx, &mut daemon));
+            assert!(!typed_after(
+                Duration::from_secs(4),
+                NONE,
+                &mut vcx,
+                &mut daemon
+            ));
+            assert!(typed_after(
+                Duration::from_secs(27),
+                SOME,
+                &mut vcx,
+                &mut daemon
+            ));
         }
     }
 

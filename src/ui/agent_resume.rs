@@ -123,8 +123,9 @@ const PROMPT_WAIT: Duration = Duration::from_secs(3);
 /// a local shell the daemon gives integration), [`PROMPT_WAIT`] otherwise.
 pub(crate) fn prompt_patience(view: &Entity<TerminalView>, cx: &App) -> Duration {
     let view = view.read(cx);
-    let local =
-        view.workspace().is_none() && view.ssh_spec().is_none() && view.remote_context().is_none();
+    let local = view.pane_route().is_local()
+        && view.ssh_spec().is_none()
+        && view.remote_context().is_none();
     let configured = cx
         .global::<Config>()
         .shell
@@ -278,7 +279,6 @@ mod tests {
     use crate::core::session::SessionPane;
     use tty7_core::core::cli_agent::CLIAgent;
     use tty7_core::core::machine::TabId;
-    use tty7_core::daemon::pane::integrates;
 
     fn agent_leaf(session: Option<&str>) -> SessionPane {
         SessionPane::Leaf {
