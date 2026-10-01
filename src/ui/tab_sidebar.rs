@@ -2329,7 +2329,18 @@ impl Tty7App {
             AutoKey::SshHost(host) => PinnedGroup::label(host.clone()),
         };
         group.collapsed = self.sidebar_groups.auto_collapsed.contains(&key);
-        let id = group.id;
+        // A repo whose folder is already kept — a tab dragged out of that
+        // group while still in the repo is drawn under the repo again — joins
+        // the kept group rather than making a second: two groups keeping one
+        // folder split its tabs between them by nothing but list order.
+        let kept = group.folder.as_deref().and_then(|folder| {
+            self.sidebar_groups
+                .pinned
+                .iter()
+                .find(|g| g.folder.as_deref() == Some(folder))
+                .map(|g| g.id)
+        });
+        let id = kept.unwrap_or(group.id);
         let wanted = Some(GroupKey::Auto(key.clone()));
         for (i, (tab, place)) in self
             .tabs
@@ -2343,7 +2354,9 @@ impl Tty7App {
         }
         self.edit_groups(cx, |groups| {
             groups.auto_collapsed.retain(|k| *k != key);
-            groups.pinned.push(group);
+            if kept.is_none() {
+                groups.pinned.push(group);
+            }
         });
     }
 
@@ -3882,6 +3895,49 @@ mod fold_tests {
                 !keys.contains(&Some(GroupKey::Auto(r.clone()))),
                 "r is no longer an auto group"
             );
+        });
+    }
+
+    /// A tab dragged out of a folder group while still in the repo is drawn
+    /// under the repo's auto group, beside the folder group keeping the same
+    /// directory. Moving a tab into that auto group joins the kept group
+    /// rather than pinning the folder a second time.
+    #[gpui::test]
+    fn moving_into_an_auto_group_whose_folder_is_kept_joins_the_kept_group(
+        cx: &mut TestAppContext,
+    ) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
+        let r = AutoKey::Repo(PathBuf::from("/w/r"));
+        let kept = PinnedGroup::folder(Path::new("/w/r"));
+        let id = kept.id;
+        app.update(&mut vcx, |app, cx| {
+            app.sidebar_groups.pinned.push(kept);
+            app.tabs[0].group.set(Some(id));
+            for i in 0..2 {
+                *app.tabs[i].auto_group.borrow_mut() = Some(r.clone());
+            }
+            *app.tabs[2].auto_group.borrow_mut() = Some(AutoKey::Repo(PathBuf::from("/w/s")));
+            cx.notify();
+        });
+        vcx.run_until_parked();
+        app.update(&mut vcx, |app, cx| {
+            assert!(
+                app.sidebar_group_keys(cx)
+                    .contains(&Some(GroupKey::Auto(r.clone()))),
+                "tab 1 is drawn under the repo's auto group"
+            );
+            app.move_tab_to(2, GroupKey::Auto(r.clone()), cx)
+        });
+        vcx.run_until_parked();
+
+        app.update(&mut vcx, |app, _| {
+            let [group] = app.sidebar_groups.pinned.as_slice() else {
+                panic!("still one pinned group: {:?}", app.sidebar_groups.pinned);
+            };
+            assert_eq!(group.id, id);
+            for i in 0..3 {
+                assert_eq!(app.tabs[i].group.get(), Some(id), "tab {i}");
+            }
         });
     }
 
