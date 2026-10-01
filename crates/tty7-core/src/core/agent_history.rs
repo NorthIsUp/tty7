@@ -299,14 +299,14 @@ struct Cached {
 static CACHE: LazyLock<Mutex<HashMap<PathBuf, Cached>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-struct Found {
-    agent: CLIAgent,
-    path: PathBuf,
-    len: u64,
-    modified: SystemTime,
+pub(crate) struct Found {
+    pub(crate) agent: CLIAgent,
+    pub(crate) path: PathBuf,
+    pub(crate) len: u64,
+    pub(crate) modified: SystemTime,
 }
 
-fn unix(t: SystemTime) -> u64 {
+pub(crate) fn unix(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
@@ -716,7 +716,7 @@ fn droid_files(root: &Path) -> Vec<Found> {
 /// `~/.claude/projects/<cwd with separators as dashes>/`, and Qoder and
 /// CodeBuddy copied the layout. The directories beside those files hold a
 /// session's subagent transcripts, which are not sessions of their own.
-fn claude_files(root: &Path, agent: CLIAgent) -> Vec<Found> {
+pub(crate) fn claude_files(root: &Path, agent: CLIAgent) -> Vec<Found> {
     let Ok(projects) = std::fs::read_dir(root) else {
         return Vec::new();
     };
@@ -746,7 +746,7 @@ fn claude_files(root: &Path, agent: CLIAgent) -> Vec<Found> {
 }
 
 /// Codex writes `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`.
-fn codex_files(codex_home: &Path) -> Vec<Found> {
+pub(crate) fn codex_files(codex_home: &Path) -> Vec<Found> {
     let mut out = Vec::new();
     let mut dirs = vec![codex_home.join("sessions")];
     while let Some(dir) = dirs.pop() {
@@ -872,7 +872,7 @@ pub(crate) fn parse_codex(head: &str, updated: u64) -> Option<PastSession> {
     })
 }
 
-fn codex_not_the_users(meta: &Value) -> bool {
+pub(crate) fn codex_not_the_users(meta: &Value) -> bool {
     let source = match meta.get("source") {
         Some(Value::String(s)) => matches!(s.as_str(), "subagent" | "internal"),
         // `{"subagent": …}`: a spawned one, described.
@@ -1018,7 +1018,7 @@ fn prompt_title(text: &str) -> Option<String> {
 
 /// `text` without the context blocks agents put in front of what was typed
 /// (`<system-reminder>…</system-reminder>` and its kin).
-fn strip_injected(text: &str) -> &str {
+pub(crate) fn strip_injected(text: &str) -> &str {
     const TAGS: [&str; 5] = [
         "system-reminder",
         "system_reminder",
