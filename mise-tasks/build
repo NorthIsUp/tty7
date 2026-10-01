@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Debug build of every workspace crate"
+set -euo pipefail
+exec cargo build --locked "$@"
