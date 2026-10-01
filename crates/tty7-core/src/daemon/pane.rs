@@ -3618,7 +3618,7 @@ fn adopt_argv_session(st: &mut PaneState) {
         agent,
         argv,
         &mut st.agent_session,
-        &mut st.fork.argv_session_miss,
+        &mut st.fork.argv_session_checked,
     ) {
         notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
     }
