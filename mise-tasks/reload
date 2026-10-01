@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#MISE description="Rebuild, reinstall, restart the server in place if its code changed, and replace the window; every pane keeps running"
+set -euo pipefail
+. "$MISE_PROJECT_ROOT/mise-tasks/.server-stamp.sh"
+# A window from another checkout or the upstream app shares the server, and
+# replacing it with this one is not this checkout's call.
+others=$(ps -axo command= | awk -v a="$exe" -v b="$MISE_PROJECT_ROOT/target/fast/tty7-app" \
+  'NF == 1 && $1 ~ /\/tty7-app$/ && $1 != a && $1 != b')
+if [ -n "$others" ]; then
+  echo "reload: tty7 is running from $others, not $app; quit it first." >&2
+  exit 1
+fi
+"$MISE_PROJECT_ROOT/mise-tasks/install-app"
+ensure_server
+# The window is only a client, so SIGKILL costs nothing the server holds.
+for pid in $(window_pids); do
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 10); do kill -0 "$pid" 2>/dev/null || continue 2; sleep 0.5; done
+  echo "reload: window $pid ignored SIGTERM for 5s; sending SIGKILL" >&2
+  kill -9 "$pid" 2>/dev/null || true
+  sleep 1
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "reload: window $pid survived SIGKILL; not starting another" >&2
+    exit 1
+  fi
+done
+exec "$MISE_PROJECT_ROOT/mise-tasks/launch"

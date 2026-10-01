@@ -237,6 +237,10 @@ winresource = "0.1"
 # and it makes jieba unnecessary here — see the non-macos section below.
 core-foundation = "0.10"
 objc2 = "0.6"
+# The hotkey window reaches its NSWindow through gpui's AppKit handle.
+raw-window-handle = "0.6"
+# The hotkey window's AppKit notification observers.
+block2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSAppearance", "NSGraphics", "NSImage"] }
 # NSData feeds the runtime Dock icon for bare (non-bundled) binaries — see
 # `set_dock_icon_for_bare_binary` in main.rs.
@@ -396,6 +400,24 @@ alacritty_terminal = { opt-level = 3 }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# The fork's day-to-day build (`mise run launch`, `mise run reload`): every
+# dependency fully optimized, the app crate at opt-level 1, no LTO and parallel
+# incremental codegen, so a change to the app crate rebuilds in about a minute
+# instead of the release profile's five. Always launch from one profile: a
+# window from another build replaces the server, and the panes' processes end.
+[profile.fast]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 256
+incremental = true
+
+[profile.fast.package."*"]
+opt-level = 3
+
+[profile.fast.package.tty7-core]
+opt-level = 3
 
 # ---- gpui fork ------------------------------------------------------------
 # Our `tty7` branch (cut from the pinned upstream rev) carries:
