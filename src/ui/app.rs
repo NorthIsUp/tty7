@@ -1094,6 +1094,8 @@ pub struct Tty7App {
     /// Where the active tab's panes were last drawn, which is the frame of
     /// reference a drag's landing is worked out in.
     pub(crate) pane_area: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Fork: the grid new panes spawn at (see `background_grid`).
+    pub(crate) whole_tab_grid: crate::ui::background_grid::WholeTabGrid,
     pub(crate) sidebar_search: Entity<InputState>,
     pub(crate) file_search: Entity<InputState>,
     _sidebar_search_sub: Subscription,
@@ -1119,6 +1121,8 @@ pub struct Tty7App {
     window_title: std::cell::RefCell<String>,
     pub(crate) connect: Option<crate::ui::remote_workspace::ConnectFlow>,
     pub(crate) switcher: Option<crate::ui::switcher::Switcher>,
+    /// Set only inside [`Tty7App::in_background`]; see `background_tab.rs`.
+    pub(crate) open_in_background: bool,
     pub(crate) host_snapshots: std::collections::HashMap<
         crate::ui::host_registry::HostId,
         crate::ui::switcher::HostSnapshot,
@@ -1584,6 +1588,7 @@ impl Tty7App {
                 pane_ws.clone(),
                 Some(workspace),
                 font_size,
+                None,
                 initial_cwd,
                 None,
                 None,
@@ -1605,8 +1610,15 @@ impl Tty7App {
                 }
             },
             some => {
-                let (tabs, active, dropped) =
-                    tabs_from_session(pane_ws.as_ref(), workspace, some, font_size, window, cx);
+                let (tabs, active, dropped) = tabs_from_session(
+                    pane_ws.as_ref(),
+                    workspace,
+                    some,
+                    font_size,
+                    None,
+                    window,
+                    cx,
+                );
                 if dropped > 0 {
                     startup_error = Some(gpui::SharedString::from(t_plural(
                         L10nKey::AppTabsNotRestored,
@@ -1730,6 +1742,7 @@ impl Tty7App {
             sidebar_divider: Rc::new(Cell::new(None)),
             sidebar_groups: Default::default(),
             pane_area: Rc::new(Cell::new(None)),
+            whole_tab_grid: Default::default(),
             sidebar_search,
             _sidebar_search_sub: sidebar_search_sub,
             file_search,
@@ -1746,6 +1759,7 @@ impl Tty7App {
             window_title: std::cell::RefCell::new(String::new()),
             connect: None,
             switcher: None,
+            open_in_background: false,
             host_snapshots: std::collections::HashMap::new(),
             remote_host_errors: std::collections::HashMap::new(),
             parked_dismissed: std::collections::HashSet::new(),
@@ -2099,6 +2113,7 @@ impl Tty7App {
             self.workspace,
             Some(session),
             font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         );
@@ -2223,6 +2238,7 @@ impl Tty7App {
             &st.pane,
             alive.as_ref(),
             self.font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         ) else {
@@ -4374,6 +4390,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             cwd,
             None,
             shell,
@@ -4394,14 +4411,9 @@ impl Tty7App {
         };
         // Something opened, so whatever the last failure was is stale.
         self.startup_error = None;
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
         let new_tab = Tab::new(Pane::leaf(tab.clone()));
         group.seat(&new_tab);
-        self.tabs.insert(insert_at, new_tab);
-        self.active = insert_at;
-        self.focus_active(window, cx);
+        self.seat_new_tab(new_tab, window, cx);
         self.save_session(cx);
         cx.notify();
         Some(tab)
@@ -4418,7 +4430,14 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = match new_terminal_native(self.font_size, remote_start_dir, spec, window, cx) {
+        let view = match new_terminal_native(
+            self.font_size,
+            self.whole_tab_grid.get(),
+            remote_start_dir,
+            spec,
+            window,
+            cx,
+        ) {
             Ok(view) => view,
             Err(e) => {
                 log::error!("native SSH spawn failed: {e}");
@@ -4456,7 +4475,14 @@ impl Tty7App {
         // The far shell's last report, not a local path: a native SSH pane's
         // cwd only ever comes from OSC 7 sent across the link.
         let remote_start_dir = dead.read(cx).cwd();
-        let fresh = match new_terminal_native(self.font_size, remote_start_dir, spec, window, cx) {
+        let fresh = match new_terminal_native(
+            self.font_size,
+            self.whole_tab_grid.get(),
+            remote_start_dir,
+            spec,
+            window,
+            cx,
+        ) {
             Ok(view) => view,
             Err(e) => {
                 log::error!("native SSH respawn failed: {e}");
@@ -4543,7 +4569,14 @@ impl Tty7App {
         };
         let new = match spawn {
             SpawnAs::Ssh(spec) => {
-                match new_terminal_native(self.font_size, cwd, spec, window, cx) {
+                match new_terminal_native(
+                    self.font_size,
+                    self.whole_tab_grid.get(),
+                    cwd,
+                    spec,
+                    window,
+                    cx,
+                ) {
                     Ok(view) => PaneSlot::Ready(view),
                     Err(e) => {
                         log::error!("native SSH split spawn failed: {e}");
@@ -4566,6 +4599,7 @@ impl Tty7App {
                     self.window_workspace(cx),
                     Some(self.workspace),
                     self.font_size,
+                    self.whole_tab_grid.get(),
                     cwd,
                     None,
                     shell,
@@ -5422,6 +5456,7 @@ impl Tty7App {
             &layout,
             None,
             self.font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         );
@@ -5946,6 +5981,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             cwd,
             None,
             shell,
@@ -6139,6 +6175,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             Some(wt.path),
             None,
             None,
@@ -6855,7 +6892,9 @@ impl Tty7App {
             // is: a split beside the focused pane instead of a tab.
             LaunchAgent(agent) => {
                 let at = SpawnWhere::from_modifiers(window.modifiers());
-                self.launch_agent(agent, at, window, cx)
+                self.maybe_background(window, |this, window| {
+                    this.launch_agent(agent, at, window, cx)
+                })
             }
             CopyAgentSessionId => self.copy_agent_session_id(self.active, window, cx),
             RenameWorkspace => self.start_workspace_rename(window, cx),
@@ -6970,12 +7009,16 @@ impl Tty7App {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, false, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, false, window, cx)
+            }),
             ForkSession {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, true, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, true, window, cx)
+            }),
             CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
             HideSession { agent, session_id } => self.update_config(cx, |cfg| {
                 cfg.hidden_agent_sessions
@@ -9385,6 +9428,7 @@ impl Render for Tty7App {
         // (`text_sm`, `text_xs`, `rems(..)`) resolves against it, and the
         // terminal grid, sized in absolute px from `font_size`, does not move.
         window.set_rem_size(px(cx.global::<Config>().ui_font_size));
+        crate::ui::background_grid::track(self, window, cx);
         self.claim_pending_tab(window, cx);
         // Before anything asks where a tab is drawn: a tab that walked into a
         // pinned folder since the last frame is filed there on this one.
@@ -10518,6 +10562,7 @@ fn tabs_from_session(
     owner: WorkspaceId,
     session: Option<Session>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> (Vec<Tab>, usize, usize) {
@@ -10548,6 +10593,7 @@ fn tabs_from_session(
             &st.pane,
             alive.as_ref(),
             font_size,
+            grid,
             window,
             cx,
         ) else {
@@ -10691,6 +10737,7 @@ fn session_to_pane(
     sp: &SessionPane,
     alive: Option<&std::collections::HashMap<u64, Option<String>>>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> Option<Pane> {
@@ -10722,7 +10769,7 @@ fn session_to_pane(
                     let resolved = crate::ui::ssh_connect::resolve_persisted_ssh_spec(spec, cx);
                     // A native SSH leaf's recorded cwd is the far shell's own
                     // report, so it is where the redialled shell starts.
-                    match new_terminal_native(font_size, cwd.clone(), resolved, window, cx) {
+                    match new_terminal_native(font_size, grid, cwd.clone(), resolved, window, cx) {
                         Ok(view) => return Some(Pane::leaf(PaneSlot::Ready(view))),
                         Err(e) => log::error!("restoring native SSH pane failed: {e}"),
                     }
@@ -10737,7 +10784,7 @@ fn session_to_pane(
                 None => cwd.clone(),
             };
             if let Some(spawn) = crate::ui::agent_resume::dead_agent_spawn(
-                sp, workspace, owner, &local_cwd, restore, alive, font_size, cx,
+                sp, workspace, owner, &local_cwd, restore, alive, font_size, grid, cx,
             ) {
                 return Some(Pane::leaf(pending_terminal(spawn, window, cx)));
             }
@@ -10745,6 +10792,7 @@ fn session_to_pane(
                 workspace.cloned(),
                 Some(owner),
                 font_size,
+                grid,
                 local_cwd,
                 restore,
                 shell.clone(),
@@ -10765,8 +10813,8 @@ fn session_to_pane(
                 SessionAxis::Vertical => Axis::Vertical,
             };
             match (
-                session_to_pane(workspace, owner, a, alive, font_size, window, cx),
-                session_to_pane(workspace, owner, b, alive, font_size, window, cx),
+                session_to_pane(workspace, owner, a, alive, font_size, grid, window, cx),
+                session_to_pane(workspace, owner, b, alive, font_size, grid, window, cx),
             ) {
                 (Some(a), Some(b)) => Some(Pane::split_node(axis, *ratio, a, b)),
                 (Some(only), None) | (None, Some(only)) => Some(only),
@@ -10780,6 +10828,7 @@ pub(crate) fn new_terminal(
     workspace: Option<crate::terminal::PaneWorkspace>,
     owner: Option<WorkspaceId>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     working_directory: Option<std::path::PathBuf>,
     restore_pane: Option<u64>,
     shell: Option<ShellSpec>,
@@ -10796,6 +10845,7 @@ pub(crate) fn new_terminal(
             restore_pane,
             shell,
             owner,
+            grid,
             None,
         )?;
         return Ok(PaneSlot::Ready(build_terminal_view(
@@ -10814,6 +10864,7 @@ pub(crate) fn new_terminal(
         run_on_land: None,
         owner,
         font_size,
+        grid,
         ..Default::default()
     };
     Ok(pending_terminal(spawn, window, cx))
@@ -11032,12 +11083,13 @@ fn watch_pane_focus(
 /// [`inherited_start_dir`] for which openings carry one.
 pub(crate) fn new_terminal_native(
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     remote_start_dir: Option<std::path::PathBuf>,
     spec: Box<crate::daemon::protocol::NativeSshSpec>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> anyhow::Result<Entity<TerminalView>> {
-    let parts = TerminalView::spawn_native_ssh_terminal(spec, remote_start_dir)?;
+    let parts = TerminalView::spawn_native_ssh_terminal(spec, remote_start_dir, grid)?;
     let view = cx.new(|cx| {
         let mut view = TerminalView::from_native_ssh_parts(parts, window, cx);
         view.font_size = px(font_size);
