@@ -124,7 +124,8 @@ fn install_inner(enabled: bool) -> Outcome {
     // instances the dev-verify flow spins up would each rewrite the PATH of the
     // machine they are meant to be kept away from. Panes still get the build
     // under test, which is the half that development actually needs.
-    if cfg!(debug_assertions) || in_a_build_tree(&cli) {
+    if cfg!(debug_assertions) || in_a_build_tree(&cli) || crate::core::dev_build::is_dev_build(&cli)
+    {
         return Outcome::DevBuild;
     }
 

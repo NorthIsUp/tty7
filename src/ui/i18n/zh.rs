@@ -2174,6 +2174,99 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubShowFullText => "展开全文",
         L10nKey::GitHubShowHiddenComments => "显示另外 {count} 条评论",
         L10nKey::GitHubShowAllReviewers => "显示全部 {count} 位审查人",
+        // fork: keys the fork adds (docs/fork/features/)
+        L10nKey::QuitStopServerBodyAsleep => {
+            "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时处于休眠状态：打开哪个才启动哪个，agent 会接着原来的对话继续。（只关窗口的话应用收进托盘，shell 继续跑。）"
+        }
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "请运行已安装的 tty7 应用来安装钩子；当前构建运行于 {path}"
+        }
+        L10nKey::SwitcherSetHotkeyWorkspace => "设为热键工作区",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "取消热键工作区",
+        L10nKey::SwitcherHotkeyWorkspace => "热键工作区",
+        L10nKey::CmdSearchText => "在文件中搜索文本…",
+        L10nKey::SearchTabText => "文本",
+        L10nKey::SearchPlaceholderText => "搜索文件内容…",
+        L10nKey::SearchTextTooShort => "输入至少 3 个字符以搜索文件内容。",
+        L10nKey::SearchTabHistory => "历史",
+        L10nKey::SearchPlaceholderHistory => "搜索你和 agent 说过的内容…",
+        L10nKey::SearchHistoryTooShort => "输入至少 3 个字符以搜索 agent 对话。",
+        L10nKey::SearchHistoryRemote => "只能搜索这台电脑上的 agent 历史。",
+        L10nKey::SearchHistoryHits => "{count} 处匹配",
+        L10nKey::CmdSearchAgents => "搜索标签页和 Agent 会话…",
+        L10nKey::SearchTabAgents => "Agent",
+        L10nKey::SearchPlaceholderAgents => "搜索打开的标签页和 Agent 会话…",
+        L10nKey::CmdContinueAllAgents => "继续所有 Agent",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
+        }
+        L10nKey::NewTabPageTitle => "新标签页",
+        L10nKey::NewTabPageTerminal => "终端",
+        L10nKey::NewTabPagePlaceholder => "目录…",
+        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 {first}–9 选择类型 · Esc 取消",
+        L10nKey::NewTabPageHintBackground => "⇧Enter 在后台打开",
+        L10nKey::SearchHintBackground => "在后台打开",
+        L10nKey::SettingsGroupOutline => "分组轮廓",
+        L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
+        L10nKey::SettingsGroupOutlineColor => "轮廓颜色",
+        L10nKey::SettingsGroupOutlineColorDesc => "使用主题边框色，或每个分组自己的颜色。",
+        L10nKey::SettingsGroupBackground => "分组背景",
+        L10nKey::SettingsGroupBackgroundDesc => "在每个分组标题后绘制浅色填充。",
+        L10nKey::SettingsGroupBackgroundColor => "背景颜色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "使用主题中性色，或每个分组自己的颜色。",
+        L10nKey::SettingsGroupColorTheme => "主题",
+        L10nKey::SettingsGroupColorHashed => "分组颜色",
+        L10nKey::SettingsGroupBackgroundScope => "背景范围",
+        L10nKey::SettingsGroupBackgroundScopeDesc => "仅标题，或标题连同其标签页作为一个整体。",
+        L10nKey::SettingsGroupScopeHeader => "标题",
+        L10nKey::SettingsGroupScopeGroup => "整个分组",
+        L10nKey::SettingsGroupAnimations => "折叠动画",
+        L10nKey::SettingsGroupAnimationsDesc => "分组展开和收起时平滑过渡，而不是立即切换。",
+        L10nKey::SettingsHotkeyWindow => "快捷键窗口",
+        L10nKey::SettingsHotkeyOn => "全局快捷键",
+        L10nKey::SettingsHotkeyOnDesc => "在任意应用中显示或隐藏 tty7。",
+        L10nKey::SettingsHotkeyKey => "快捷键",
+        L10nKey::SettingsHotkeyKeyDesc => "点击后按下组合键。Esc 取消，Backspace 关闭。",
+        L10nKey::SettingsHotkeyFullscreen => "全屏",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "在鼠标所在的屏幕上全屏显示 tty7，并置于其他应用之上。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "失去焦点时隐藏",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "切换到其他应用时隐藏 tty7。",
+        L10nKey::SettingsHotkeyFade => "淡入淡出",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
+        L10nKey::SettingsResumeAgents => "工作区重启时恢复 agent",
+        L10nKey::SettingsResumeAgentsDesc => "tty7 重启时，恢复之前打开的所有 agent 会话。",
+        L10nKey::SettingsAgentWakeConcurrency => "同时启动的 agent 数",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "唤醒时同时启动多少个 agent 标签页，其余的排队等待。"
+        }
+        L10nKey::SettingsAgentResumeMode => "agent 的恢复方式",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "以标签页程序运行恢复命令，或输入到 shell 中。sh、bash、zsh、dash、ksh、fish 以外的 shell 始终采用输入方式。"
+        }
+        L10nKey::SettingsAgentResumeProgram => "作为标签页运行",
+        L10nKey::SettingsAgentResumeTyped => "输入到 shell",
+        L10nKey::SettingsContinueInterrupted => "继续被中断的 agent",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "当 agent 的回合被中断或后台任务未完成时，发送继续消息。关闭时，agent 恢复后不发送任何消息。"
+        }
+        L10nKey::SettingsContinuePrompt => "继续消息",
+        L10nKey::SettingsContinuePromptDesc => "被中断的 agent 以及“继续所有 Agent”发送的内容。",
+        L10nKey::QuitStopServerBodyResume => {
+            "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时每个 agent 会立即接着原来的对话继续；其他标签页打开哪个才启动哪个。（只关窗口的话应用收进托盘，shell 继续跑。）"
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "这会结束这台电脑上的所有 shell。标签页和布局会保留，并以新的 shell 重新打开，每个 agent 会接着原来的对话继续。"
+        }
+        L10nKey::SidebarDeleteGroupTitle => "删除分组“{name}”？",
+        L10nKey::SidebarDeleteGroupBody => {
+            "分组名称也会一起删除。其中的标签页保持打开，回到自动分组。"
+        }
+        L10nKey::GitHubSession => "会话",
+        L10nKey::GitHubAll => "全部",
+        L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
+        L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
     })
 }
 

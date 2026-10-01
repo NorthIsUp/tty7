@@ -389,11 +389,15 @@ pub fn run_daemon() -> anyhow::Result<()> {
     // descriptor open, and adopting one marks it close-on-exec again.
     #[cfg(target_os = "macos")]
     crate::daemon::responsibility::disclaim_inherited();
+    // After the disclaim's re-exec, which needs it still set; before any
+    // thread exists, since this takes it out of the environment.
+    crate::daemon::dev_config_guard::opted_in();
 
     #[cfg(unix)]
     if let Some(inheritance) = crate::daemon::handoff::requested() {
         return run_adopting(inheritance);
     }
+    crate::daemon::dev_config_guard::enforce();
 
     // Before either endpoint, and before the machine tree is opened. Whoever
     // holds this is the server; everyone else stands down while it lives.
@@ -540,6 +544,9 @@ fn hand_over(registry: &Registry, exe: &std::path::Path) -> anyhow::Error {
     // fail after this — a wrong architecture, a permission the metadata does
     // not show — but the everyday failures, a path that is not there or not a
     // program, are caught while everything is still intact.
+    if let Some(why) = crate::daemon::dev_config_guard::handoff_refusal(exe) {
+        return anyhow::anyhow!("cannot become {}: {why}", exe.display());
+    }
     match std::fs::metadata(exe) {
         Err(e) => return anyhow::anyhow!("cannot become {}: {e}", exe.display()),
         Ok(meta) => {
@@ -608,6 +615,10 @@ fn reaper(registry: Arc<Registry>, id: u64) -> impl FnOnce() + Send + 'static {
 
 pub fn control_services() -> crate::host::server::Services {
     use crate::core::machine::MachineStore;
+    if let Some(why) = crate::daemon::dev_config_guard::refusal() {
+        startup_note!("tty7-server: {why}; serving panes only");
+        return crate::host::server::Services::none();
+    }
     crate::core::machine::adopt_legacy_data_dir();
     match MachineStore::shared() {
         Ok(machine) => {
@@ -819,6 +830,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 // predecessor's commands behind that name.
                 crate::daemon::history::carry(dead, id);
             }
+            let run_once = restore.as_ref().and_then(|r| r.run_once.clone());
             let restore = restore.and_then(restored_screen);
             let on_dead = {
                 let registry = registry.clone();
@@ -839,6 +851,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 owner,
                 workspace,
                 restore,
+                run_once,
                 allow_remote_clipboard_write,
                 on_dead,
             ) {

@@ -25,7 +25,8 @@ impl LinkShutdown for ServerProcess {
     }
 }
 
-struct TempSandbox(tempfile::TempDir);
+/// The sandbox the tests list, and the server's config dir kept out of it.
+struct TempSandbox(tempfile::TempDir, tempfile::TempDir);
 
 impl Sandbox for TempSandbox {
     fn path(&self) -> &Path {
@@ -46,9 +47,13 @@ impl Sandbox for TempSandbox {
 }
 
 fn stdio_host() -> (SharedHost, TempSandbox) {
-    let sandbox = TempSandbox(tempfile::TempDir::new().unwrap());
+    let sandbox = TempSandbox(
+        tempfile::TempDir::new().unwrap(),
+        tempfile::TempDir::new().unwrap(),
+    );
     let mut child = Command::new(env!("CARGO_BIN_EXE_tty7-server"))
-        .args(["--stdio", "--serve"])
+        .args(["--stdio", "--serve", "--config-dir"])
+        .arg(sandbox.1.path())
         .env("TTY7_DATA_DIR", sandbox.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

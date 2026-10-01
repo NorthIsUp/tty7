@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Tests; extra args go to cargo test (e.g. `mise run test -p tty7-core`)"
+set -euo pipefail
+exec cargo test --locked "$@"
