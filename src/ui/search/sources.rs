@@ -5,6 +5,8 @@
 //! view, the All tab and the keyboard walk come with it.
 
 use gpui::{App, SharedString};
+use tty7_core::core::machine::Machine;
+use tty7_core::host::HostId;
 
 use super::SearchTab;
 use super::command::{CommandGroup, CommandKind, Item};
@@ -13,6 +15,7 @@ use super::score::{frecency_bonus, item_score};
 use crate::core::config::Config;
 use crate::core::ssh_profile::parse_quick_connect;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::machine_mirror::MachineMirrors;
 
 /// How many recently used actions lead the Actions tab.
 const RECENT_ROWS: usize = 5;
@@ -103,6 +106,8 @@ pub(crate) struct Catalog {
     /// Asked with every query the Symbols tab is given; its answer comes
     /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
+    /// The tabs the window answers as they are typed in (`text::LiveTab`).
+    pub live: Vec<super::text::LiveTab>,
 }
 
 /// Something that answers a query later — a language server.
@@ -129,6 +134,7 @@ impl Catalog {
             locations: Vec::new(),
             project_symbols: Vec::new(),
             live_query: None,
+            live: Vec::new(),
         }
     }
 
@@ -145,6 +151,9 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
+            SearchTab::Text | SearchTab::History => self.live_source(tab),
+            // The page draws its own rows (`new_tab_page`).
+            SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
     }
 
@@ -194,6 +203,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
+            .filter(|tab| !matches!(tab, SearchTab::Text | SearchTab::History))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing
@@ -427,9 +437,92 @@ impl Source for Terminals<'_> {
             .collect()
     }
 
-    fn search(&self, query: &str, _cx: &App) -> Vec<(i32, Item)> {
-        rank(self.0, query, |_| 0)
+    fn search(&self, query: &str, cx: &App) -> Vec<(i32, Item)> {
+        let machine = MachineMirrors::machine(cx, HostId::LOCAL);
+        let mut out: Vec<(i32, Item)> = goto_rows(query, machine, self.0)
+            .into_iter()
+            .map(|item| (TYPED_ADDRESS_SCORE, item))
+            .collect();
+        out.extend(rank(self.0, query, |_| 0));
+        out
     }
+}
+
+/// A pane or tab address as `tty7 pane ls` and `tty7 ls` print them.
+#[derive(Debug, PartialEq)]
+enum Goto {
+    Pane(u64),
+    Tab(u64),
+}
+
+/// `%891`, `@12`, `pane 891`, `tab 12` (and `pane %891`, `tab @12`).
+fn parse_goto(query: &str) -> Option<Goto> {
+    let q = query.trim().to_ascii_lowercase();
+    let word = |w: &str, sigil: char| {
+        let rest = q.strip_prefix(w)?.trim_start();
+        Some(rest.strip_prefix(sigil).unwrap_or(rest).to_string())
+    };
+    let (pane, digits) = if let Some(d) = q.strip_prefix('%') {
+        (true, d.to_string())
+    } else if let Some(d) = q.strip_prefix('@') {
+        (false, d.to_string())
+    } else if let Some(d) = word("pane", '%') {
+        (true, d)
+    } else {
+        (false, word("tab", '@')?)
+    };
+    // Digits only, as the CLI takes them: `u64::from_str` would also take `+5`.
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = digits.parse().ok()?;
+    Some(if pane { Goto::Pane(n) } else { Goto::Tab(n) })
+}
+
+/// The row a typed pane or tab address offers: go there. Tabs are numbered
+/// across the machine in tree order, the way the CLI's `@N` counts them
+/// (`tty7-cli` `resolve::tab_index`). The row borrows the Terminals row's
+/// title for the tab when it has one — the tab you are in has none.
+fn goto_rows(query: &str, machine: Option<&Machine>, terminals: &[Item]) -> Vec<Item> {
+    let (Some(goto), Some(machine)) = (parse_goto(query), machine) else {
+        return Vec::new();
+    };
+    let tabs = machine
+        .workspaces
+        .iter()
+        .flat_map(|ws| ws.tabs.iter().map(move |tab| (ws.id, tab)));
+    for (ordinal, (workspace, tab)) in (1..).zip(tabs) {
+        let mut item = match goto {
+            Goto::Pane(pane) if tab.root.contains(pane) => Item::new(
+                t_fmt(L10nKey::CmdGoToPane, &[("n", &pane.to_string())]),
+                CommandKind::GoToPane {
+                    workspace,
+                    tab: tab.id,
+                    pane,
+                },
+            ),
+            Goto::Tab(n) if n == ordinal => Item::new(
+                t_fmt(L10nKey::CmdGoToTabAddress, &[("n", &n.to_string())]),
+                CommandKind::GoToTab {
+                    workspace,
+                    tab: tab.id,
+                },
+            ),
+            _ => continue,
+        };
+        let listed = terminals
+            .iter()
+            .find(|i| matches!(i.kind, CommandKind::GoToTab { tab: id, .. } if id == tab.id));
+        match listed {
+            Some(row) => {
+                item.subtitle = Some(row.title.clone());
+                item.note = row.note.clone();
+            }
+            None => item.subtitle = tab.name.clone(),
+        }
+        return vec![item];
+    }
+    Vec::new()
 }
 
 /// How many of this directory's sessions stand for the Sessions tab on the
@@ -453,9 +546,12 @@ impl Source for Sessions<'_> {
     /// The last few sessions that ran where you are, and nothing from
     /// elsewhere: a session from another project is not what an empty query
     /// in this one is reaching for.
+    /// Those open in a tab lead the list but not the All tab, which has
+    /// their tab already.
     fn highlights(&self, _cx: &App) -> Vec<Item> {
         self.items[..self.here.min(self.items.len())]
             .iter()
+            .filter(|item| matches!(item.kind, CommandKind::ResumeSession { .. }))
             .take(SESSIONS_HERE_ON_ALL)
             .cloned()
             .collect()
@@ -695,6 +791,98 @@ mod tests {
             row.kind,
             CommandKind::OpenSshConnect("ssh -p 2222 deploy@box".into())
         );
+    }
+
+    #[test]
+    fn a_pane_or_tab_address_parses_the_way_the_cli_writes_it() {
+        assert_eq!(parse_goto("%891"), Some(Goto::Pane(891)));
+        assert_eq!(parse_goto(" pane 891 "), Some(Goto::Pane(891)));
+        assert_eq!(parse_goto("Pane %891"), Some(Goto::Pane(891)));
+        assert_eq!(parse_goto("@12"), Some(Goto::Tab(12)));
+        assert_eq!(parse_goto("tab 12"), Some(Goto::Tab(12)));
+        assert_eq!(parse_goto("tab @12"), Some(Goto::Tab(12)));
+        for not_one in ["891", "pane", "%", "%+5", "tab twelve", "panes 3", "@ 1"] {
+            assert_eq!(parse_goto(not_one), None, "{not_one:?}");
+        }
+    }
+
+    #[test]
+    fn a_typed_address_finds_its_pane_or_its_machine_wide_tab() {
+        use tty7_core::core::machine::{Axis, PaneNode, Tab, Workspace};
+
+        let split = Tab {
+            root: PaneNode::Split {
+                axis: Axis::Horizontal,
+                ratio: 0.5,
+                a: Box::new(PaneNode::Leaf { pane: 3 }),
+                b: Box::new(PaneNode::Leaf { pane: 891 }),
+            },
+            ..Tab::leaf(0)
+        };
+        let named = Tab {
+            name: Some("logs".into()),
+            ..Tab::leaf(4)
+        };
+        let (api, web) = (WorkspaceId::new(), WorkspaceId::new());
+        let machine = Machine {
+            workspaces: vec![
+                Workspace {
+                    id: api,
+                    tabs: vec![Tab::leaf(1), split.clone()],
+                    ..Workspace::default()
+                },
+                Workspace {
+                    id: web,
+                    tabs: vec![named.clone()],
+                    ..Workspace::default()
+                },
+            ],
+            panes: Vec::new(),
+        };
+        crate::ui::i18n::set_locale("en");
+        let listed = [Item::new(
+            "claude: fix the build",
+            CommandKind::GoToTab {
+                workspace: api,
+                tab: split.id,
+            },
+        )
+        .with_note("api")];
+
+        let [pane] = goto_rows("%891", Some(&machine), &listed)
+            .try_into()
+            .ok()
+            .expect("one row");
+        assert_eq!(pane.title, "Go to Pane %891");
+        assert_eq!(pane.subtitle.as_deref(), Some("claude: fix the build"));
+        assert_eq!(pane.note.as_deref(), Some("api"));
+        assert_eq!(
+            pane.kind,
+            CommandKind::GoToPane {
+                workspace: api,
+                tab: split.id,
+                pane: 891
+            }
+        );
+
+        // @3 counts across workspaces, as `tty7 ls` does: api has two tabs.
+        let [tab] = goto_rows("tab 3", Some(&machine), &listed)
+            .try_into()
+            .ok()
+            .expect("one row");
+        assert_eq!(tab.title, "Go to Tab @3");
+        assert_eq!(tab.subtitle.as_deref(), Some("logs"), "unlisted: its name");
+        assert_eq!(
+            tab.kind,
+            CommandKind::GoToTab {
+                workspace: web,
+                tab: named.id
+            }
+        );
+
+        assert!(goto_rows("%77", Some(&machine), &listed).is_empty());
+        assert!(goto_rows("@4", Some(&machine), &listed).is_empty());
+        assert!(goto_rows("%891", None, &listed).is_empty());
     }
 
     fn with_config(cx: &mut TestAppContext) {

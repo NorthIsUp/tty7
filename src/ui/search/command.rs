@@ -35,6 +35,7 @@ pub enum CommandKind {
     MarkTabUnread,
     HibernateTab,
     ContinueAllAgents,
+    SearchAgents,
     ForkAgentSession,
     CopyAgentSessionId,
     NewAgentTab,
@@ -120,6 +121,8 @@ pub enum CommandKind {
     SearchHosts,
     /// Moves the search to its Files tab — quick open by name.
     QuickOpenFile,
+    /// Opens the search on its Text tab — find in files.
+    SearchText,
     /// A file the Files tab found, opened in the editor — on `line` and
     /// `column` when the query named them (`main.rs:120:5`).
     OpenFile {
@@ -150,6 +153,12 @@ pub enum CommandKind {
     GoToTab {
         workspace: WorkspaceId,
         tab: TabId,
+    },
+    /// One pane of a tab, by the number `tty7 pane ls` prints for it.
+    GoToPane {
+        workspace: WorkspaceId,
+        tab: TabId,
+        pane: u64,
     },
     /// A past agent session, reopened in a new tab where it ran.
     ResumeSession {
@@ -214,6 +223,7 @@ impl CommandKind {
             MarkTabUnread => "mark-tab-unread",
             HibernateTab => "hibernate-tab",
             ContinueAllAgents => "continue-all-agents",
+            SearchAgents => "search-agents",
             ForkAgentSession => "fork-agent-session",
             CopyAgentSessionId => "copy-agent-session-id",
             NewAgentTab => "new-agent-tab",
@@ -305,11 +315,13 @@ impl CommandKind {
             OpenThemePicker => "change-theme",
             SearchHosts => "ssh-add-connection",
             QuickOpenFile => "go-to-file",
+            SearchText => "search-text",
             OpenSshProfiles => "ssh-manage-profiles",
             SaveSshSessionAsHost => "ssh-save-connection",
             OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | GoToPane { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
             | GoToLocation { .. }
@@ -364,6 +376,7 @@ impl CommandKind {
             MarkTabUnread => "MarkTabUnread",
             HibernateTab => "HibernateTab",
             ContinueAllAgents => "ContinueAllAgents",
+            SearchAgents => "SearchAgents",
             ForkAgentSession => "ForkAgentSession",
             CopyAgentSessionId => "CopyAgentSessionId",
             NewAgentTab => "NewAgentTab",
@@ -461,9 +474,11 @@ impl CommandKind {
             | OpenWorkspacePicker
             | OpenThemePicker
             | SearchHosts
+            | SearchText
             | OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | GoToPane { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
             | GoToLocation { .. }
@@ -670,6 +685,7 @@ impl Item {
                 .with_subtitle(t(L10nKey::CmdHibernateTabSubtitle)),
             Item::localized(L10nKey::CmdContinueAllAgents, ContinueAllAgents)
                 .with_subtitle(t(L10nKey::CmdContinueAllAgentsSubtitle)),
+            Item::localized(L10nKey::CmdSearchAgents, SearchAgents),
             Item::localized(L10nKey::CmdClosePaneTab, ClosePane),
             Item::localized(L10nKey::CmdCloseOtherTabs, CloseOtherTabs),
             Item::localized(L10nKey::CmdCloseTabsToTheRight, CloseTabsToTheRight),
@@ -705,6 +721,7 @@ impl Item {
             ),
             Item::localized(L10nKey::CmdShowCodePanel, ToggleCodePanel),
             Item::localized(L10nKey::CmdGoToFile, QuickOpenFile),
+            Item::localized(L10nKey::CmdSearchText, SearchText),
             Item::localized(
                 if document_filled {
                     L10nKey::CmdDocumentDock

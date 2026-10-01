@@ -167,6 +167,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchSessionsEmptyHint => "这里列出本机上各编码 agent 的历史会话。",
         L10nKey::SearchSectionSessionsHere => "在 {dir}",
         L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::SearchSectionSessionsOpen => "已在标签页中打开",
         L10nKey::AppSessionNotResumable => "{name} 不支持按 ID 恢复会话。",
         L10nKey::AppSessionDirectoryGone => "会话所在的目录已不存在：{path}",
         L10nKey::SearchSessionActions => "选择要对这个会话执行的操作…",
@@ -1791,6 +1792,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRestartServerSubtitle => "结束所有运行中的 shell；保留布局",
         L10nKey::CmdQuitTty7 => "退出 tty7",
         L10nKey::CmdQuitTty7Subtitle => "停止服务；结束所有运行中的 shell",
+        L10nKey::CmdGoToPane => "跳到窗格 %{n}",
+        L10nKey::CmdGoToTabAddress => "跳到标签页 @{n}",
         L10nKey::CmdQuickConnect => "连接到“{target}”",
         L10nKey::CmdQuickConnectSaveProfile => "将“{target}”保存为主机配置…",
         L10nKey::CmdRecent => "最近使用",
@@ -2228,9 +2231,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryTooShort => "输入至少 3 个字符以搜索 agent 对话。",
         L10nKey::SearchHistoryRemote => "只能搜索这台电脑上的 agent 历史。",
         L10nKey::SearchHistoryHits => "{count} 处匹配",
-        L10nKey::CmdSearchAgents => "搜索标签页和 Agent 会话…",
-        L10nKey::SearchTabAgents => "Agent",
-        L10nKey::SearchPlaceholderAgents => "搜索打开的标签页和 Agent 会话…",
+        L10nKey::CmdSearchAgents => "搜索 Agent 会话…",
         L10nKey::CmdContinueAllAgents => "继续所有 Agent",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
@@ -2238,11 +2239,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
-        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 {first}–9 选择类型 · Esc 取消",
-        L10nKey::NewTabPageHintBackground => "⇧Enter 在后台打开",
+        L10nKey::NewTabPageDirsHeading => "选择 {kind} 启动的目录",
         L10nKey::SearchHintBackground => "在后台打开",
         L10nKey::SettingsGroupOutline => "分组轮廓",
-        L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
+        L10nKey::SettingsGroupOutlineDesc => "在每个分组（标题及其标签页）周围绘制细轮廓。",
         L10nKey::SettingsGroupOutlineColor => "轮廓颜色",
         L10nKey::SettingsGroupOutlineColorDesc => "使用主题边框色，或每个分组自己的颜色。",
         L10nKey::SettingsGroupBackground => "分组背景",
@@ -2317,6 +2317,31 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "启动选项…",
         L10nKey::SettingsAgentSummaryModel => "模型：{model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} 个选项",
+        L10nKey::SettingsNewTabAgents => "在新标签页中",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
+        }
+        L10nKey::SettingsAgentNoHooks => "此 Agent 没有状态钩子",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "拆分时运行",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "⌘D 和 ⌘⇧D 在窗格旁打开什么：终端、与该窗格相同的 Agent，或用新标签页选择器选择。"
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "拆分 窗格 Agent 终端 选择器 split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "拆分目录",
+        L10nKey::SettingsSplitDirDesc => {
+            "⌘D 和 ⌘⇧D 从哪里开始：该窗格的目录，或用新标签页选择器选择。"
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "拆分 窗格 目录 文件夹 split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "终端",
+        L10nKey::SettingsSplitSame => "与窗格相同",
+        L10nKey::SettingsSplitChoose => "选择",
     })
 }
 

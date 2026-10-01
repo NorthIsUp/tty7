@@ -194,6 +194,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "В {dir}",
         L10nKey::SearchSectionSessionsRecent => "Недавние",
+        L10nKey::SearchSectionSessionsOpen => "Открыты во вкладке",
         L10nKey::AppSessionNotResumable => "{name} не поддерживает продолжение сеанса по ID.",
         L10nKey::AppSessionDirectoryGone => "Папка сеанса больше не существует: {path}",
         L10nKey::SearchSessionActions => "Выберите действие с этим сеансом…",
@@ -2150,6 +2151,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRestartServerSubtitle => "завершить все оболочки, сохранить расположение",
         L10nKey::CmdQuitTty7 => "Выйти из tty7",
         L10nKey::CmdQuitTty7Subtitle => "остановить сервер и завершить все оболочки",
+        L10nKey::CmdGoToPane => "Перейти к панели %{n}",
+        L10nKey::CmdGoToTabAddress => "Перейти к вкладке @{n}",
         L10nKey::CmdQuickConnect => "Подключиться к «{target}»",
         L10nKey::CmdQuickConnectSaveProfile => "Сохранить «{target}» как профиль…",
         L10nKey::CmdRecent => "Недавние",
@@ -2482,9 +2485,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
         L10nKey::SearchHistoryHits => "Совпадений: {count}",
-        L10nKey::CmdSearchAgents => "Искать вкладки и сеансы агентов…",
-        L10nKey::SearchTabAgents => "Агенты",
-        L10nKey::SearchPlaceholderAgents => "Искать открытые вкладки и сеансы агентов…",
+        L10nKey::CmdSearchAgents => "Искать сеансы агентов…",
         L10nKey::CmdContinueAllAgents => "Продолжить всех агентов",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "возобновить каждую спящую вкладку агента с интервалом в несколько секунд и попросить продолжить"
@@ -2492,13 +2493,12 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "Новая вкладка",
         L10nKey::NewTabPageTerminal => "Терминал",
         L10nKey::NewTabPagePlaceholder => "Папка…",
-        L10nKey::NewTabPageHint => {
-            "Enter открывает · ←/→ или {first}–9 выбирают вид · Esc отменяет"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter открывает в фоне",
+        L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
-        L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "Тонкий контур вокруг каждой группы: заголовка и её вкладок."
+        }
         L10nKey::SettingsGroupOutlineColor => "Цвет контура",
         L10nKey::SettingsGroupOutlineColorDesc => {
             "Цвет рамки из темы или собственный цвет каждой группы."
@@ -2591,6 +2591,31 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "Параметры запуска…",
         L10nKey::SettingsAgentSummaryModel => "модель: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} параметров",
+        L10nKey::SettingsNewTabAgents => "В новой вкладке",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
+        }
+        L10nKey::SettingsAgentNoHooks => "Для этого агента нет хуков статуса",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "Что открывает разделение",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "Что ⌘D и ⌘⇧D открывают рядом с панелью: терминал, того же агента, что в панели, или выбор новой вкладки."
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "разделить панель агент терминал выбор split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "Папка разделения",
+        L10nKey::SettingsSplitDirDesc => {
+            "Где ⌘D и ⌘⇧D начинают: в папке панели или в папке из выбора новой вкладки."
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "разделить панель папка каталог split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "Терминал",
+        L10nKey::SettingsSplitSame => "Как в панели",
+        L10nKey::SettingsSplitChoose => "Выбрать",
     })
 }
 

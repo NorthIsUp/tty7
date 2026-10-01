@@ -201,6 +201,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "{dir} 内",
         L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::SearchSectionSessionsOpen => "タブで開いている",
         L10nKey::AppSessionNotResumable => "{name} は ID によるセッション再開に対応していません。",
         L10nKey::AppSessionDirectoryGone => "セッションのディレクトリが存在しません: {path}",
         L10nKey::SearchSessionActions => "このセッションの操作を選択…",
@@ -1987,6 +1988,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRestartServerSubtitle => "実行中のすべてのシェルを終了し、レイアウトは保持",
         L10nKey::CmdQuitTty7 => "tty7 を終了",
         L10nKey::CmdQuitTty7Subtitle => "サーバーを停止し、実行中のすべてのシェルを終了",
+        L10nKey::CmdGoToPane => "ペイン %{n} へ移動",
+        L10nKey::CmdGoToTabAddress => "タブ @{n} へ移動",
         L10nKey::CmdQuickConnect => "「{target}」に接続",
         L10nKey::CmdQuickConnectSaveProfile => "「{target}」をプロファイルとして保存…",
         L10nKey::CmdRecent => "最近",
@@ -2462,9 +2465,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "エージェントの履歴はこのコンピューター上でのみ検索できます。"
         }
         L10nKey::SearchHistoryHits => "{count} 件",
-        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
-        L10nKey::SearchTabAgents => "エージェント",
-        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
+        L10nKey::CmdSearchAgents => "エージェントのセッションを検索…",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
@@ -2472,13 +2473,12 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新しいタブ",
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
-        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "各グループ（見出しとタブ）の周りに細い枠線を引きます。"
+        }
         L10nKey::SettingsGroupOutlineColor => "枠線の色",
         L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
         L10nKey::SettingsGroupBackground => "グループの背景",
@@ -2563,6 +2563,31 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "起動オプション…",
         L10nKey::SettingsAgentSummaryModel => "モデル: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} 個のオプション",
+        L10nKey::SettingsNewTabAgents => "新しいタブに表示",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
+        }
+        L10nKey::SettingsAgentNoHooks => "このエージェントにはステータスフックがありません",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "分割で開くもの",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "⌘D と ⌘⇧D でペインの隣に開くもの: ターミナル、ペインと同じエージェント、または新しいタブのピッカーで選ぶ。"
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "分割 ペイン エージェント ターミナル ピッカー split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "分割のディレクトリ",
+        L10nKey::SettingsSplitDirDesc => {
+            "⌘D と ⌘⇧D の開始場所: ペインのディレクトリ、または新しいタブのピッカーで選ぶ。"
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "分割 ペイン ディレクトリ フォルダ split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "ターミナル",
+        L10nKey::SettingsSplitSame => "ペインと同じ",
+        L10nKey::SettingsSplitChoose => "選ぶ",
     })
 }
 

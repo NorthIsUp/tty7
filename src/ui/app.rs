@@ -4382,6 +4382,9 @@ impl Tty7App {
     /// The new session starts in the far directory the pane was in, as a
     /// local ⌘T starts in the local one.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_new_tab_page(window, cx) {
+            return;
+        }
         let source = self
             .tabs
             .get(self.active)
@@ -4636,6 +4639,9 @@ impl Tty7App {
     }
 
     pub(crate) fn split(&mut self, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_split_page(axis, window, cx) {
+            return;
+        }
         self.split_into(axis, None, window, cx);
     }
 
@@ -4659,6 +4665,19 @@ impl Tty7App {
         &mut self,
         axis: Axis,
         spawn: Option<SpawnAs>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PaneSlot> {
+        self.split_slot_in(axis, spawn, None, window, cx)
+    }
+
+    /// [`Self::split_slot`] starting in `dir` rather than where the split
+    /// pane is.
+    pub(crate) fn split_slot_in(
+        &mut self,
+        axis: Axis,
+        spawn: Option<SpawnAs>,
+        dir: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PaneSlot> {
@@ -4691,10 +4710,10 @@ impl Tty7App {
                 ),
             },
         };
-        let cwd = {
+        let cwd = dir.or_else(|| {
             let target = target.read(cx);
             inherited_start_dir(opened, target.cwd(), target.remote_context().is_some())
-        };
+        });
         let new = match spawn {
             SpawnAs::Ssh(spec) => {
                 match new_terminal_native(self.font_size, cwd, spec, window, cx) {
@@ -6531,7 +6550,7 @@ impl Tty7App {
             None => Vec::new(),
         };
         out.extend(rest.drain(..).map(|s| row(s, recent.clone())));
-        (out, count)
+        crate::ui::search::open_first(out, count, &self.open_agent_sessions(cx))
     }
 
     /// The Actions tab: the fixed set, plus the rows only this window can
@@ -6750,7 +6769,8 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let catalog = self.search_catalog(window, cx);
+        let mut catalog = self.search_catalog(window, cx);
+        catalog.live = self.palette_live_tabs(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6882,7 +6902,7 @@ impl Tty7App {
         cx.notify();
     }
 
-    fn focused_leaf(&self, window: &Window, cx: &App) -> Option<Entity<TerminalView>> {
+    pub(crate) fn focused_leaf(&self, window: &Window, cx: &App) -> Option<Entity<TerminalView>> {
         self.tabs
             .get(self.active)
             .and_then(|t| t.pane.focused_or_first(window, cx))
@@ -7001,6 +7021,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Sessions, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             FocusNextAgentNeedingAttention => self.focus_next_agent_needing_attention(window, cx),
@@ -7110,6 +7131,7 @@ impl Tty7App {
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
             QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            SearchText => self.open_search(SearchTab::Text, "", window, cx),
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
@@ -7118,6 +7140,34 @@ impl Tty7App {
                 self.open_file_in_editor_at(&path, Some(line + 1), Some(column + 1), window, cx)
             }
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
+            GoToPane {
+                workspace,
+                tab,
+                pane,
+            } => {
+                self.go_to_tab(workspace, tab, false, window, cx);
+                // A tab that was asleep woke with new pane ids, and one in
+                // another window is that window's to focus: landing on the
+                // tab is all either gets.
+                let leaf = self.tabs.get(self.active).and_then(|t| {
+                    t.pane
+                        .leaves()
+                        .into_iter()
+                        .find(|l| l.terminal().is_some_and(|v| v.read(cx).pane_id == pane))
+                });
+                if let Some(leaf) = leaf {
+                    if self
+                        .maximized
+                        .as_ref()
+                        .is_some_and(|m| m.entity_id() != leaf.entity_id())
+                    {
+                        self.maximized = None;
+                    }
+                    self.tabs[self.active].last_focused = Some(leaf.entity_id());
+                    self.focus_leaf(&leaf, window, cx);
+                    cx.notify();
+                }
+            }
             ResumeSession {
                 agent,
                 session_id,
@@ -7305,6 +7355,15 @@ impl Tty7App {
             }
             L10nKey::SettingsCopyJoinWrapped => {
                 self.update_config(cx, |c| c.copy_join_wrapped = defaults.copy_join_wrapped)
+            }
+            L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
+                c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
+            }),
+            L10nKey::SettingsSplitHarness => {
+                self.update_config(cx, |c| c.fork.split_harness = defaults.fork.split_harness)
+            }
+            L10nKey::SettingsSplitDir => {
+                self.update_config(cx, |c| c.fork.split_dir = defaults.fork.split_dir)
             }
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
@@ -10320,6 +10379,9 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
                     this.continue_all_agents(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
+                    this.open_palette_on(SearchTab::Sessions, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)
@@ -13614,6 +13676,51 @@ mod displayed_gpui_tests {
                 None,
                 "a closed pane's flag does not outlive it"
             );
+        });
+    }
+}
+
+#[cfg(test)]
+mod palette_goto_gpui_tests {
+    use gpui::TestAppContext;
+
+    use crate::terminal::view::quiet_test_pane;
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::pane::{Pane, PaneSlot};
+    use crate::ui::search::CommandKind;
+
+    #[gpui::test]
+    fn go_to_pane_lands_on_its_tab_with_that_pane_focused(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            let (view, stream) = quiet_test_pane(891, window, cx);
+            let first = app.tabs[1].pane.first_leaf().expect("tab 1 has a pane");
+            app.tabs[1].pane = Pane::split_node(
+                gpui::Axis::Horizontal,
+                0.5,
+                Pane::leaf(first),
+                Pane::leaf(PaneSlot::Ready(view)),
+            );
+            let (workspace, tab) = (app.workspace, app.tabs[1].tree_id.get());
+
+            app.run_command(
+                CommandKind::GoToPane {
+                    workspace,
+                    tab,
+                    pane: 891,
+                },
+                window,
+                cx,
+            );
+
+            assert_eq!(app.active, 1, "the pane's tab is in front");
+            let focused = app.tabs[1]
+                .pane
+                .focused_leaf(window, cx)
+                .and_then(|l| l.terminal().map(|v| v.read(cx).pane_id));
+            assert_eq!(focused, Some(891), "and the pane itself has focus");
+            drop(stream);
         });
     }
 }
