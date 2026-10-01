@@ -8,17 +8,20 @@
 //! - [`score`]: the one fuzzy scorer every tab shares.
 //! - [`view`]: the modal — the tab row, the list, the theme picker.
 
+mod agents;
 mod command;
 pub(crate) mod files;
+mod history_text;
 mod score;
 mod sources;
-mod view;
+mod text;
+pub(crate) mod view;
 
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};
 pub(crate) use score::fuzzy_score;
 pub(crate) use sources::{Catalog, LiveQuery, host_items};
-pub(crate) use view::{KEY_CONTEXT, SearchEvent, SearchView};
+pub(crate) use view::{CARD_MAX_W, KEY_CONTEXT, SearchEvent, SearchView};
 
 use crate::ui::i18n::{L10nKey, t};
 
@@ -36,6 +39,18 @@ pub(crate) enum SearchTab {
     /// Places a language server found — the references to a symbol, or its
     /// several definitions (`ui::lsp`). Reached only by those commands.
     Locations,
+    /// Find in files (`text`): searched on the machine only once enough is
+    /// typed, so it is on the row but never on the All tab.
+    Text,
+    /// Full text over past agent conversations (`history_text`): like Text,
+    /// asked only once enough is typed, and never on the All tab.
+    History,
+    /// Open tabs, then the agent sessions not open in one (`agents`, ⌘K).
+    /// Off the row: Terminals and Sessions already are its halves.
+    Agents,
+    /// What to open and where (`new_tab_page`, ⌘T): the page draws itself in
+    /// place of the list. Off the row.
+    NewTab,
 }
 
 impl SearchTab {
@@ -47,11 +62,13 @@ impl SearchTab {
     /// together, and a sample of paths among tabs and hosts answered nothing
     /// anyone had typed. Commands last, the way the rest of the row goes
     /// from the things you have to the things you can do.
-    pub(crate) const ORDER: [SearchTab; 5] = [
+    pub(crate) const ORDER: [SearchTab; 7] = [
         SearchTab::All,
         SearchTab::Terminals,
         SearchTab::Sessions,
+        SearchTab::History,
         SearchTab::Hosts,
+        SearchTab::Text,
         SearchTab::Actions,
     ];
 
@@ -76,6 +93,10 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchTabHosts,
             SearchTab::Symbols => L10nKey::SearchTabSymbols,
             SearchTab::Locations => L10nKey::SearchTabLocations,
+            SearchTab::Text => L10nKey::SearchTabText,
+            SearchTab::History => L10nKey::SearchTabHistory,
+            SearchTab::Agents => L10nKey::SearchTabAgents,
+            SearchTab::NewTab => L10nKey::NewTabPageTitle,
         })
     }
 
@@ -97,6 +118,10 @@ impl SearchTab {
             SearchTab::Hosts => L10nKey::SearchPlaceholderHosts,
             SearchTab::Symbols => L10nKey::SearchPlaceholderSymbols,
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
+            SearchTab::Text => L10nKey::SearchPlaceholderText,
+            SearchTab::History => L10nKey::SearchPlaceholderHistory,
+            SearchTab::Agents => L10nKey::SearchPlaceholderAgents,
+            SearchTab::NewTab => L10nKey::NewTabPagePlaceholder,
         })
     }
 
@@ -119,7 +144,10 @@ mod tests {
     #[test]
     fn tab_steps_wrap_both_ways() {
         assert_eq!(SearchTab::All.step(true), SearchTab::Terminals);
-        assert_eq!(SearchTab::Hosts.step(true), SearchTab::Actions);
+        assert_eq!(SearchTab::Sessions.step(true), SearchTab::History);
+        assert_eq!(SearchTab::History.step(true), SearchTab::Hosts);
+        assert_eq!(SearchTab::Hosts.step(true), SearchTab::Text);
+        assert_eq!(SearchTab::Text.step(true), SearchTab::Actions);
         assert_eq!(SearchTab::Actions.step(true), SearchTab::All);
         assert_eq!(SearchTab::All.step(false), SearchTab::Actions);
         assert_eq!(SearchTab::Terminals.step(false), SearchTab::All);

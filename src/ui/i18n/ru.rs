@@ -2468,10 +2468,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "Новая вкладка",
         L10nKey::NewTabPageTerminal => "Терминал",
         L10nKey::NewTabPagePlaceholder => "Папка…",
-        L10nKey::NewTabPageHint => {
-            "Enter открывает · ←/→ или {first}–9 выбирают вид · Esc отменяет"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter открывает в фоне",
+        L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
         L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",
@@ -2550,6 +2547,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "Все",
         L10nKey::GitHubNoSessionMentions => "Этот сеанс не упоминал ни задач, ни пул-реквестов",
         L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
+        L10nKey::SettingsNewTabAgents => "Агенты в новой вкладке",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
+        }
     })
 }
 

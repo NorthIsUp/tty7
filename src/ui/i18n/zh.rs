@@ -2214,8 +2214,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
-        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 {first}–9 选择类型 · Esc 取消",
-        L10nKey::NewTabPageHintBackground => "⇧Enter 在后台打开",
+        L10nKey::NewTabPageDirsHeading => "选择 {kind} 启动的目录",
         L10nKey::SearchHintBackground => "在后台打开",
         L10nKey::SettingsGroupOutline => "分组轮廓",
         L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
@@ -2278,6 +2277,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "全部",
         L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
         L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
+        L10nKey::SettingsNewTabAgents => "新标签页中的 Agent",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
+        }
     })
 }
 

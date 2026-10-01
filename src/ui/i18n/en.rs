@@ -2371,8 +2371,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
-        L10nKey::NewTabPageHint => "Enter opens · ←/→ or {first}–9 picks the kind · Esc cancels",
-        L10nKey::NewTabPageHintBackground => "⇧Enter opens in background",
+        L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",
         L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
@@ -2447,6 +2446,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "This session hasn't mentioned an issue or pull request"
         }
         L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
+        L10nKey::SettingsNewTabAgents => "Agents in New Tab",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "The agents the New Tab page offers beside Terminal. One switched off is still on PATH and everywhere else"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "agents new tab page offer hide claude codex pi"
+        }
     }
 }
 

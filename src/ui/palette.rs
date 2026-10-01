@@ -1,18 +1,20 @@
-//! Search Everywhere's chord opens the palette from wherever focus is, and an
-//! open palette keeps every workspace key for itself.
+//! ⌘T, ⌘P and ⌘K open the palette on their tab — New Tab, All, Agents — from
+//! wherever focus is, and an open palette keeps every key for itself.
 //!
 //! Both run in a keystroke interceptor, which gpui calls before it matches a
-//! single binding. Bound the ordinary way the chord missed focus in the
-//! Settings window (its own window, whose tree has no palette listeners), and
-//! while the palette was open any app binding it did not handle — ⌘D, ⌘W,
-//! ⌘1 — fell through to the workspace behind it.
+//! single binding. Bound the ordinary way the chords missed focus in the
+//! Settings window (its own window, whose tree has no palette listeners) and
+//! in the code editor (⌘K there starts its ⌘K ⌘D chord), and while the palette
+//! was open any app binding it did not handle — ⌘D, ⌘W, ⌘1 — fell through to
+//! the workspace behind it.
 
 use gpui::{
     Action, App, Entity, Global, KeyBinding, Keystroke, KeystrokeEvent, Subscription, Window,
 };
 
 use crate::core::actions::{
-    EditorGoToSymbol, HideApp, MinimizeWindow, QuickOpenFile, Quit, TogglePalette,
+    EditorGoToSymbol, HideApp, MinimizeWindow, NewTab, QuickOpenFile, Quit, SearchAgents,
+    TogglePalette,
 };
 use crate::ui::app::Tty7App;
 use crate::ui::search::{KEY_CONTEXT, SearchTab};
@@ -31,13 +33,23 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(Interceptor { _sub: sub });
 }
 
-/// Whether `ks` is `TogglePalette`'s chord as the keymap has it now, so a
-/// rebinding moves it and an unbound one opens nothing.
-fn is_palette_chord(ks: &Keystroke, cx: &App) -> bool {
-    cx.key_bindings()
-        .borrow()
-        .bindings_for_action(&TogglePalette)
-        .any(|b| matches!(b.keystrokes(), [only] if ks.should_match(only)))
+/// The tab `ks` opens, when it is one of the three chords as the keymap has
+/// them now — so a rebinding moves them, and an unbound one opens nothing.
+fn chord_tab(ks: &Keystroke, cx: &App) -> Option<SearchTab> {
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let bound = |action: &dyn Action| {
+        keymap
+            .bindings_for_action(action)
+            .any(|b| matches!(b.keystrokes(), [only] if ks.should_match(only)))
+    };
+    [
+        (&NewTab as &dyn Action, SearchTab::NewTab),
+        (&TogglePalette, SearchTab::All),
+        (&SearchAgents, SearchTab::Agents),
+    ]
+    .into_iter()
+    .find_map(|(action, tab)| bound(action).then_some(tab))
 }
 
 /// The query field's own editing chords, which the modal rule leaves alone.
@@ -80,14 +92,24 @@ fn intercept(ev: &KeystrokeEvent, window: &mut Window, cx: &mut App) {
     if recording_a_shortcut(&app, cx) {
         return;
     }
-    if is_palette_chord(ks, cx) {
+    if let Some(tab) = chord_tab(ks, cx) {
         cx.stop_propagation();
-        app.update(cx, |app, cx| app.toggle_search(window, cx));
+        app.update(cx, |app, cx| app.open_palette_on(tab, window, cx));
         return;
     }
     let Some(search) = app.read(cx).search.clone() else {
         return;
     };
+    if let Some(page) = search.read(cx).new_tab_page()
+        && page.update(cx, |page, cx| page.on_key(ks, window, cx))
+    {
+        cx.stop_propagation();
+        return;
+    }
+    if search.update(cx, |search, cx| search.on_arrow(ks, window, cx)) {
+        cx.stop_propagation();
+        return;
+    }
     // Focus got out from under the palette: the key would land behind it.
     if !ev.context_stack.iter().any(|c| c.contains(KEY_CONTEXT)) {
         cx.stop_propagation();
@@ -128,9 +150,9 @@ fn from_settings(settings: &Entity<SettingsWindow>, ks: &Keystroke, cx: &mut App
     let Some(app) = settings.read(cx).app.upgrade() else {
         return;
     };
-    if recording_a_shortcut(&app, cx) || !is_palette_chord(ks, cx) {
+    let Some(tab) = chord_tab(ks, cx).filter(|_| !recording_a_shortcut(&app, cx)) else {
         return;
-    }
+    };
     let Some((_, owner)) = app.read(cx).settings_window else {
         return;
     };
@@ -138,11 +160,7 @@ fn from_settings(settings: &Entity<SettingsWindow>, ks: &Keystroke, cx: &mut App
     cx.defer(move |cx| {
         let _ = owner.update(cx, |_, window, cx| {
             window.activate_window();
-            app.update(cx, |app, cx| {
-                if app.search.is_none() {
-                    app.toggle_search(window, cx);
-                }
-            });
+            app.update(cx, |app, cx| app.open_palette_on(tab, window, cx));
         });
     });
 }
@@ -154,7 +172,7 @@ mod tests {
     use gpui::{Focusable as _, TestAppContext, VisualTestContext};
 
     use super::*;
-    use crate::core::config::RightPanelTab;
+    use crate::core::config::{Config, RightPanelTab};
     use crate::daemon::protocol::ClientMsg;
     use crate::daemon::transport::Stream;
     use crate::ui::app::test_window::harness_with_tabs;
@@ -188,7 +206,43 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_chord_opens_the_palette_from_the_side_panel_and_settings(cx: &mut TestAppContext) {
+    fn new_tab_opens_the_palette_on_its_new_tab_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        vcx.update(|_, cx| cx.global_mut::<Config>().fork.new_tab_page = true);
+        let tabs = app.read_with(&vcx, |app, _| app.tabs.len());
+        let new_tab = key("NewTab", &mut vcx);
+        vcx.simulate_keystrokes(&new_tab);
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), Some(SearchTab::NewTab));
+        assert!(app.read_with(&vcx, |app, cx| {
+            app.search
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .new_tab_page()
+                .is_some()
+        }));
+
+        // The other two chords switch tabs; the same one closes.
+        let palette = key("TogglePalette", &mut vcx);
+        vcx.simulate_keystrokes(&palette);
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), Some(SearchTab::All));
+        vcx.simulate_keystrokes(&new_tab);
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), Some(SearchTab::NewTab));
+        vcx.simulate_keystrokes(&new_tab);
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), None);
+        assert_eq!(
+            app.read_with(&vcx, |app, _| app.tabs.len()),
+            tabs,
+            "nothing opened"
+        );
+    }
+
+    #[gpui::test]
+    fn the_chords_open_the_palette_from_the_side_panel_and_settings(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         app.update(&mut vcx, |app, cx| {
             app.right_panel_visible = true;
@@ -196,7 +250,14 @@ mod tests {
             cx.notify();
         });
         vcx.run_until_parked();
-        let chord = key("TogglePalette", &mut vcx);
+        let mut chords = vec![
+            (key("NewTab", &mut vcx), SearchTab::NewTab),
+            (key("TogglePalette", &mut vcx), SearchTab::All),
+        ];
+        // Unbound off macOS.
+        if let Some(agents) = vcx.update(|_, cx| effective_key("SearchAgents", cx)) {
+            chords.push((agents, SearchTab::Agents));
+        }
         type Input = fn(&Tty7App) -> Entity<gpui_component::input::InputState>;
         let side_panel: Input = |app| app.file_search.clone();
         let settings: Input = |app| app.active_settings().unwrap().search.clone();
@@ -207,30 +268,30 @@ mod tests {
                 });
                 vcx.run_until_parked();
             }
-            app.update_in(&mut vcx, |app, window, cx| {
-                input(app).update(cx, |input, cx| input.focus(window, cx));
-            });
-            vcx.run_until_parked();
-            let focused = app.read_with(&vcx, |app, cx| input(app).read(cx).focus_handle(cx));
-            assert!(
-                vcx.update(|window, _| focused.is_focused(window)),
-                "the {place} field has focus"
-            );
-            vcx.simulate_keystrokes(&chord);
-            vcx.run_until_parked();
-            assert_eq!(
-                showing(&app, &mut vcx),
-                Some(SearchTab::All),
-                "{chord} from the {place}"
-            );
-            vcx.simulate_keystrokes(&chord);
-            vcx.run_until_parked();
-            assert_eq!(showing(&app, &mut vcx), None, "{chord} again closes it");
+            for (chord, tab) in &chords {
+                app.update_in(&mut vcx, |app, window, cx| {
+                    input(app).update(cx, |input, cx| input.focus(window, cx));
+                });
+                vcx.run_until_parked();
+                let focused = app.read_with(&vcx, |app, cx| input(app).read(cx).focus_handle(cx));
+                assert!(
+                    vcx.update(|window, _| focused.is_focused(window)),
+                    "the {place} field has focus"
+                );
+                vcx.simulate_keystrokes(chord);
+                vcx.run_until_parked();
+                assert_eq!(
+                    showing(&app, &mut vcx),
+                    Some(*tab),
+                    "{chord} from the {place}"
+                );
+                app.update_in(&mut vcx, |app, window, cx| app.close_search(window, cx));
+            }
         }
     }
 
     #[gpui::test]
-    fn keys_while_the_palette_is_open_do_not_reach_the_workspace(cx: &mut TestAppContext) {
+    fn keys_while_the_palette_is_open_do_not_reach_the_pane(cx: &mut TestAppContext) {
         let (app, mut vcx, mut streams) = harness_with_tabs(cx, 2);
         let daemon = &mut streams[0];
         // Typed at the pane, a key reaches its shell.

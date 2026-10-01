@@ -1878,8 +1878,7 @@ l10n_keys! {
     NewTabPageTitle,
     NewTabPageTerminal,
     NewTabPagePlaceholder,
-    NewTabPageHint,
-    NewTabPageHintBackground,
+    NewTabPageDirsHeading,
     SearchHintBackground,
     SettingsGroupOutline,
     SettingsGroupOutlineDesc,
@@ -1928,6 +1927,9 @@ l10n_keys! {
     GitHubAll,
     GitHubNoSessionMentions,
     GitHubNoSessionMatches,
+    SettingsNewTabAgents,
+    SettingsNewTabAgentsDesc,
+    SettingsSearchNewTabAgentsKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.

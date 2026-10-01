@@ -7185,6 +7185,9 @@ impl Tty7App {
             L10nKey::SettingsTrimTrailingSpaces => {
                 self.set_clipboard_trim(defaults.clipboard_trim_trailing_spaces, cx)
             }
+            L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
+                c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
+            }),
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
             L10nKey::SettingsPromptEditor => self.set_prompt_editor(defaults.prompt_editor, cx),

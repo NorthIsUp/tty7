@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ClickEvent, Context, Entity, EventEmitter, FontWeight, MouseButton, MouseDownEvent,
+    App, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, MouseButton, MouseDownEvent,
     ScrollStrategy, Subscription, Task, Window, div, prelude::*, px, rems,
 };
 use gpui_component::{
@@ -18,6 +18,7 @@ use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::new_tab_page::NewTabPage;
 
 /// What the list is showing: one of the tabs, or a list a row opens — the
 /// theme picker one of the Actions rows opens, or what can be done with a
@@ -96,10 +97,7 @@ impl SearchDelegate {
 
     fn render_row(&self, ix: IndexPath, item: &Item, cx: &App) -> gpui::AnyElement {
         let picked = Some(ix) == self.selected;
-        let (fg, muted) = {
-            let t = cx.theme();
-            (t.foreground, t.muted_foreground)
-        };
+        let muted = cx.theme().muted_foreground;
 
         // The title holds its width longest, with what was typed picked out
         // in it; the subtitle goes to the right edge, in caption ink, and is
@@ -115,14 +113,7 @@ impl SearchDelegate {
         }
         let title = gpui::SharedString::from(item.title.clone());
         let title = match match_range(&item.title, &self.query) {
-            Some(range) => gpui::StyledText::new(title).with_highlights([(
-                range,
-                gpui::HighlightStyle {
-                    font_weight: Some(FontWeight::SEMIBOLD),
-                    color: Some(fg),
-                    ..Default::default()
-                },
-            )]),
+            Some(range) => gpui::StyledText::new(title).with_highlights([(range, hit(cx))]),
             None => gpui::StyledText::new(title),
         };
         left = left.child(
@@ -130,10 +121,7 @@ impl SearchDelegate {
                 .flex_shrink(1.)
                 .min_w(px(40.))
                 .truncate()
-                .text_color(match self.query.trim().is_empty() {
-                    true => fg,
-                    false => fg.opacity(0.78),
-                })
+                .text_color(title_ink(!self.query.trim().is_empty(), cx))
                 .child(title),
         );
         if let Some(subtitle) = item.subtitle.clone() {
@@ -227,6 +215,9 @@ impl ListDelegate for SearchDelegate {
         {
             live(query, cx);
         }
+        if let Scope::Tab(tab) = self.scope {
+            self.catalog.ask_live(tab, query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -244,18 +235,7 @@ impl ListDelegate for SearchDelegate {
         cx: &mut Context<ListState<Self>>,
     ) -> Option<impl IntoElement> {
         let title = self.sections.get(section)?.title.clone()?;
-        // The sidebar's group heading: medium, a half step under the rows, in
-        // caption ink — never capitals, never a rule under it.
-        Some(
-            h_flex()
-                .h(px(HEADER_H))
-                .px(px(LABEL_INSET))
-                .items_center()
-                .text_size(rems(crate::ui::right_panel::HEADING))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(title),
-        )
+        Some(section_header(title, cx))
     }
 
     fn render_empty(
@@ -291,6 +271,10 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
+            }
+            Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
+            Scope::Tab(SearchTab::History) => {
+                super::history_text::empty_hint(&self.catalog, &self.query)
             }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
@@ -450,6 +434,8 @@ pub struct SearchView {
     /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
     /// less what cannot answer), set by whoever opened an editor tab.
     editor_tabs: Vec<SearchTab>,
+    /// The New Tab tab's page, drawn in place of the list.
+    new_tab: Option<Entity<NewTabPage>>,
     _sub: Subscription,
 }
 
@@ -485,13 +471,35 @@ impl SearchView {
             symbol_moved: false,
             heading: None,
             editor_tabs: Vec::new(),
+            new_tab: None,
             _sub,
         }
     }
 
+    pub(crate) fn set_new_tab(
+        &mut self,
+        page: Entity<NewTabPage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        NewTabPage::focus(&page, window, cx);
+        self.new_tab = Some(page);
+        cx.notify();
+    }
+
+    /// The page, while the New Tab tab is showing.
+    pub(crate) fn new_tab_page(&self) -> Option<Entity<NewTabPage>> {
+        self.new_tab
+            .clone()
+            .filter(|_| self.tab == SearchTab::NewTab)
+    }
+
     /// Puts the keyboard back in the search field (`palette`).
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-        self.list.update(cx, |state, cx| state.focus(window, cx));
+        match self.new_tab_page() {
+            Some(page) => NewTabPage::focus(&page, window, cx),
+            None => self.list.update(cx, |state, cx| state.focus(window, cx)),
+        }
     }
 
     /// Whether a row's list is showing rather than a tab.
@@ -558,6 +566,8 @@ impl SearchView {
             }
             // `set_query` searches only when the text changed; the tab did.
             state.delegate_mut().refresh(cx);
+            let delegate = state.delegate();
+            delegate.catalog.ask_live(tab, &delegate.query, cx);
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
             state.scroll_to_item(IndexPath::default(), ScrollStrategy::Top, window, cx);
@@ -689,7 +699,7 @@ impl SearchView {
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
-    fn update_catalog(
+    pub(super) fn update_catalog(
         &mut self,
         change: impl FnOnce(&mut Catalog),
         window: &mut Window,
@@ -734,6 +744,33 @@ impl SearchView {
             (i + n - 1) % n
         }];
         self.go_to_tab(next, window, cx);
+    }
+
+    /// ← and → walk the tab row while nothing is typed, as on the New Tab
+    /// page; with a query they are the caret's. Taken ahead of the field
+    /// (`palette`'s interceptor), which would otherwise eat them.
+    pub(crate) fn on_arrow(
+        &mut self,
+        ks: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = &ks.modifiers;
+        let bare = !(m.platform || m.control || m.alt || m.shift || m.function);
+        let forward = match ks.key.as_str() {
+            "left" => false,
+            "right" => true,
+            _ => return false,
+        };
+        if !bare
+            || self.in_sub_list()
+            || self.scope_row().is_none()
+            || !self.list.read(cx).delegate().query.is_empty()
+        {
+            return false;
+        }
+        self.step_tab(forward, window, cx);
+        true
     }
 
     fn open_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -904,19 +941,8 @@ impl SearchView {
     /// on the popover's selected step. Go to File has no pill of its own —
     /// it is a chord, not a scope — so there none is lit.
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
-        let (active_bg, hover_bg) = (gpui::rgb(sf.selected), gpui::rgb(sf.hover));
-        let theme = cx.theme();
-        let (fg, muted) = (theme.foreground, theme.muted_foreground);
-        h_flex()
-            .h(px(TABS_H))
-            .px(px(SCOPE_PAD))
-            .pb(px(6.))
-            .gap(px(2.))
-            .items_center()
-            .bg(theme.popover)
-            .border_b_1()
-            .border_color(theme.border)
+        let muted = cx.theme().muted_foreground;
+        scope_bar(cx)
             .when(self.scope_row().is_none(), |row| {
                 // Go to File's rows are a capped sample of the project, so a
                 // count there would read as the size of something it is not.
@@ -928,50 +954,21 @@ impl SearchView {
                     SearchTab::Locations => self.heading.unwrap_or_else(|| self.tab.title()),
                     _ => self.tab.title(),
                 };
-                row.child(
-                    div()
-                        .h(px(24.))
-                        .px(px(9.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .bg(active_bg)
-                        .text_size(rems(SCOPE_TEXT))
-                        .text_color(fg)
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(heading),
-                )
-                .when(count > 0, |row| {
-                    row.child(
-                        div()
-                            .px(px(6.))
-                            .text_size(rems(SCOPE_TEXT))
-                            .text_color(muted)
-                            .child(count.to_string()),
-                    )
-                })
+                row.child(scope_chip(true, cx).child(heading))
+                    .when(count > 0, |row| {
+                        row.child(
+                            div()
+                                .px(px(6.))
+                                .text_size(rems(SCOPE_TEXT))
+                                .text_color(muted)
+                                .child(count.to_string()),
+                        )
+                    })
             })
             .when_some(self.scope_row(), |row, tabs| {
                 row.children(tabs.into_iter().enumerate().map(|(i, tab)| {
-                    let active = tab == self.tab;
-                    div()
+                    scope_chip(tab == self.tab, cx)
                         .id(("search-tab", i))
-                        .h(px(24.))
-                        .px(px(9.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .text_size(rems(SCOPE_TEXT))
-                        .cursor_pointer()
-                        .map(|d| match active {
-                            true => d
-                                .bg(active_bg)
-                                .text_color(fg)
-                                .font_weight(FontWeight::MEDIUM),
-                            false => d
-                                .text_color(muted)
-                                .hover(move |d| d.bg(hover_bg).text_color(fg)),
-                        })
                         .child(tab.title())
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.go_to_tab(tab, window, cx);
@@ -984,38 +981,37 @@ impl SearchView {
     /// The switcher's footer, minus its New workspace button: the keys that
     /// move and run, as caps with a word after each.
     fn render_footer(&self, cx: &App) -> impl IntoElement + use<> {
-        let theme = cx.theme();
-        let hint = |keys: Vec<gpui::AnyElement>, label: &'static str| {
-            h_flex()
-                .items_center()
-                .gap(px(6.))
-                .children(keys)
-                .child(label)
-        };
         let tabs = !self.in_sub_list() && self.scope_row().is_some();
-        h_flex()
-            .flex_none()
-            .items_center()
-            .gap(px(16.))
-            .h(px(FOOTER_H))
-            .px(px(16.))
-            .border_t_1()
-            .border_color(theme.border)
-            .overflow_hidden()
-            .text_size(rems(ROW_META))
-            .text_color(theme.muted_foreground)
+        footer_bar(cx)
             .when(tabs, |row| {
-                row.child(hint(
+                row.child(footer_hint(
                     vec![keycap(crate::ui::keymap::key_tokens("tab").join(""), cx)],
                     t(L10nKey::SearchHintNextScope),
                 ))
             })
             .child(div().flex_1())
-            .child(hint(
+            .child(footer_hint(
                 vec![keycap("↑", cx), keycap("↓", cx)],
                 t(L10nKey::SwitcherHintNavigate),
             ))
-            .child(hint(vec![keycap("↵", cx)], t(L10nKey::SwitcherHintOpen)))
+            .child(footer_hint(
+                vec![keycap("↵", cx)],
+                t(L10nKey::SwitcherHintOpen),
+            ))
+            .when(self.selected_opens_tab(cx), |row| {
+                row.child(footer_hint(
+                    vec![keycap("⇧", cx), keycap("↵", cx)],
+                    t(L10nKey::SearchHintBackground),
+                ))
+            })
+    }
+
+    fn selected_opens_tab(&self, cx: &App) -> bool {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .is_some_and(|item| crate::ui::background_tab::opens_tab(&item.kind))
     }
 }
 
@@ -1038,7 +1034,7 @@ const HEADER_H: f32 = 24.;
 /// How far the list sits in from the card's edges, and how far a row's text
 /// then sits in from its own fill — the switcher's `COLUMN_PAD` and
 /// `ROW_PAD`.
-const LIST_PAD: f32 = 8.;
+pub(crate) const LIST_PAD: f32 = 8.;
 const ROW_PAD: f32 = 10.;
 
 /// The scope row's inset, and its words: a step under the rows.
@@ -1055,23 +1051,144 @@ const ROW_RADIUS: f32 = 7.;
 
 /// The card's breathing room from the window's bottom edge, and its width.
 /// Its corner and its footer are `ui::dialog`'s, the switcher's numbers.
-const CARD_MARGIN: f32 = 24.;
-const CARD_MAX_W: f32 = 620.;
+pub(crate) const CARD_MARGIN: f32 = 24.;
+pub(crate) const CARD_MAX_W: f32 = 620.;
 
 /// The search row gpui-component's `List` draws above the rows: a 32px field
 /// with 6px above and below and a 1px rule.
-const SEARCH_H: f32 = 32. + 6. * 2. + 1.;
+pub(crate) const SEARCH_H: f32 = 32. + 6. * 2. + 1.;
 
 /// A row's title, and the subtitle, hints and keycaps beside it: the
 /// switcher's row name and its metadata line.
 const ROW_TEXT: f32 = 13. / 16.;
-const ROW_META: f32 = 11.5 / 16.;
+pub(crate) const ROW_META: f32 = 11.5 / 16.;
 
 const AVATAR: f32 = 18.;
 
 /// The scope row's height with its padding and rule, reserved out of the
 /// list's.
-const TABS_H: f32 = 34.;
+pub(crate) const TABS_H: f32 = 34.;
+
+// The card's parts, drawn the same wherever the palette shows: its own list,
+// and the New Tab page (`new_tab_page`) it draws in that list's place.
+
+/// How far down the window the card hangs: the switcher's drop on a
+/// full-size window, less on a short one so the card keeps its rows.
+pub(crate) fn card_top(viewport_h: f32) -> f32 {
+    (viewport_h * 0.16).clamp(16., crate::ui::switcher::CARD_TOP)
+}
+
+/// The list's height in `room`: at least a row, at most `VISIBLE_ROWS`.
+pub(crate) fn list_max_h(room: f32) -> f32 {
+    room.clamp(ROW_H, ROW_H * VISIBLE_ROWS + LIST_PAD * 2.)
+}
+
+/// The run of a title the query matched.
+pub(crate) fn hit(cx: &App) -> gpui::HighlightStyle {
+    gpui::HighlightStyle {
+        font_weight: Some(FontWeight::SEMIBOLD),
+        color: Some(cx.theme().foreground),
+        ..Default::default()
+    }
+}
+
+/// A title's ink, eased off while a query is typed so the run it matched
+/// ([`hit`]) stands out.
+pub(crate) fn title_ink(typed: bool, cx: &App) -> gpui::Hsla {
+    let fg = cx.theme().foreground;
+    match typed {
+        true => fg.opacity(0.78),
+        false => fg,
+    }
+}
+
+/// A section heading over its rows. The sidebar's group heading: medium, a
+/// half step under the rows, in caption ink — never capitals, never a rule
+/// under it.
+pub(crate) fn section_header(title: impl IntoElement, cx: &App) -> Div {
+    h_flex()
+        .h(px(HEADER_H))
+        .px(px(LABEL_INSET))
+        .items_center()
+        .text_size(rems(crate::ui::right_panel::HEADING))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(cx.theme().muted_foreground)
+        .child(title)
+}
+
+/// The `esc` cap in the search field's trailing corner, laid over the field.
+pub(crate) fn esc_cap(cx: &App) -> Div {
+    div()
+        .absolute()
+        .top(px((SEARCH_H - 1. - KEYCAP) / 2.))
+        .right(px(16.))
+        .child(keycap("esc", cx))
+}
+
+/// The scope row under the search field.
+pub(crate) fn scope_bar(cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .h(px(TABS_H))
+        .px(px(SCOPE_PAD))
+        .pb(px(6.))
+        .gap(px(2.))
+        .items_center()
+        .bg(theme.popover)
+        .border_b_1()
+        .border_color(theme.border)
+}
+
+/// One scope on [`scope_bar`]: the popover's selected step when `active`,
+/// caption ink that lifts under the pointer when not.
+pub(crate) fn scope_chip(active: bool, cx: &App) -> Div {
+    let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
+    let (active_bg, hover_bg) = (gpui::rgb(sf.selected), gpui::rgb(sf.hover));
+    let theme = cx.theme();
+    let (fg, muted) = (theme.foreground, theme.muted_foreground);
+    div()
+        .h(px(24.))
+        .px(px(9.))
+        .flex()
+        .items_center()
+        .rounded(px(6.))
+        .text_size(rems(SCOPE_TEXT))
+        .map(|d| match active {
+            true => d
+                .bg(active_bg)
+                .text_color(fg)
+                .font_weight(FontWeight::MEDIUM),
+            false => d
+                .cursor_pointer()
+                .text_color(muted)
+                .hover(move |d| d.bg(hover_bg).text_color(fg)),
+        })
+}
+
+/// The footer: the keys that move and run, as caps with a word after each
+/// ([`footer_hint`]).
+pub(crate) fn footer_bar(cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .flex_none()
+        .items_center()
+        .gap(px(16.))
+        .h(px(FOOTER_H))
+        .px(px(16.))
+        .border_t_1()
+        .border_color(theme.border)
+        .overflow_hidden()
+        .text_size(rems(ROW_META))
+        .text_color(theme.muted_foreground)
+}
+
+pub(crate) fn footer_hint(keys: Vec<gpui::AnyElement>, label: impl IntoElement) -> Div {
+    h_flex()
+        .items_center()
+        .gap(px(6.))
+        .children(keys)
+        .child(label)
+}
 
 /// Where `query` first appears in `title`, ignoring case: the stretch of the
 /// title the row picks out. `None` for an empty query, or one the fuzzy
@@ -1134,15 +1251,13 @@ impl Render for SearchView {
         let viewport = window.viewport_size();
         // The switcher's drop from the top on a full-size window; a short one
         // still brings the card up to keep its rows.
-        let top = (viewport.height.as_f32() * 0.16).clamp(16., crate::ui::switcher::CARD_TOP);
+        let top = card_top(viewport.height.as_f32());
         // Reserve space for the tab row, the search row, the footer and the
         // card's margin, including when a split-screen window is shorter than
         // the full list.
         let tabs_h = if tabs { TABS_H } else { 0. };
         let chrome = tabs_h + SEARCH_H + FOOTER_H + CARD_MARGIN;
-        let list_max_h = px((viewport.height.as_f32() - top - chrome)
-            .max(ROW_H)
-            .min(ROW_H * VISIBLE_ROWS + LIST_PAD * 2.));
+        let list_max_h = px(list_max_h(viewport.height.as_f32() - top - chrome));
         let typed = !self.list.read(cx).delegate().query.is_empty();
         let placeholder = match self.scope(cx) {
             Scope::Tab(_) => self.tab.placeholder(),
@@ -1182,16 +1297,12 @@ impl Render for SearchView {
             // own — and only while the field is empty, since typing brings up
             // the field's clear button in the same spot. No handlers, so a
             // click on it still reaches the field under it.
-            .when(!typed, |card| {
-                card.child(
-                    div()
-                        .absolute()
-                        .top(px((SEARCH_H - 1. - KEYCAP) / 2.))
-                        .right(px(16.))
-                        .child(keycap("esc", cx)),
-                )
-            })
+            .when(!typed, |card| card.child(esc_cap(cx)))
             .child(self.render_footer(cx));
+        let card = match self.new_tab_page() {
+            Some(page) => page.into_any_element(),
+            None => card.into_any_element(),
+        };
 
         div()
             .absolute()
@@ -1251,12 +1362,12 @@ impl Render for SearchView {
 /// selection has not caught up with it.
 #[derive(IntoElement)]
 pub struct SearchRow {
-    id: gpui::ElementId,
+    pub(crate) id: gpui::ElementId,
     /// What a screen reader reads for the row: its title, and its subtitle
     /// when there is one.
-    label: gpui::SharedString,
-    selected: bool,
-    child: gpui::AnyElement,
+    pub(crate) label: gpui::SharedString,
+    pub(crate) selected: bool,
+    pub(crate) child: gpui::AnyElement,
 }
 
 impl Selectable for SearchRow {
@@ -1341,6 +1452,29 @@ mod tests {
             app.read_with(&vcx, |app, _| app.search.is_some()),
             "Tab stays inside the search instead of walking focus out of it"
         );
+    }
+
+    #[gpui::test]
+    fn arrows_walk_the_tabs_only_while_nothing_is_typed(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+
+        vcx.simulate_keystrokes("right");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Terminals));
+        vcx.simulate_keystrokes("left left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
+
+        vcx.simulate_input("x");
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
     }
 
     /// Opened with nothing typed, Return goes back to the tab you were last

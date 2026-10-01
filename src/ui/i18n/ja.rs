@@ -2444,10 +2444,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新しいタブ",
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
         L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
@@ -2518,6 +2515,13 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "すべて",
         L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
         L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
+        L10nKey::SettingsNewTabAgents => "新しいタブのエージェント",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
+        }
     })
 }
 
