@@ -1873,6 +1873,10 @@ impl Tty7App {
         // empties.
         if !self.right_panel.procs_loading && self.procs_wanted() {
             self.right_panel.procs_loading = true;
+            // A new chain follows a gap — the panel was shut, or the pane
+            // changed — and a CPU% across the gap would be its long average
+            // shown as if it were now. A dash for one round is honest.
+            self.right_panel.cpu = Default::default();
             let generation = self.right_panel.procs_gen;
             self.spawn_procs_query(pane_id, generation, forwards, host, cx);
         }

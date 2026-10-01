@@ -212,7 +212,38 @@ mod tests {
         let u = read(std::process::id());
         let rss = u.rss.expect("own rss");
         assert!((1 << 20..1 << 40).contains(&rss), "rss {rss}");
-        assert!(u.cpu_ns.is_some_and(|ns| ns > 0), "{u:?}");
+        assert!(u.cpu_ns.is_some(), "{u:?}");
         assert!(u.started.is_some_and(|s| s > 0), "{u:?}");
+    }
+
+    /// The process's CPU time is at least this thread's, in the same unit.
+    /// Unconverted mach ticks read ~42x low on Apple silicon; a bare `> 0`
+    /// would pass them, and would fail on Linux before the first 10 ms tick.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn cpu_time_is_in_nanoseconds() {
+        fn thread_ns() -> u64 {
+            let mut ts = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            // SAFETY: writes `ts` and nothing else.
+            unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+            ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+        }
+        let before = read(std::process::id()).cpu_ns.expect("cpu time");
+        let t0 = thread_ns();
+        let mut x = 0u64;
+        while thread_ns() - t0 < 200_000_000 {
+            x = std::hint::black_box(x.wrapping_mul(31).wrapping_add(1));
+        }
+        let burned = thread_ns() - t0;
+        let after = read(std::process::id()).cpu_ns.expect("cpu time");
+        // Slack for Linux's 10 ms clock tick on each end.
+        assert!(
+            after - before + 30_000_000 >= burned,
+            "process cpu went up {} ns while this thread alone burned {burned}",
+            after - before
+        );
     }
 }
