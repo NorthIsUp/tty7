@@ -102,6 +102,12 @@ pub(super) fn workspace(cx: &App) -> Option<WorkspaceId> {
     hk.workspace
 }
 
+pub(super) fn armed_workspace(cx: &App) -> Option<WorkspaceId> {
+    let hk = cx.try_global::<HotkeyWindow>()?;
+    let spec = &cx.try_global::<Config>()?.fork.global_hotkey;
+    super::armed(spec, hk.registered.is_some(), hk.workspace)
+}
+
 pub(super) fn init(cx: &mut App) {
     let (tx, rx) = smol::channel::unbounded();
     if EVENTS.set(tx).is_err() {
@@ -324,14 +330,8 @@ fn pressed(cx: &mut App) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let (handle, ns, fresh) = match hotkey_window(cx) {
-        Some((handle, ns)) => (handle, ns, false),
-        None => {
-            let Some((handle, ns)) = open_hotkey_window(cx) else {
-                return;
-            };
-            (handle, ns, true)
-        }
+    let Some((handle, ns, fresh)) = find_or_open(cx) else {
+        return;
     };
     let on_top = NSApplication::sharedApplication(mtm).isActive()
         && (ns.isKeyWindow()
@@ -345,6 +345,27 @@ fn pressed(cx: &mut App) {
         (true, _) | (false, Toggle::Show) => show(cx, handle, ns, true),
         (false, Toggle::Focus) => show(cx, handle, ns, false),
         (false, Toggle::Hide) => hide(cx, ns, true),
+    }
+}
+
+/// A press that only ever shows: launch and a Dock click bring it up, never
+/// hide it.
+pub(super) fn summon(cx: &mut App) {
+    let Some((handle, ns, fresh)) = find_or_open(cx) else {
+        // Launch skipped its restore for this window; never leave none.
+        log::warn!("global hotkey: the hotkey window did not open; opening a plain one");
+        crate::ui::windows::open_at(cx, None, None);
+        return;
+    };
+    let fade_in = fresh || !ns.isVisible();
+    show(cx, handle, ns, fade_in);
+}
+
+/// The hotkey window, and whether it was just opened.
+fn find_or_open(cx: &mut App) -> Option<(AnyWindowHandle, Retained<NSWindow>, bool)> {
+    match hotkey_window(cx) {
+        Some((handle, ns)) => Some((handle, ns, false)),
+        None => open_hotkey_window(cx).map(|(handle, ns)| (handle, ns, true)),
     }
 }
 
