@@ -1452,6 +1452,7 @@ impl Tty7App {
             cx,
             |this, on, _, cx| this.set_sidebar_auto_grouping(on, cx),
         );
+        let group_header = self.group_header_settings(cx);
         self.settings_group(
             Some(t(L10nKey::SettingsTabs)),
             None,
@@ -1481,7 +1482,9 @@ impl Tty7App {
                     cx,
                 ),
             ]
-            .map(IntoElement::into_any_element),
+            .map(IntoElement::into_any_element)
+            .into_iter()
+            .chain(group_header),
             cx,
         )
     }
