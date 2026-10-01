@@ -207,6 +207,22 @@ impl Tty7App {
             .into_any_element();
 
         let mut body: Vec<AnyElement> = vec![machine_row, toolbar];
+        if selected.is_local()
+            && crate::core::dev_build::running_dev_build()
+            && let Ok(exe) = std::env::current_exe()
+        {
+            body.push(
+                div()
+                    .py(px(8.))
+                    .text_size(fs(12.))
+                    .text_color(tk.warn_text)
+                    .child(t_fmt(
+                        L10nKey::SettingsAgentHooksDevBuild,
+                        &[("path", &exe.display().to_string())],
+                    ))
+                    .into_any_element(),
+            );
+        }
         match &view {
             AgentHooksView::Loading => body.push(
                 div()
@@ -377,12 +393,16 @@ impl Tty7App {
             .active_settings()
             .is_some_and(|s| s.agent_hooks_host.is_local());
         let target = row.target.clone();
+        let dev_build = local && crate::core::dev_build::running_dev_build();
         let menu = has_menu.then(|| {
-            let mut entries = vec![MenuEntry::item(
-                t(L10nKey::SettingsReinstall),
-                false,
-                move |this, _w, cx| this.settings_install_agent_hooks(agent, cx),
-            )];
+            let mut entries = Vec::new();
+            if !dev_build {
+                entries.push(MenuEntry::item(
+                    t(L10nKey::SettingsReinstall),
+                    false,
+                    move |this, _w, cx| this.settings_install_agent_hooks(agent, cx),
+                ));
+            }
             if local {
                 entries.push(MenuEntry::item(
                     t(L10nKey::SettingsRevealHookFile),
@@ -393,16 +413,18 @@ impl Tty7App {
                     },
                 ));
             }
-            entries.push(MenuEntry::Item {
-                label: t(L10nKey::SettingsUninstall).into(),
-                checked: false,
-                font: None,
-                danger: true,
-                trailing: None,
-                on_pick: std::rc::Rc::new(move |this, _w, cx| {
-                    this.settings_uninstall_agent_hooks(agent, cx)
-                }),
-            });
+            if !dev_build {
+                entries.push(MenuEntry::Item {
+                    label: t(L10nKey::SettingsUninstall).into(),
+                    checked: false,
+                    font: None,
+                    danger: true,
+                    trailing: None,
+                    on_pick: std::rc::Rc::new(move |this, _w, cx| {
+                        this.settings_uninstall_agent_hooks(agent, cx)
+                    }),
+                });
+            }
             let toggle = menu_id.clone();
             div()
                 .relative()
@@ -510,6 +532,7 @@ impl Tty7App {
                                         label,
                                         BtnKind::Secondary,
                                     )
+                                    .disabled(dev_build)
                                     .on_click(cx.listener(
                                         move |this, _, _w, cx| {
                                             this.settings_install_agent_hooks(agent, cx)

@@ -22,8 +22,24 @@ use tty7_core::host::server;
 
 const EXE: &str = env!("CARGO_BIN_EXE_tty7-server");
 
+/// The server, kept off the real config dir and the developer's own pane:
+/// `--stdio` with nothing listening serves in-process and opens the machine
+/// tree, and `agent-hook` writes to whatever pane `TTY7` names. The dir lives
+/// as long as the caller keeps it.
+fn server() -> (Command, tempfile::TempDir) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut cmd = Command::new(EXE);
+    cmd.env("TTY7_CONFIG_DIR", dir.path())
+        .env("TTY7_DATA_DIR", dir.path())
+        .env_remove("TTY7")
+        .env_remove("TTY7_PANE")
+        .env_remove("TTY7_CONTROL_SOCK")
+        .env_remove("TTY7_SOCKET");
+    (cmd, dir)
+}
+
 #[cfg(unix)]
-struct ServerProcess(Mutex<Option<Child>>);
+struct ServerProcess(Mutex<Option<Child>>, #[allow(dead_code)] tempfile::TempDir);
 
 #[cfg(unix)]
 impl LinkShutdown for ServerProcess {
@@ -38,7 +54,8 @@ impl LinkShutdown for ServerProcess {
 
 #[cfg(unix)]
 fn stdio_child(args: &[&str]) -> io::Result<Arc<RemoteHost>> {
-    let mut child = Command::new(EXE)
+    let (mut cmd, dir) = server();
+    let mut child = cmd
         .arg("--stdio")
         .args(args)
         .stdin(Stdio::piped())
@@ -47,7 +64,7 @@ fn stdio_child(args: &[&str]) -> io::Result<Arc<RemoteHost>> {
         .spawn()?;
     let out = child.stdout.take().expect("piped");
     let inp = child.stdin.take().expect("piped");
-    let closer: Arc<dyn LinkShutdown> = Arc::new(ServerProcess(Mutex::new(Some(child))));
+    let closer: Arc<dyn LinkShutdown> = Arc::new(ServerProcess(Mutex::new(Some(child)), dir));
     let hello = ControlHello::host_rpc("cli-test", "localhost");
     RemoteHost::connect_with(out, inp, Some(closer), "stdio:cli", &hello)
 }
@@ -122,7 +139,8 @@ fn the_default_mode_bridges_when_a_server_is_listening() {
 #[cfg(unix)]
 #[test]
 fn serve_and_bridge_together_are_refused() {
-    let out = Command::new(EXE)
+    let (mut cmd, _dir) = server();
+    let out = cmd
         .args(["--stdio", "--serve", "--bridge"])
         .stdin(Stdio::null())
         .output()
@@ -137,7 +155,8 @@ fn serve_and_bridge_together_are_refused() {
 
 #[test]
 fn agent_hook_is_quiet_and_succeeds() {
-    let out = Command::new(EXE)
+    let (mut cmd, _dir) = server();
+    let out = cmd
         .args(["agent-hook", "claude", "Stop"])
         .stdin(Stdio::null())
         .output()
@@ -148,22 +167,21 @@ fn agent_hook_is_quiet_and_succeeds() {
 
 #[test]
 fn agent_hook_without_arguments_still_succeeds() {
-    let out = Command::new(EXE)
-        .arg("agent-hook")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let (mut cmd, _dir) = server();
+    let out = cmd.arg("agent-hook").stdin(Stdio::null()).output().unwrap();
     assert!(out.status.success());
     assert!(out.stdout.is_empty());
 }
 
 #[test]
 fn version_and_help_report_on_stdout() {
-    let v = Command::new(EXE).arg("--version").output().unwrap();
+    let (mut cmd, _dir) = server();
+    let v = cmd.arg("--version").output().unwrap();
     assert!(v.status.success());
     assert!(String::from_utf8_lossy(&v.stdout).starts_with("tty7-server "));
 
-    let h = Command::new(EXE).arg("--help").output().unwrap();
+    let (mut cmd, _dir) = server();
+    let h = cmd.arg("--help").output().unwrap();
     assert!(h.status.success());
     let text = String::from_utf8_lossy(&h.stdout);
     for expected in ["--daemon", "--stdio", "agent-hook", "--control-sock"] {
@@ -173,7 +191,8 @@ fn version_and_help_report_on_stdout() {
 
 #[test]
 fn no_arguments_is_a_usage_error() {
-    let out = Command::new(EXE).output().unwrap();
+    let (mut cmd, _dir) = server();
+    let out = cmd.output().unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("--daemon"));
 }
