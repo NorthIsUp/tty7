@@ -183,6 +183,28 @@ angle brackets, and a tab:
 | `agent_launch` | object | `{}` | The command line quick launch types for an agent, by slug: `{"claude": "claude --dangerously-skip-permissions"}`. Unset agents launch as their bare binary. [More →](/agents/overview#quick-launch) |
 | `agent_frecency` | object | `{}` | Written by tty7: how often and how recently each agent ran, to order quick launch. |
 | `restore_agent_sessions` | bool | `true` | Relaunch an agent conversation when a lost pane is restored. |
+| `restore_asleep` | bool | `true` | Restore a tab whose panes all died (reboot, Quit and Stop) asleep; it starts, and resumes its agent, when first opened. |
+| `continue_prompt` | string | `"continue"` | Settings → General → **Continue message**. What **Continue All Agents**, and with `continue_interrupted_agents` an interrupted agent, is told on resume (Claude Code and Codex); empty says nothing. |
+| `agent_wake_concurrency` | int \| null | `null` | Settings → General → **Agents starting at once**. How many tabs a wake starts together (1–20); `null` is a quarter of the cores. Replaces `continue_stagger_ms`, which is ignored. |
+| `resume_agents_on_launch` | bool | `false` | Settings → General → **Resume agents on workspace restart**. At launch, and after a Restart tty7 server that ends the shells, wake every agent tab tty7 put to sleep, as `--continue` does. Tabs you hibernated and shell-only tabs stay asleep. |
+| `agent_resume_mode` | `"typed"` \| `"program"` | `"typed"` | Settings → General → **How agents resume**. `typed` types the resume at the new shell's first prompt; `program` has the shell run it once itself. sh, bash, zsh, dash, ksh and fish only; other shells and remote panes are typed into. [More →](/agents/sessions) |
+| `continue_interrupted_agents` | bool | `false` | Settings → General → **Continue interrupted agents**. Send `continue_prompt` to a resumed Claude session whose last turn was cut off or left background work unfinished; off, agents resume without a word. |
+| `new_tab_page` | bool | `true` | New Tab opens the new tab page (agent or terminal, and a directory) instead of a shell. |
+| `dir_roots` | string[] | `["~/src","~/code","~/projects"]` | Directories whose children the new tab page offers. |
+| `dir_frecency` | object | `{}` | Maintained by tty7: how often each directory was launched into from the new tab page. |
+| `group_colors` | object | `{}` | Sidebar group colour by group name, e.g. `{"clawmux": "#ffd7d7"}`; other groups take a hue by their place in the sidebar, each 137.5° round the wheel from the one above, at a lightness set for light or dark themes; Ungrouped is grey. |
+| `group_outline` | bool | `false` | A 1px outline round each sidebar group header. |
+| `group_background` | bool | `true` | A tinted fill behind each sidebar group header. |
+| `group_outline_color` | string | `"hashed"` | `"theme"` (the theme's border) or `"hashed"` (the group's colour, `group_colors` included). |
+| `group_background_color` | string | `"hashed"` | `"theme"` (a muted neutral) or `"hashed"` (the group's colour at low alpha). |
+| `group_background_scope` | string | `"header"` | What the group fill and outline cover: `"header"` or `"group"` (the header and its tabs as one block). |
+| `animations` | bool | `true` | Slide sidebar groups open and shut, turning the chevron, instead of snapping. |
+| `nice` | int | `5` | Niceness each pane's shell starts at (Unix); `0` leaves it alone. |
+| `github_panel_prefer_origin` | bool | `true` | The GitHub panel shows `origin` (your fork) until you pick a remote; `false` shows `upstream` first. |
+| `global_hotkey` | string \| null | `"alt-space"` | System-wide chord that shows and hides tty7 (macOS), in keymap syntax; `null` or `""` turns it off. [More →](/window/hotkey-window) |
+| `global_hotkey_fullscreen` | bool | `false` | The hotkey summons tty7 over the whole screen the mouse is on, above other apps. |
+| `global_hotkey_hide_on_blur` | bool | `false` | Once the hotkey has summoned it, hide tty7 whenever it loses focus. |
+| `global_hotkey_fade_ms` | int | `150` | How long the hotkey's fade in and out takes; `0` is instant. |
 | `install_cli_on_path` | bool | `true` | Put the bundled `tty7` command on PATH at launch. |
 
 [Agent slugs →](/agents/overview#your-own-wrapper)
