@@ -23,6 +23,7 @@ struct BaseBindings(Vec<KeyBinding>);
 impl Global for BaseBindings {}
 
 pub fn init(cx: &mut App) {
+    crate::ui::background_tab::bind_shift_enter(cx);
     if cx.try_global::<BaseBindings>().is_none() {
         let base: Vec<KeyBinding> = cx.key_bindings().borrow().bindings().cloned().collect();
         cx.set_global(BaseBindings(base));
@@ -93,10 +94,12 @@ fn fixed_bindings() -> Vec<KeyBinding> {
         ));
         bindings.push(KeyBinding::new("secondary-alt-up", AddCursorAbove, input));
         bindings.push(KeyBinding::new("secondary-alt-down", AddCursorBelow, input));
-        // ⌘K ⌘D: a chord whose first key is `ClearScrollback` on macOS. gpui
+        // ⌘K ⌘D: a chord whose first key is `SearchAgents` on macOS. gpui
         // drops a pending chord that ranks below a complete match, so this
         // too has to come after tty7's table. Code editor only: in any other
         // field ⌘K goes straight through, without waiting for a second key.
+        // On macOS `palette` takes ⌘K before any binding is matched, so the
+        // chord only answers where `SearchAgents` is on another key.
         bindings.push(KeyBinding::new(
             "secondary-k secondary-d",
             gpui_component::input::SkipOccurrence,
@@ -437,6 +440,11 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
         ("CopyWorkingDirectory", ""),
         ("MarkTabUnread", ""),
         ("HibernateTab", ""),
+        ("ContinueAllAgents", ""),
+        // ⌘K, taken from ClearScrollback (now ⌘⇧K). Off macOS Ctrl+K is a
+        // byte the shell is owed and Ctrl+Shift+K is ClearScrollback, so it
+        // ships unbound there, like `QuickOpenFile`.
+        ("SearchAgents", per_platform("secondary-k", "")),
         ("ForkAgentSession", ""),
         ("ForkAgentSessionRight", ""),
         ("ForkAgentSessionLeft", ""),
@@ -589,10 +597,7 @@ fn shipped_bindings() -> Vec<(&'static str, &'static str)> {
                 "shift-f3"
             },
         ),
-        (
-            "ClearScrollback",
-            per_platform("secondary-k", "secondary-shift-k"),
-        ),
+        ("ClearScrollback", "secondary-shift-k"),
         ("InsertNewline", INSERT_NEWLINE_DEFAULT),
         // ⌘I for "input". Nothing in the table holds it, and no shell or agent
         // reads Cmd at all. Off macOS Ctrl+I is Tab, so the chord takes Shift
@@ -821,6 +826,14 @@ fn authored_entry(action: &str) -> Option<(CommandGroup, String)> {
         "HibernateTab" => (
             CommandGroup::TabsPanes,
             t(L10nKey::CmdHibernateTab).to_string(),
+        ),
+        "ContinueAllAgents" => (
+            CommandGroup::TabsPanes,
+            t(L10nKey::CmdContinueAllAgents).to_string(),
+        ),
+        "SearchAgents" => (
+            CommandGroup::TabsPanes,
+            t(L10nKey::CmdSearchAgents).to_string(),
         ),
         "ReopenClosedTab" => (
             CommandGroup::TabsPanes,
@@ -1713,6 +1726,8 @@ fn make_binding(action: &str, keystroke: &str) -> Option<KeyBinding> {
         "CopyWorkingDirectory" => KeyBinding::new(keystroke, CopyWorkingDirectory, None),
         "MarkTabUnread" => KeyBinding::new(keystroke, MarkTabUnread, None),
         "HibernateTab" => KeyBinding::new(keystroke, HibernateTab, None),
+        "ContinueAllAgents" => KeyBinding::new(keystroke, ContinueAllAgents, None),
+        "SearchAgents" => KeyBinding::new(keystroke, SearchAgents, None),
         "ForkAgentSession" => KeyBinding::new(keystroke, ForkAgentSession, None),
         "ForkAgentSessionRight" => KeyBinding::new(keystroke, ForkAgentSessionRight, None),
         "ForkAgentSessionLeft" => KeyBinding::new(keystroke, ForkAgentSessionLeft, None),

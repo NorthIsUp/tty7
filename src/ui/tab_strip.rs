@@ -2552,9 +2552,12 @@ impl Tty7App {
                 .when(zoomed, |chip| {
                     chip.child(self.zoom_mark(("tab-zoom", i), cx))
                 })
-                .when(asleep, |chip| {
-                    chip.child(self.sleep_mark(("tab-asleep", i), cx))
-                })
+                .children(crate::ui::wake_pool::state_mark(
+                    self,
+                    ("tab-asleep", i),
+                    tab,
+                    cx,
+                ))
                 .child(label_region)
                 .when(show_badges && i < 9, |chip| {
                     chip.child(

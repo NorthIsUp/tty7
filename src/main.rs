@@ -705,6 +705,7 @@ fn main() {
         return;
     }
 
+    let continue_agents = args.iter().any(|a| a == std::ffi::OsStr::new("--continue"));
     let open_path = open_path_from(args.into_iter());
     if forward_open_path(open_path.as_deref()) {
         return;
@@ -830,11 +831,13 @@ fn main() {
             })
             .detach();
         keymap::init(cx);
+        crate::ui::hotkey_window::init(cx);
         crate::ui::local_link::LocalLink::install(cx);
 
         let reopen = crate::ui::windows::restore_target(cx, open_path.as_deref());
         crate::ui::windows::open_at(cx, reopen.map(|(id, _)| id), open_path);
         crate::ui::windows::announce_detached_at_launch(cx, reopen);
+        crate::ui::agent_resume::wake_launch_window(cx, continue_agents);
         if config_outcome.failed() {
             notify_config_load_failed(cx, config_outcome, true);
         }
