@@ -2348,6 +2348,113 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "In a Claude Code pane, rejoin the lines Claude wrapped at the pane's edge, so a paragraph pastes as one line. ⌘⌥C or Copy Raw copies them as shown"
         }
+        // fork: keys the fork adds (docs/fork/features/)
+        L10nKey::QuitStopServerBodyAsleep => {
+            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, asleep: each starts when you open it, and an agent picks its conversation back up. (Closing the window only retires tty7 to the tray — the shells keep running.)"
+        }
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "Run the installed tty7 app to install hooks; this build runs from {path}"
+        }
+        L10nKey::SwitcherSetHotkeyWorkspace => "Set as Hotkey Workspace",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "Unset Hotkey Workspace",
+        L10nKey::SwitcherHotkeyWorkspace => "Hotkey workspace",
+        L10nKey::CmdSearchText => "Search Text in Files…",
+        L10nKey::SearchTabText => "Text",
+        L10nKey::SearchPlaceholderText => "Search file contents…",
+        L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
+        L10nKey::SearchTabHistory => "History",
+        L10nKey::SearchPlaceholderHistory => "Search what you and your agents said…",
+        L10nKey::SearchHistoryTooShort => {
+            "Type at least 3 characters to search agent conversations."
+        }
+        L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
+        L10nKey::SearchHistoryHits => "{count} hits",
+        L10nKey::CmdSearchAgents => "Search Tabs and Agent Sessions…",
+        L10nKey::SearchTabAgents => "Agents",
+        L10nKey::SearchPlaceholderAgents => "Search open tabs and agent sessions…",
+        L10nKey::CmdContinueAllAgents => "Continue All Agents",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
+        }
+        L10nKey::NewTabPageTitle => "New tab",
+        L10nKey::NewTabPageTerminal => "Terminal",
+        L10nKey::NewTabPagePlaceholder => "Directory…",
+        L10nKey::NewTabPageHint => "Enter opens · ←/→ or {first}–9 picks the kind · Esc cancels",
+        L10nKey::NewTabPageHintBackground => "⇧Enter opens in background",
+        L10nKey::SearchHintBackground => "Open in background",
+        L10nKey::SettingsGroupOutline => "Group outline",
+        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
+        L10nKey::SettingsGroupOutlineColor => "Outline colour",
+        L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
+        L10nKey::SettingsGroupBackground => "Group background",
+        L10nKey::SettingsGroupBackgroundDesc => "A tinted fill behind each group header.",
+        L10nKey::SettingsGroupBackgroundColor => "Background colour",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "A neutral from the theme, or each group's own colour."
+        }
+        L10nKey::SettingsGroupColorTheme => "Theme",
+        L10nKey::SettingsGroupColorHashed => "Group colour",
+        L10nKey::SettingsGroupBackgroundScope => "Background covers",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "The header alone, or the header and its tabs as one block."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Header",
+        L10nKey::SettingsGroupScopeGroup => "Whole group",
+        L10nKey::SettingsGroupAnimations => "Animate folding",
+        L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
+        L10nKey::SettingsHotkeyWindow => "Hotkey window",
+        L10nKey::SettingsHotkeyOn => "Global hotkey",
+        L10nKey::SettingsHotkeyOnDesc => "Show and hide tty7 from any app.",
+        L10nKey::SettingsHotkeyKey => "Hotkey",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "Click, then press a chord. Esc cancels, Backspace turns it off."
+        }
+        L10nKey::SettingsHotkeyFullscreen => "Full screen",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "Summon tty7 over the whole screen the mouse is on, above other apps."
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "Hide on focus loss",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
+        L10nKey::SettingsHotkeyFade => "Fade",
+        L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
+        L10nKey::SettingsResumeAgents => "Resume agents on workspace restart",
+        L10nKey::SettingsResumeAgentsDesc => {
+            "When tty7 restarts, resume every agent session that was open."
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "Agents starting at once",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "How many agent tabs a wake starts together; the rest wait their turn."
+        }
+        L10nKey::SettingsAgentResumeMode => "How agents resume",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "Run the resume as the tab, or type it into the shell. Shells other than sh, bash, zsh, dash, ksh and fish are always typed into."
+        }
+        L10nKey::SettingsAgentResumeProgram => "Run as the tab",
+        L10nKey::SettingsAgentResumeTyped => "Type into the shell",
+        L10nKey::SettingsContinueInterrupted => "Continue interrupted agents",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "Send the continue message to an agent whose turn was cut off or whose background work never finished. Off, agents resume without a word."
+        }
+        L10nKey::SettingsContinuePrompt => "Continue message",
+        L10nKey::SettingsContinuePromptDesc => {
+            "What an interrupted agent, and Continue All Agents, sends."
+        }
+        L10nKey::QuitStopServerBodyResume => {
+            "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, and every agent picks its conversation back up right away; other tabs start when you open them. (Closing the window only retires tty7 to the tray — the shells keep running.)"
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "This ends every shell on this computer. Your tabs and layout are kept and reopen with fresh shells, and every agent picks its conversation back up."
+        }
+        L10nKey::SidebarDeleteGroupTitle => "Delete the group “{name}”?",
+        L10nKey::SidebarDeleteGroupBody => {
+            "Its name goes with it. Its tabs stay open and go back to their automatic groups."
+        }
+        L10nKey::GitHubSession => "Session",
+        L10nKey::GitHubAll => "All",
+        L10nKey::GitHubNoSessionMentions => {
+            "This session hasn't mentioned an issue or pull request"
+        }
+        L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
     }
 }
 
