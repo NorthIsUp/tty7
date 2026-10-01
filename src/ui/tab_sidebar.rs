@@ -112,8 +112,7 @@ mod row_metrics {
 
     /// What a group header can spend on its name and the branch beside it.
     /// The chevron, the pin and the folded row count come off at the call
-    /// site, which knows whether they are drawn — an open group draws no
-    /// chevron, and reserving one anyway elided its branch with 18px to spare.
+    /// site, which knows whether they are drawn.
     pub(super) const fn header_budget(width: f32) -> f32 {
         width - BORDER - 2. * LIST_PAD - HEADER_PAD
     }
@@ -171,13 +170,13 @@ fn counts_width(
 }
 
 /// The branch a whole group shares, lifted off its rows and onto its header.
-struct SharedGit {
-    status: crate::terminal::git_status::GitStatus,
+pub(crate) struct SharedGit {
+    pub(crate) status: crate::terminal::git_status::GitStatus,
     /// Where a click on the counts opens the diff overlay, if the setting
     /// allows one.
-    click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
+    pub(crate) click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
     /// Every row the group counts, drawn or folded away.
-    rows: Vec<usize>,
+    pub(crate) rows: Vec<usize>,
 }
 
 /// What a sidebar row rendered, next to what it had to leave out, so the
@@ -620,7 +619,8 @@ impl Tty7App {
                 };
                 // The sleep mark takes the zoom mark's size; a sleeping tab
                 // has no panes on screen to zoom, so the two never share a row.
-                let zoom_extra = if asleep {
+                let zoom_extra = if asleep || crate::ui::wake_pool::is_waking(tab.tree_id.get(), cx)
+                {
                     zoom_extra + row_metrics::ZOOM + row_metrics::GAP
                 } else {
                     zoom_extra
@@ -1105,9 +1105,12 @@ impl Tty7App {
                     .when(zoomed, |row| {
                         row.child(self.zoom_mark(("sidebar-zoom", i), cx))
                     })
-                    .when(asleep, |row| {
-                        row.child(self.sleep_mark(("sidebar-asleep", i), cx))
-                    })
+                    .children(crate::ui::wake_pool::state_mark(
+                        self,
+                        ("sidebar-asleep", i),
+                        tab,
+                        cx,
+                    ))
                     .child(label_region)
                     .children(status_dot)
                     .when(show_badges && badge_pos < 9, |row| {
@@ -1272,9 +1275,7 @@ impl Tty7App {
                 // row already elides its own.
                 let ts = window.text_system();
                 let mut avail = row_metrics::header_budget(width);
-                if folded {
-                    avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
-                }
+                avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
                 if pinned {
                     avail -= PIN_MARK_SIZE + row_metrics::META_GAP;
                 }
@@ -2570,7 +2571,7 @@ impl Tty7App {
         };
         match folder {
             Some(folder) => self.new_tab_at(folder, window, cx),
-            None => self.new_tab(window, cx),
+            None => self.new_tab_with_shell(None, window, cx),
         }
         if self.tabs.len() == before {
             return;
@@ -2814,7 +2815,7 @@ impl Tty7App {
 
     /// Where a tab about to be spawned in `cwd` goes.
     ///
-    /// A tab spawned from one kept in a pinned group joins it, before the cwd
+    /// A tab spawned from one kept in a label group joins it, before the cwd
     /// is consulted at all — the cwd says nothing about a group the user
     /// stated by hand. Every caller here spawns from the active tab (the ones
     /// that start from a named tab activate it first), so that is the one to
@@ -2974,7 +2975,7 @@ fn auto_header_menu(
 /// Where a tab about to be spawned goes, worked out before it exists — see
 /// [`Tty7App::spawn_group`].
 pub(crate) struct SpawnPlace {
-    group: Option<GroupId>,
+    pub(crate) group: Option<GroupId>,
     auto: Option<Option<AutoKey>>,
 }
 
@@ -3251,7 +3252,14 @@ mod fold_tests {
     /// reads the tab's cwd and looks it up in the cache, and either one
     /// missing makes it return "no decision", which would leave every group
     /// below untouched and every assertion about moving vacuous.
-    fn plant(app: &Tty7App, i: usize, cwd: &str, root: &str, home: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant(
+        app: &Tty7App,
+        i: usize,
+        cwd: &str,
+        root: &str,
+        home: &str,
+        cx: &mut gpui::App,
+    ) {
         use crate::terminal::git_status::{GitStatusCache, RepoSnapshot};
         use crate::ui::host_ops::HostId;
 
@@ -3276,12 +3284,12 @@ mod fold_tests {
         });
     }
 
-    fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
         plant(app, i, cwd, root, root, cx);
     }
 
     /// Put tab `i` somewhere the cache knows is in no repo at all.
-    fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
         use crate::terminal::git_status::GitStatusCache;
         use crate::ui::host_ops::HostId;
 
@@ -3297,12 +3305,12 @@ mod fold_tests {
         });
     }
 
-    fn repo(s: &str) -> Option<GroupKey> {
+    pub(crate) fn repo(s: &str) -> Option<GroupKey> {
         Some(GroupKey::Auto(AutoKey::Repo(PathBuf::from(s))))
     }
 
     /// Pin a label group called `name`, answering its id.
-    fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
         let group = PinnedGroup::label(name);
         let id = group.id;
         app.edit_groups(cx, |groups| groups.pinned.push(group));
@@ -3310,7 +3318,7 @@ mod fold_tests {
     }
 
     /// Pin `folder`, answering the group's id.
-    fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
         app.pin_folder(PathBuf::from(folder), cx);
         app.sidebar_groups
             .pinned
@@ -3935,6 +3943,8 @@ mod fold_tests {
         let beta = AutoKey::Repo(PathBuf::from("/w/beta"));
 
         app.update(&mut vcx, |app, cx| {
+            // Fork: rows stay drawn through the fold's slide; this is about where it ends.
+            cx.global_mut::<Config>().fork.animations = false;
             for (i, root) in [(0, &alpha), (1, &alpha), (2, &beta)] {
                 *app.tabs[i].auto_group.borrow_mut() = Some(root.clone());
             }
