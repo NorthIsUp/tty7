@@ -96,6 +96,14 @@ pub fn runs_or_list(shell_program: &str) -> bool {
     OR_LIST.iter().any(|s| base.eq_ignore_ascii_case(s))
 }
 
+/// Whether `shell_program` can be handed a command to run once at start: the
+/// POSIX family and fish, which take `-lic` or run it from tty7's integration.
+pub fn runs_once(shell_program: &str) -> bool {
+    const RUNS_ONCE: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "fish"];
+    let base = base_name(shell_program);
+    RUNS_ONCE.iter().any(|s| base.eq_ignore_ascii_case(s))
+}
+
 /// Quote `path` as a single argument for the shell the pane is running.
 pub fn quote_for_shell(path: &str, shell_program: Option<&str>) -> String {
     quote_as(path, quoting_for(shell_program))

@@ -1,4 +1,5 @@
 pub mod agent_launch;
+pub mod agent_resume;
 pub mod app;
 pub mod assets;
 pub mod code_editor;
@@ -11,6 +12,7 @@ pub mod editor_session;
 pub mod editor_text;
 pub mod file_copy;
 pub mod file_tree;
+pub mod first_prompt;
 pub mod forwards;
 pub mod github;
 pub mod hints;
@@ -57,6 +59,7 @@ pub mod tab_strip;
 pub mod theme;
 pub mod tray;
 pub mod tree_sync;
+pub mod wake_pool;
 pub mod windows;
 pub mod worktree_prompt;
 

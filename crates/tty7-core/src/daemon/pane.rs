@@ -157,11 +157,25 @@ fn shell_program_problem(program: &str) -> Option<String> {
     None
 }
 
+/// Whether a pane spawned with `shell` gets tty7's shell integration, and so
+/// will report its prompts: the shell and arguments [`build_spawn_config`]
+/// would choose, for a client deciding how long to wait for a first prompt.
+/// `configured` is the config's `shell` ([`crate::core::config::shell_command`]).
+pub fn integrates(shell: Option<ShellSpec>, configured: Option<(String, Vec<String>)>) -> bool {
+    let chosen = choose_shell(shell, configured);
+    let program = match &chosen {
+        Some(c) => c.program.clone(),
+        None => default_shell_name(&default_prog()),
+    };
+    shell_integration::integrated_kind(Some(&program), has_custom_args(chosen.as_ref())).is_some()
+}
+
 fn build_spawn_config(
     pane: u64,
     cwd: Option<PathBuf>,
     shell: Option<ShellSpec>,
     workspace: Option<&str>,
+    run_once: Option<&str>,
 ) -> anyhow::Result<SpawnConfig> {
     let initial_cwd = initial_working_directory(cwd);
     let configured = choose_shell(shell, crate::core::config::shell_command());
@@ -180,7 +194,11 @@ fn build_spawn_config(
         args: c.args.clone(),
         args_are_tty7_defaults: c.args_are_tty7_defaults,
     });
-    let (cmd, integration_dir) = build_shell_command(configured, &initial_cwd, pane, workspace)?;
+    let (mut cmd, integration_dir) =
+        build_shell_command(configured, &initial_cwd, pane, workspace)?;
+    if let Some(line) = run_once {
+        super::run_once::apply(&mut cmd, line, shell.as_ref());
+    }
     Ok(SpawnConfig {
         cmd,
         initial_cwd,
@@ -786,6 +804,7 @@ struct PaneState {
     agent: Option<crate::core::cli_agent::CLIAgent>,
     agent_argv: Option<Vec<String>>,
     agent_session: Option<crate::core::cli_agent::AgentSessionState>,
+    fork: crate::core::claude_background::PaneFork,
     agent_clock: AgentClock,
     alive: bool,
     exit_code: Option<i32>,
@@ -1782,6 +1801,7 @@ impl DaemonPane {
         owner: Option<String>,
         workspace: Option<String>,
         restore: Option<Restore>,
+        run_once: Option<String>,
         allow_remote_clipboard_write: bool,
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
@@ -1795,7 +1815,7 @@ impl DaemonPane {
         crate::daemon::winproc::allow_ctrl_c_in_children();
 
         let pair = native_pty_system().openpty(pty_size)?;
-        let spawn = build_spawn_config(id, cwd, shell, workspace.as_deref())?;
+        let spawn = build_spawn_config(id, cwd, shell, workspace.as_deref(), run_once.as_deref())?;
 
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
@@ -1849,6 +1869,7 @@ impl DaemonPane {
                 agent: None,
                 agent_session: None,
                 agent_argv: None,
+                fork: Default::default(),
                 agent_clock: AgentClock::default(),
                 alive: true,
                 exit_code: None,
@@ -2085,6 +2106,7 @@ impl DaemonPane {
                 agent: carried.agent,
                 agent_session: carried.agent_session,
                 agent_argv: carried.agent_argv,
+                fork: Default::default(),
                 agent_clock: AgentClock::default(),
                 alive: true,
                 exit_code: None,
@@ -2151,6 +2173,7 @@ impl DaemonPane {
             agent: None,
             agent_session: None,
             agent_argv: None,
+            fork: Default::default(),
             agent_clock: AgentClock::default(),
             alive: true,
             exit_code: None,
@@ -2407,6 +2430,12 @@ impl DaemonPane {
                             // it; spent after the hop below — see the function.
                             let saw_prompt_mark =
                                 signals.shell.iter().any(|s| s.mark_at_prompt);
+                            // Fork: the command a shell started this read, if any.
+                            let ran = signals
+                                .shell
+                                .iter()
+                                .rfind(|s| s.active && !s.mark_at_prompt)
+                                .map(|s| s.command.clone());
                             let mut st = state.lock().unwrap();
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);
@@ -2431,12 +2460,24 @@ impl DaemonPane {
                             let pane = st.id;
                             let alive = st.alive;
                             let facts_after = may_change_facts.then(|| observed_facts(&st));
+                            let agent_gone = st.agent.is_none();
                             drop(st);
+                            if let Some(ran) = ran.filter(|_| agent_gone)
+                                && !shutting_down.load(Ordering::SeqCst)
+                            {
+                                crate::core::machine::observe_pane(pane, |p| {
+                                    crate::core::claude_background::note_command(p, ran.as_deref())
+                                });
+                            }
                             if !shutting_down.load(Ordering::SeqCst)
                                 && let (Some(before), Some(after)) = (facts_before, facts_after)
                                 && facts_changed(&before, &after)
                             {
-                                publish_facts(pane, alive, after);
+                                let closed = crate::core::claude_background::closed_on_leaving(
+                                    before.agent.as_ref(),
+                                    after.agent.as_ref(),
+                                );
+                                publish_facts(pane, alive, after, closed);
                             }
                         }
                         Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -2672,7 +2713,11 @@ impl DaemonPane {
         let after = observed_facts(&st);
         drop(st);
         if !self.shutting_down.load(Ordering::SeqCst) && facts_changed(&before, &after) {
-            publish_facts(self.id, true, after);
+            let closed = crate::core::claude_background::closed_on_leaving(
+                before.agent.as_ref(),
+                after.agent.as_ref(),
+            );
+            publish_facts(self.id, true, after, closed);
         }
         Ok(())
     }
@@ -3578,7 +3623,7 @@ fn observed_facts(st: &PaneState) -> ObservedFacts {
     }
 }
 
-fn publish_facts(pane: u64, alive: bool, after: ObservedFacts) {
+fn publish_facts(pane: u64, alive: bool, after: ObservedFacts, closed: bool) {
     crate::core::machine::observe_pane(pane, |p| {
         if after.cwd.is_some() {
             p.cwd = after.cwd;
@@ -3587,6 +3632,7 @@ fn publish_facts(pane: u64, alive: bool, after: ObservedFacts) {
         // assigned either way.
         p.osc_title = after.osc_title;
         p.agent = after.agent;
+        crate::core::claude_background::note_session(p, closed);
         if after.shell.is_some() {
             p.shell = after.shell;
         }
@@ -3964,6 +4010,7 @@ fn apply_agent(
     };
     if st.agent == agent {
         stamp_launch_argv(st, argv);
+        adopt_argv_session(st);
         return;
     }
     // The session belongs to whoever was in the foreground. Switching from
@@ -3980,6 +4027,19 @@ fn apply_agent(
     notify(st, DaemonMsg::Agent(agent));
     st.agent = agent;
     stamp_launch_argv(st, argv);
+    adopt_argv_session(st);
+}
+
+fn adopt_argv_session(st: &mut PaneState) {
+    let (agent, argv) = (st.agent, st.agent_argv.as_deref());
+    if crate::core::claude_background::adopt_argv_session(
+        agent,
+        argv,
+        &mut st.agent_session,
+        &mut st.fork.argv_session_checked,
+    ) {
+        notify(st, DaemonMsg::AgentStatus(st.agent_session.clone()));
+    }
 }
 
 fn stamp_launch_argv(st: &mut PaneState, argv: Option<Vec<String>>) {
@@ -4570,6 +4630,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             false,
             || {},
         )
@@ -4600,6 +4661,33 @@ mod tests {
         assert_eq!(status.session_id.as_deref(), Some("s-1"));
     }
 
+    /// What a pane records as its shell — what a split copies and the next
+    /// restore spawns — is the shell, never the command it ran once.
+    #[cfg(unix)]
+    #[test]
+    fn a_pane_that_runs_a_command_once_records_the_plain_shell() {
+        let zsh = ShellSpec {
+            program: "/bin/zsh".into(),
+            args: Vec::new(),
+            args_are_tty7_defaults: false,
+        };
+        let spawn = build_spawn_config(1, None, Some(zsh.clone()), None, Some("claude --resume x"))
+            .expect("spawn config");
+        assert_eq!(spawn.shell, Some(zsh));
+        assert_eq!(
+            spawn.cmd.get_env("TTY7_RUN_ONCE").and_then(|v| v.to_str()),
+            Some("claude --resume x")
+        );
+        assert!(
+            !spawn
+                .cmd
+                .get_argv()
+                .iter()
+                .any(|a| a.to_string_lossy().contains("claude")),
+            "the command is not in the shell's argv"
+        );
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn live_pane_reports_an_uninstrumented_shells_cwd() {
@@ -4615,6 +4703,7 @@ mod tests {
                 args: vec!["-c".into(), "cd /usr && exec cat".into()],
                 args_are_tty7_defaults: false,
             }),
+            None,
             None,
             None,
             None,
@@ -4687,6 +4776,19 @@ mod tests {
             Some("codex"),
             "the observed argv rides along with the detection"
         );
+    }
+
+    #[test]
+    fn a_known_shell_without_the_users_own_args_is_integrated() {
+        let spec = |program: &str, args: &[&str]| ShellSpec {
+            program: program.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            args_are_tty7_defaults: false,
+        };
+        assert!(integrates(Some(spec("/bin/zsh", &[])), None));
+        assert!(!integrates(Some(spec("/bin/zsh", &["-f"])), None));
+        assert!(!integrates(Some(spec("/bin/sh", &[])), None));
+        assert!(integrates(None, Some(("fish".into(), Vec::new()))));
     }
 
     #[test]
@@ -6137,6 +6239,7 @@ mod tests {
             agent: None,
             agent_session: None,
             agent_argv: None,
+            fork: Default::default(),
             agent_clock: AgentClock::default(),
             alive,
             exit_code: None,
@@ -6429,6 +6532,83 @@ mod tests {
         withdraw_observations();
     }
 
+    /// Fork: `last_session` outlives the agent through a crash and an agent's
+    /// own sessionless command, and goes once the user runs a shell command.
+    #[test]
+    fn a_panes_last_session_survives_a_crash_until_the_shell_is_used() {
+        use crate::core::cli_agent::{AgentSessionState, CLIAgent};
+        use crate::core::machine::{
+            MACHINE_FILE, MachineStore, OBSERVE_SLOT, PaneSeed, publish_observations,
+            withdraw_observations,
+        };
+
+        const PANE: u64 = 79;
+        let _slot = OBSERVE_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = MachineStore::open(dir.path().join(MACHINE_FILE));
+        let ws = store.workspace_create(None, None, None).unwrap();
+        store
+            .tab_create(ws.id, None, PaneSeed::bare(PANE), None, None)
+            .unwrap();
+        publish_observations(&store);
+
+        let run = |had: bool, claude: bool, output: &[u8]| {
+            let mut state = test_state(true);
+            state.id = PANE;
+            if had {
+                state.agent = Some(CLIAgent::Claude);
+                state.agent_session = Some(AgentSessionState {
+                    session_id: Some("sess-1".to_string()),
+                    ..Default::default()
+                });
+            }
+            DaemonPane::spawn_reader(
+                Arc::new(Mutex::new(state)),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(OutputGate::new()),
+                Box::new(std::io::Cursor::new(output.to_vec())),
+                null_writer(),
+                || false,
+                ForegroundProbes {
+                    group: Box::new(|| None),
+                    remote: Box::new(|| None),
+                    agent: Box::new(move || {
+                        Some(claude.then(|| (CLIAgent::Claude, vec!["claude".to_string()])))
+                    }),
+                    cwd: Box::new(|| None),
+                },
+                Arc::new(DeathReporter::new(|| {})),
+            )
+            .join()
+            .unwrap();
+            let record = store.pane(PANE).unwrap();
+            (
+                record.agent.is_some(),
+                record.last_session.and_then(|s| s.session_id),
+            )
+        };
+        let kept = Some("sess-1".to_string());
+
+        assert_eq!(run(true, true, b"\x1b]2;working\x07"), (true, kept.clone()));
+        assert_eq!(
+            run(true, false, b"\x1b]133;D;0\x07\x1b]133;A\x07"),
+            (false, kept.clone()),
+            "Claude killed before its shell: upstream's agent clears, the session stays"
+        );
+        assert_eq!(
+            run(false, false, b"\x1b]133;C;claude --version\x07"),
+            (false, kept.clone()),
+            "an agent's own sessionless command keeps it"
+        );
+        assert_eq!(
+            run(false, false, b"\x1b]133;C;ls\x07"),
+            (false, None),
+            "a shell command means the shell is in use"
+        );
+
+        withdraw_observations();
+    }
+
     /// The whole path a title takes into the tree: sniffed out of the pane's
     /// own output, kept on its state, and written to the record every other
     /// viewer reads. Nothing else can name the tabs of a workspace this process
@@ -6594,6 +6774,28 @@ mod tests {
         assert_eq!(
             sess.message.as_deref(),
             Some("Claude needs your permission")
+        );
+    }
+
+    #[test]
+    fn a_claude_launched_with_its_session_id_needs_no_hook_to_resume() {
+        use crate::core::cli_agent::CLIAgent;
+        const ID: &str = "e18a20ff-4c8c-4b94-867b-dd4b79032a6c";
+
+        let mut st = test_state(true);
+        let argv = vec!["claude".to_string(), "--session-id".into(), ID.into()];
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv.clone())));
+        let sess = st.agent_session.clone().expect("the argv named a session");
+        assert_eq!(sess.session_id.as_deref(), Some(ID));
+        assert_eq!(sess.launch_argv.as_deref(), Some(&argv[..]));
+        assert!(!sess.rich, "status still comes from hooks");
+
+        st.agent_session.as_mut().unwrap().session_id = Some("from-a-hook".into());
+        apply_agent(&mut st, Some((CLIAgent::Claude, argv)));
+        assert_eq!(
+            st.agent_session.unwrap().session_id.as_deref(),
+            Some("from-a-hook"),
+            "a hook's later word wins: it follows /resume inside the agent"
         );
     }
 
