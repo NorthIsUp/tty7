@@ -12339,8 +12339,8 @@ mod gpui_tests {
         let (_window, mut daemon) = harness(cx);
         cx.update(|cx| gpui_component::Theme::global_mut(cx).background = gpui::black());
         // What a replay sends: the modes ahead of the ring, then each ring
-        // segment behind its size. Nothing live follows: an idle pane still
-        // hears once.
+        // segment behind its size, then the shell's state. Nothing live
+        // follows: an idle pane still hears once.
         let size = crate::daemon::protocol::WinSize {
             cols: 80,
             rows: 24,
@@ -12353,6 +12353,11 @@ mod gpui_tests {
             DaemonMsg::Size(size),
             DaemonMsg::Snapshot(b"\x1b[?996n".to_vec()),
             DaemonMsg::Snapshot(b"$ ".to_vec()),
+            DaemonMsg::Prompt {
+                active: true,
+                at_prompt: false,
+                last_exit: None,
+            },
         ] {
             frame.encode(&mut replay).unwrap();
         }
@@ -12401,6 +12406,43 @@ mod gpui_tests {
             set_background(cx, gpui::black());
             assert_eq!(pumped_input(cx, &mut daemon, 2), None, "nor does a flip");
         }
+
+        // A ring takes many reads. One that ends after the segment holding
+        // `?2031h` and before the one holding the prompt is not the end of
+        // the replay.
+        let (_window, mut daemon) = harness(cx);
+        set_background(cx, gpui::white());
+        let size = crate::daemon::protocol::WinSize {
+            cols: 80,
+            rows: 24,
+            cell_w: 8,
+            cell_h: 16,
+        };
+        let mut head = Vec::new();
+        DaemonMsg::Size(size).encode(&mut head).unwrap();
+        DaemonMsg::Snapshot(dead.to_vec())
+            .encode(&mut head)
+            .unwrap();
+        std::io::Write::write_all(&mut daemon, &head).unwrap();
+        assert_eq!(
+            pumped_input(cx, &mut daemon, 2),
+            None,
+            "half a replay reports nothing"
+        );
+        let mut rest = Vec::new();
+        DaemonMsg::Size(size).encode(&mut rest).unwrap();
+        DaemonMsg::Snapshot(prompt.to_vec())
+            .encode(&mut rest)
+            .unwrap();
+        DaemonMsg::Prompt {
+            active: true,
+            at_prompt: true,
+            last_exit: Some(137),
+        }
+        .encode(&mut rest)
+        .unwrap();
+        std::io::Write::write_all(&mut daemon, &rest).unwrap();
+        assert_eq!(pumped_input(cx, &mut daemon, 2), None, "nor does the rest");
 
         // Live, the same: the program's exit and the next prompt end it.
         let (_window, mut live) = harness(cx);
