@@ -1,0 +1,10 @@
+fork-infra	the fork's tasks, packaging, CI and sync
+fork-config	ForkConfig and the config the fork's features read
+fork-docs	the fork's specs, plans and feature pages
+agent-resume	agents come back after a reboot
+palette-tabs	the New Tab picker and Search Everywhere's tabs	agent-resume
+background-tabs	⇧ opens a tab in the background	agent-resume,palette-tabs
+sidebar-groups	group colours, headers, fill and fold
+pane-nice	pane shells start at the configured nice
+github-session	the GitHub panel's Session tab and This session filter	palette-tabs
+hotkey-window	a global hotkey window
