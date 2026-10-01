@@ -776,6 +776,11 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: Agents,
+            title: SettingsNewTabAgents,
+            keywords: SettingsSearchNewTabAgentsKeywords,
+        },
+        SearchEntry {
+            section: Agents,
             title: SettingsInstallCliOnPath,
             keywords: SettingsSearchCommandLineToolKeywords,
         },
@@ -851,6 +856,7 @@ impl SearchEntry {
             L10nKey::SettingsMouseZoom => "mouse_zoom_modifier",
             L10nKey::SettingsTrimTrailingSpaces => "clipboard_trim_trailing_spaces",
             L10nKey::SettingsCopyJoinWrapped => "copy_join_wrapped",
+            L10nKey::SettingsNewTabAgents => "new_tab_hidden_agents",
             L10nKey::SettingsCopyOnSelect => "copy_on_select",
             L10nKey::SettingsSmartSelection => "smart_select",
             L10nKey::SettingsPromptEditor => "prompt_editor",
@@ -943,6 +949,7 @@ impl SearchEntry {
             L10nKey::SettingsCopyOnSelect => t(L10nKey::SettingsCopyOnSelectDesc),
             L10nKey::SettingsTrimTrailingSpaces => t(L10nKey::SettingsTrimTrailingSpacesDesc),
             L10nKey::SettingsCopyJoinWrapped => t(L10nKey::SettingsCopyJoinWrappedDesc),
+            L10nKey::SettingsNewTabAgents => t(L10nKey::SettingsNewTabAgentsDesc),
             L10nKey::SettingsVerifyHostKeys => t(L10nKey::SettingsVerifyHostKeysDesc),
             L10nKey::SettingsStartupWindow => t(L10nKey::SettingsStartupWindowDesc),
             L10nKey::SettingsRememberWindowSize => t(L10nKey::SettingsRememberWindowSizeDesc),
@@ -1041,6 +1048,9 @@ impl SearchEntry {
                 cfg.clipboard_trim_trailing_spaces != defaults.clipboard_trim_trailing_spaces
             }
             L10nKey::SettingsCopyJoinWrapped => cfg.copy_join_wrapped != defaults.copy_join_wrapped,
+            L10nKey::SettingsNewTabAgents => {
+                cfg.fork.new_tab_hidden_agents != defaults.fork.new_tab_hidden_agents
+            }
             L10nKey::SettingsCopyOnSelect => cfg.copy_on_select != defaults.copy_on_select,
             L10nKey::SettingsSmartSelection => cfg.smart_select != defaults.smart_select,
             L10nKey::SettingsPromptEditor => cfg.prompt_editor != defaults.prompt_editor,
