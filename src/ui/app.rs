@@ -1110,7 +1110,7 @@ pub struct Tty7App {
     /// A launch or restart wake asked before this window's tabs arrived from the tree,
     /// held until they land.
     pub(crate) continue_when_tabs_land: Option<crate::ui::agent_resume::Wake>,
-    window_bounds: Bounds<Pixels>,
+    pub(crate) window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
     pub(crate) group_rename: Option<GroupRename>,
@@ -1786,8 +1786,10 @@ impl Tty7App {
         })
         .detach();
 
-        cx.observe_window_bounds(window, |this, window, _cx| {
-            this.window_bounds = window_bounds_to_remember(window);
+        cx.observe_window_bounds(window, |this, window, cx| {
+            if !crate::ui::hotkey_window::covering(cx, window.window_handle()) {
+                this.window_bounds = window_bounds_to_remember(window);
+            }
         })
         .detach();
 
