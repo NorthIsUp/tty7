@@ -2824,6 +2824,8 @@ fn daemon_disconnected_before_spawn_reply(err: &anyhow::Error) -> bool {
     })
 }
 
+mod fork_pane;
+
 impl Drop for RemoteTerminal {
     fn drop(&mut self) {
         self.link.send(ClientMsg::Detach);
