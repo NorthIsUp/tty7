@@ -192,7 +192,7 @@ impl Tty7App {
                 ]
                 .map(IntoElement::into_any_element)
                 .into_iter()
-                .chain([self.resume_agents_setting(cx)]),
+                .chain(self.resume_agents_settings(cx)),
                 cx,
             ),
             self.render_tabs_group(cx),

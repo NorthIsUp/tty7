@@ -2109,9 +2109,13 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
         L10nKey::SettingsHotkeyFade => "フェード",
         L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
-        L10nKey::SettingsResumeAgents => "再起動時にエージェントを再開",
+        L10nKey::SettingsResumeAgents => "ワークスペース再起動時にエージェントを再開",
         L10nKey::SettingsResumeAgentsDesc => {
             "tty7 の再起動時に、開いていたすべてのエージェントセッションを再開します。"
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "同時に起動するエージェント数",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "一度に起動するエージェントタブの数。残りは順番を待ちます。"
         }
         L10nKey::QuitStopServerBodyResume => {
             "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に戻り、各エージェントはすぐに元の会話を再開します。ほかのタブは開いたときに起動します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"

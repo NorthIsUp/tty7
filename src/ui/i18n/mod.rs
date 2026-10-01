@@ -1707,6 +1707,8 @@ l10n_keys! {
     SettingsHotkeyFadeDesc,
     SettingsResumeAgents,
     SettingsResumeAgentsDesc,
+    SettingsAgentWakeConcurrency,
+    SettingsAgentWakeConcurrencyDesc,
     QuitStopServerBodyResume,
     AppRestartServerBodyResume,
     ProgramNotesDropped,

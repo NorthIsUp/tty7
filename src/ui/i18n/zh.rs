@@ -1897,8 +1897,12 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "切换到其他应用时隐藏 tty7。",
         L10nKey::SettingsHotkeyFade => "淡入淡出",
         L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
-        L10nKey::SettingsResumeAgents => "重启时恢复 agent",
+        L10nKey::SettingsResumeAgents => "工作区重启时恢复 agent",
         L10nKey::SettingsResumeAgentsDesc => "tty7 重启时，恢复之前打开的所有 agent 会话。",
+        L10nKey::SettingsAgentWakeConcurrency => "同时启动的 agent 数",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "唤醒时同时启动多少个 agent 标签页，其余的排队等待。"
+        }
         L10nKey::QuitStopServerBodyResume => {
             "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时每个 agent 会立即接着原来的对话继续；其他标签页打开哪个才启动哪个。（只关窗口的话应用收进托盘，shell 继续跑。）"
         }

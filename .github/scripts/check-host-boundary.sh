@@ -60,6 +60,8 @@ src/ui/editor_session.rs|std::fs::read
 src/ui/hotkey_window/appkit.rs|std::fs::read_to_string
 # The tabs restore put to sleep, app state under the local config dir.
 src/ui/agent_resume.rs|std::fs::read_to_string
+# Its tests remove their own temp copy of that file.
+src/ui/agent_resume.rs|std::fs::remove_file
 
 # Reading a private key off *this* machine to hash it into a keychain account
 # (`core::keychain`). The key is the client's credential; the far side never

@@ -2046,9 +2046,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
         L10nKey::SettingsHotkeyFade => "Fade",
         L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
-        L10nKey::SettingsResumeAgents => "Resume agents on restart",
+        L10nKey::SettingsResumeAgents => "Resume agents on workspace restart",
         L10nKey::SettingsResumeAgentsDesc => {
             "When tty7 restarts, resume every agent session that was open."
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "Agents starting at once",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "How many agent tabs a wake starts together; the rest wait their turn."
         }
         L10nKey::QuitStopServerBodyResume => {
             "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, and every agent picks its conversation back up right away; other tabs start when you open them. (Closing the window only retires tty7 to the tray — the shells keep running.)"

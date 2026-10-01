@@ -3154,6 +3154,7 @@ impl Tty7App {
                 if let Some(index) = index_of(&self.tabs, *tab) {
                     let active_id = self.tabs.get(self.active).map(|t| t.tree_id.get());
                     self.tabs.remove(index);
+                    crate::ui::agent_resume::forget_restored(*tab, cx);
                     self.active = active_id
                         .and_then(|id| index_of(&self.tabs, id))
                         .unwrap_or_else(|| index.min(self.tabs.len().saturating_sub(1)));
