@@ -2118,7 +2118,11 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
-        if let Some(wake) = self.continue_when_tabs_land.take() {
+        if let Some(wake) = self
+            .continue_when_tabs_land
+            .take()
+            .or_else(|| crate::ui::agent_resume::take_launch_wake(self.workspace, cx))
+        {
             self.wake_restored(wake, window, cx);
         }
         cx.notify();
@@ -5393,6 +5397,7 @@ impl Tty7App {
         tab.last_focused = None;
         tab.focus_origin.clear();
         tab.asleep = Some(Asleep { layout, view, home });
+        crate::ui::agent_resume::forget_restored(tab.tree_id.get(), cx);
         drop(panes);
         self.save_session(cx);
         cx.notify();
@@ -5438,6 +5443,7 @@ impl Tty7App {
         };
         tab.pane = pane;
         tab.last_focused = None;
+        crate::ui::agent_resume::forget_restored(tab.tree_id.get(), cx);
         self.save_session(cx);
         cx.notify();
         true
@@ -5545,6 +5551,7 @@ impl Tty7App {
         let closing = self.tabs[index].tree_id.get();
         self.editor_close_tab_files(index, cx);
         self.editor_forget_tab(closing, cx);
+        crate::ui::agent_resume::forget_restored(closing, cx);
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);
         let leaves: Vec<(u64, crate::terminal::PaneRoute, bool)> = self.tabs[index]

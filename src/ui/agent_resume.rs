@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use gpui::{AnyElement, App, Context, Entity, Global, IntoElement as _, Window};
 
 use crate::core::config::Config;
-use crate::core::session::{SessionPane, SessionTab, WorkspaceStore};
+use crate::core::session::{SessionPane, SessionTab, WorkspaceId, WorkspaceStore};
 use crate::terminal::PaneWorkspace;
 use crate::terminal::view::TerminalView;
 use crate::ui::app::{Tty7App, join_shell_args};
@@ -272,14 +272,85 @@ pub(crate) struct Wake {
     pub prompt: Option<String>,
 }
 
-/// The tabs the last restore put to sleep because none of their panes
-/// survived (a reboot, Quit and Stop, a restart that killed the shells), as
-/// opposed to tabs the user hibernated. Each restore re-decides its tabs, and
-/// a wake drains its window's.
+/// The tabs restore put to sleep because none of their panes survived (a
+/// reboot, Quit and Stop, a restart that killed the shells), as opposed to
+/// tabs the user hibernated, until a wake succeeds, the user hibernates or
+/// closes the tab. Kept in `restored-asleep.json`: the tree marks every
+/// sleeping tab `hibernated` alike, so the next launch could not otherwise
+/// tell one tty7 put to sleep from one the user did. The file is this
+/// client's: a tab another client hibernates stays in it, and this client's
+/// next launch wakes it.
 #[derive(Default)]
-struct RestoredDead(HashSet<TabId>);
+struct RestoredDead {
+    ids: HashSet<TabId>,
+    loaded: bool,
+    flush_queued: bool,
+}
 
 impl Global for RestoredDead {}
+
+const RESTORED_FILE: &str = "restored-asleep.json";
+
+#[cfg(not(test))]
+fn restored_file() -> Option<std::path::PathBuf> {
+    crate::core::config::config_path(RESTORED_FILE)
+}
+
+/// Each test thread its own file, so tests never share one.
+#[cfg(test)]
+fn restored_file() -> Option<std::path::PathBuf> {
+    Some(std::env::temp_dir().join(format!(
+        "tty7-restored-{}-{:?}.json",
+        std::process::id(),
+        std::thread::current().id()
+    )))
+}
+
+fn load_restored() -> HashSet<TabId> {
+    let Some(text) = restored_file().and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return HashSet::new();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        log::warn!("{RESTORED_FILE} is unreadable, starting it over: {e}");
+        HashSet::new()
+    })
+}
+
+/// [`RestoredDead`], after `edit`. A change is written once the current
+/// effect cycle is over, so a restore of thirty tabs writes the file once.
+fn edit_restored<R>(cx: &mut App, edit: impl FnOnce(&mut HashSet<TabId>) -> R) -> R {
+    let state = cx.default_global::<RestoredDead>();
+    if !state.loaded {
+        state.ids = load_restored();
+        state.loaded = true;
+    }
+    let before = state.ids.len();
+    let had = state.ids.clone();
+    let out = edit(&mut state.ids);
+    let changed = state.ids.len() != before || state.ids != had;
+    if changed && !state.flush_queued {
+        state.flush_queued = true;
+        cx.defer(flush_restored);
+    }
+    out
+}
+
+fn flush_restored(cx: &mut App) {
+    let state = cx.default_global::<RestoredDead>();
+    state.flush_queued = false;
+    let text = serde_json::to_vec(&state.ids).unwrap_or_default();
+    if let Some(path) = restored_file()
+        && let Err(e) = crate::core::config::write_atomic(&path, &text)
+    {
+        log::warn!("could not save {RESTORED_FILE}: {e}");
+    }
+}
+
+/// Tab `id` woke, or the user hibernated or closed it: no automatic wake is
+/// to touch it.
+pub(crate) fn forget_restored(id: TabId, cx: &mut App) {
+    edit_restored(cx, |set| set.remove(&id));
+}
 
 /// Whether restore brings `st` back asleep: hibernated, or (with
 /// `restore_asleep`) a local tab none of whose panes survived — twelve agents
@@ -297,11 +368,13 @@ pub(crate) fn record_restores_asleep(
     let lazy = cx.global::<Config>().fork.restore_asleep && workspace.is_none();
     let dead = restored_dead(st, alive.filter(|_| lazy));
     if let Some(id) = st.tree_id {
-        let set = &mut cx.default_global::<RestoredDead>().0;
-        match dead {
+        edit_restored(cx, |set| match dead {
             true => set.insert(id),
+            // Asleep since an earlier restore found it dead, and not woken
+            // since: still tty7's to wake, not the user's.
+            false if st.hibernated => false,
             false => set.remove(&id),
-        };
+        });
     }
     st.hibernated || dead
 }
@@ -320,16 +393,13 @@ fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>
         .collect()
 }
 
-/// The tabs an automatic wake picks, [`agent_tabs`] that restore found dead,
-/// draining every one of `tabs` from [`RestoredDead`] so the next wake waits
-/// on the next restore.
+/// The tabs an automatic wake picks, [`agent_tabs`] that restore found dead.
+/// Read only: a tab leaves [`RestoredDead`] when its wake succeeds, so one
+/// cut short by a quit or a failure is still tty7's to wake next launch.
 fn take_restored(tabs: Vec<(TabId, Option<&SessionPane>)>, cx: &mut App) -> Vec<TabId> {
-    let dead = &mut cx.default_global::<RestoredDead>().0;
-    let ids = agent_tabs(tabs.iter().copied().filter(|(id, _)| dead.contains(id)));
-    for (id, _) in &tabs {
-        dead.remove(id);
-    }
-    ids
+    edit_restored(cx, |dead| {
+        agent_tabs(tabs.iter().copied().filter(|(id, _)| dead.contains(id)))
+    })
 }
 
 /// What launch wakes agents with: `--continue` sends `continue_prompt`,
@@ -347,25 +417,45 @@ fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Wake> {
     }
 }
 
-/// Launch's agent wake (`--continue`, `resume_agents_on_launch`) in the
-/// window launch opened.
+/// This launch's agent wake, run once in each workspace a window lands tabs
+/// for — the one launch opened, and any opened after it, such as the hotkey
+/// window, which launch never opens.
+#[derive(Default)]
+struct LaunchWake {
+    wake: Option<Wake>,
+    done: HashSet<WorkspaceId>,
+}
+
+impl Global for LaunchWake {}
+
+/// Launch's agent wake (`--continue`, `resume_agents_on_launch`): held for
+/// every window's tabs to take as they land.
 pub fn wake_launch_window(cx: &mut App, continue_flag: bool) {
-    let Some(wake) = launch_wake(continue_flag, cx.global::<Config>()) else {
-        return;
-    };
-    let Some(ws) = WindowRegistry::most_recent(cx) else {
-        log::warn!("launch wake: no window to wake agents in");
-        return;
-    };
-    let (Some(handle), Some(app)) = (
-        WindowRegistry::window_for(cx, ws),
-        WindowRegistry::app_for(cx, ws),
-    ) else {
-        return;
-    };
-    let _ = handle.update(cx, |_, window, cx| {
-        let _ = app.update(cx, |this, cx| this.wake_restored(wake, window, cx));
+    let wake = launch_wake(continue_flag, cx.global::<Config>());
+    cx.set_global(LaunchWake {
+        wake,
+        done: HashSet::new(),
     });
+    for (ws, app) in WindowRegistry::open_windows(cx) {
+        let (Some(handle), Some(app)) = (WindowRegistry::window_for(cx, ws), app.upgrade()) else {
+            continue;
+        };
+        let Some(wake) = take_launch_wake(ws, cx) else {
+            continue;
+        };
+        let _ = handle.update(cx, |_, window, cx| {
+            app.update(cx, |this, cx| this.wake_restored(wake, window, cx))
+        });
+    }
+}
+
+/// The launch wake for `ws`, the first time it is asked for.
+pub(crate) fn take_launch_wake(ws: WorkspaceId, cx: &mut App) -> Option<Wake> {
+    if !cx.has_global::<LaunchWake>() {
+        return None;
+    }
+    let launch = cx.global_mut::<LaunchWake>();
+    launch.wake.clone().filter(|_| launch.done.insert(ws))
 }
 
 /// Restart Server's agent wake. A restart that kills the shells brings every
@@ -459,9 +549,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        AtPrompt, RestoredDead, Resume, ResumePlan, Wake, agent_tabs, launch_wake,
-        layout_has_live_pane, record_restores_asleep, restart_wakes, take_restored,
-        with_minted_session,
+        AtPrompt, LaunchWake, RestoredDead, Resume, ResumePlan, Wake, agent_tabs, flush_restored,
+        forget_restored, launch_wake, layout_has_live_pane, load_restored, record_restores_asleep,
+        restart_wakes, take_launch_wake, take_restored, with_minted_session,
     };
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
@@ -558,8 +648,9 @@ mod tests {
         };
         let recorded = |cx: &mut gpui::App, id| {
             cx.try_global::<RestoredDead>()
-                .is_some_and(|d| d.0.contains(&id))
+                .is_some_and(|d| d.ids.contains(&id))
         };
+        let recorded_on_disk = |id| load_restored().contains(&id);
         let remote = PaneWorkspace {
             workspace: WorkspaceId::new(),
             target: RemoteTarget::Direct {
@@ -587,8 +678,21 @@ mod tests {
                 hibernated: true,
                 ..dead.clone()
             };
+            // The tree now marks it `hibernated` like any sleeping tab; the
+            // next launch's restore still takes it for one tty7 put to sleep.
+            assert!(record_restores_asleep(None, Some(&empty), &hibernated, cx));
+            assert!(recorded(cx, id), "a relaunch keeps it tty7's to wake");
+            flush_restored(cx);
+            cx.remove_global::<RestoredDead>();
+            assert!(recorded_on_disk(id), "and so does a new process");
+            assert!(record_restores_asleep(None, Some(&empty), &hibernated, cx));
+            assert!(recorded(cx, id));
+
+            forget_restored(id, cx);
             assert!(record_restores_asleep(None, Some(&empty), &hibernated, cx));
             assert!(!recorded(cx, id), "hibernating it on purpose unrecords it");
+            flush_restored(cx);
+            assert!(!recorded_on_disk(id));
 
             let unchecked = tab(false);
             assert!(!record_restores_asleep(None, None, &unchecked, cx));
@@ -612,9 +716,30 @@ mod tests {
                 (other, Some(&other_dead.pane)),
             ];
             assert_eq!(take_restored(asleep.clone(), cx), vec![other]);
-            assert!(!recorded(cx, other), "a wake drains what it saw");
+            assert!(recorded(cx, other), "only a wake that lands lets go of it");
+            forget_restored(other, cx);
             assert!(take_restored(asleep.clone(), cx).is_empty());
             assert_eq!(agent_tabs(asleep).len(), 2, "Continue All wakes both");
+        });
+    }
+
+    #[gpui::test]
+    fn every_workspace_takes_the_launch_wake_once(cx: &mut gpui::TestAppContext) {
+        use crate::core::session::WorkspaceId;
+        let (launched, hotkey) = (WorkspaceId::new(), WorkspaceId::new());
+        cx.update(|cx| {
+            assert_eq!(take_launch_wake(launched, cx), None, "before launch");
+            cx.set_global(LaunchWake {
+                wake: Some(Wake { prompt: None }),
+                done: Default::default(),
+            });
+            assert!(take_launch_wake(launched, cx).is_some());
+            assert_eq!(take_launch_wake(launched, cx), None, "only once");
+            assert!(
+                take_launch_wake(hotkey, cx).is_some(),
+                "a window opened after launch still gets it"
+            );
+            assert_eq!(take_launch_wake(hotkey, cx), None);
         });
     }
 

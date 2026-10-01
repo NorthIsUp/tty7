@@ -36,8 +36,10 @@ the morning-after-a-reboot button.
 
 With **Settings → General → Resume agents on restart** on (the default,
 `resume_agents_on_launch`), every launch does the same without a prompt: each
-sleeping agent tab resumes where it left off, staggered, while shell-only tabs
-stay asleep until opened. So does **Restart tty7 server…** when it ends the
+agent tab tty7 put to sleep resumes where it left off, staggered, in every
+window, the hotkey window included, even across a relaunch that happens before
+it wakes. Tabs you
+hibernated and shell-only tabs stay asleep until opened. So does **Restart tty7 server…** when it ends the
 shells; an in-place restart keeps them running and wakes nothing. Turned off,
 agent tabs stay asleep until you open them. `--continue` still sends
 `continue_prompt`, and each tab wakes once.
