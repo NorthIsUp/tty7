@@ -62,4 +62,11 @@ if "$here/fold-plan" "$(git rev-list --max-parents=0 HEAD)" HEAD order.tsv >/dev
   fail "fold-plan accepted a merge commit"
 fi
 
+# every slug has a feature page, and FORK.md links each one
+top=$(git -C "$here" rev-parse --show-toplevel)
+while IFS=$'\t' read -r slug _; do
+  [ -f "$top/docs/fork/features/$slug.md" ] || fail "no feature page for $slug"
+  grep -q "docs/fork/features/$slug.md" "$top/FORK.md" || fail "FORK.md doesn't link $slug"
+done < "$top/docs/fork/stack-order.tsv"
+
 echo "fold-plan-check: ok"
