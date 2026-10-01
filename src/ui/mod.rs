@@ -17,6 +17,7 @@ pub mod file_tree;
 pub mod first_prompt;
 pub mod forwards;
 pub mod github;
+pub mod github_session;
 pub mod group_color;
 pub mod group_follow;
 pub mod group_header;

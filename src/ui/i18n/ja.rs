@@ -2523,6 +2523,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
         }
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "番号",
     })
 }
 

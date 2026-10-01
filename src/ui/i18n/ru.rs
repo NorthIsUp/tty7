@@ -2555,6 +2555,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
         }
+        L10nKey::GitHubSortRecent => "Недавние",
+        L10nKey::GitHubSortNumber => "Номер",
     })
 }
 
