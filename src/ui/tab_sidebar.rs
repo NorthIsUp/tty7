@@ -112,8 +112,7 @@ mod row_metrics {
 
     /// What a group header can spend on its name and the branch beside it.
     /// The chevron, the pin and the folded row count come off at the call
-    /// site, which knows whether they are drawn — an open group draws no
-    /// chevron, and reserving one anyway elided its branch with 18px to spare.
+    /// site, which knows whether they are drawn.
     pub(super) const fn header_budget(width: f32) -> f32 {
         width - BORDER - 2. * LIST_PAD - HEADER_PAD
     }
@@ -171,13 +170,13 @@ fn counts_width(
 }
 
 /// The branch a whole group shares, lifted off its rows and onto its header.
-struct SharedGit {
-    status: crate::terminal::git_status::GitStatus,
+pub(crate) struct SharedGit {
+    pub(crate) status: crate::terminal::git_status::GitStatus,
     /// Where a click on the counts opens the diff overlay, if the setting
     /// allows one.
-    click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
+    pub(crate) click: Option<(crate::ui::host_ops::HostId, PathBuf)>,
     /// Every row the group counts, drawn or folded away.
-    rows: Vec<usize>,
+    pub(crate) rows: Vec<usize>,
 }
 
 /// What a sidebar row rendered, next to what it had to leave out, so the
@@ -534,6 +533,17 @@ impl Tty7App {
             // never answer to Ungrouped's fold.
             let folded =
                 section.name.is_some() && folds_apply && groups.is_folded(group_key.as_ref());
+            // Fork: the group's colours and fold slide (see `group_header`).
+            let deco = crate::ui::group_header::Deco::new(
+                section.name.as_deref(),
+                group_key.as_ref(),
+                folded,
+                group_ix,
+                rail_fill,
+                window,
+                cx,
+            );
+            let mut rows_h = 0.;
             let mut rows: Vec<ContextMenu<Stateful<Div>>> = Vec::new();
             // The header keeps counting every row the group has; folding only
             // stops them being drawn. Nothing downstream then registers a
@@ -548,7 +558,7 @@ impl Tty7App {
             // behind the chevron: the pane area shows the fresh shell and the
             // header count goes up, but the row waits for the group to open.
             let row_count = visible_by_section[group_ix].len();
-            let visible: Vec<usize> = match folded {
+            let visible: Vec<usize> = match deco.folded_away(folded) {
                 true => Vec::new(),
                 false => visible_by_section[group_ix].clone(),
             };
@@ -596,6 +606,13 @@ impl Tty7App {
                     rows: rows.clone(),
                 })
             });
+            // Fork: the header names the repo's default branch (`group_header`).
+            let header_git = section.name.as_ref().and_then(|_| {
+                let repo = visible_by_section[group_ix]
+                    .iter()
+                    .find_map(|&i| git_click(&self.tabs[i], window, cx));
+                crate::ui::group_header::header_git(shared_git.as_ref(), repo, cx)
+            });
             for (slot, i) in visible.into_iter().enumerate() {
                 let badge_pos = badge_pos[i];
                 let tab = &self.tabs[i];
@@ -620,7 +637,8 @@ impl Tty7App {
                 };
                 // The sleep mark takes the zoom mark's size; a sleeping tab
                 // has no panes on screen to zoom, so the two never share a row.
-                let zoom_extra = if asleep {
+                let zoom_extra = if asleep || crate::ui::wake_pool::is_waking(tab.tree_id.get(), cx)
+                {
                     zoom_extra + row_metrics::ZOOM + row_metrics::GAP
                 } else {
                     zoom_extra
@@ -845,6 +863,7 @@ impl Tty7App {
                     true => ROW_HEIGHT_TWO_LINE,
                     false => ROW_HEIGHT,
                 };
+                rows_h += row_h + ROW_GAP;
                 let label_region = match rename_input {
                     Some(input) => div()
                         .id(("sidebar-rename", i))
@@ -1105,9 +1124,12 @@ impl Tty7App {
                     .when(zoomed, |row| {
                         row.child(self.zoom_mark(("sidebar-zoom", i), cx))
                     })
-                    .when(asleep, |row| {
-                        row.child(self.sleep_mark(("sidebar-asleep", i), cx))
-                    })
+                    .children(crate::ui::wake_pool::state_mark(
+                        self,
+                        ("sidebar-asleep", i),
+                        tab,
+                        cx,
+                    ))
                     .child(label_region)
                     .children(status_dot)
                     .when(show_badges && badge_pos < 9, |row| {
@@ -1272,12 +1294,11 @@ impl Tty7App {
                 // row already elides its own.
                 let ts = window.text_system();
                 let mut avail = row_metrics::header_budget(width);
-                if folded {
-                    avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
-                }
+                avail -= row_metrics::HEADER_ICON + row_metrics::META_GAP;
                 if pinned {
                     avail -= PIN_MARK_SIZE + row_metrics::META_GAP;
                 }
+                avail -= crate::ui::group_color::SWATCH + row_metrics::META_GAP;
                 let count_label = row_count.to_string();
                 if folded {
                     avail -= measure_text(&ts, &meta_font, header_size, &count_label)
@@ -1292,7 +1313,7 @@ impl Tty7App {
                 // it is the one `counts_width` already reserves.
                 let sep_w = measure_text(&ts, &meta_font, header_size, META_SEP_TRIMMED)
                     + row_metrics::META_GAP;
-                let git_want = shared_git.as_ref().map(|shared| {
+                let git_want = header_git.as_ref().map(|shared| {
                     let counts = counts_width(&ts, &meta_font, header_size, &shared.status);
                     let sep = if counts > 0. { sep_w } else { 0. };
                     2. * row_metrics::META_GAP
@@ -1306,6 +1327,7 @@ impl Tty7App {
                 let hover_group = SharedString::from(format!("sidebar-group-{group_ix}"));
                 let bar = h_flex()
                     .id(("sidebar-group", group_ix))
+                    .map(|bar| deco.bar(bar))
                     .group(hover_group.clone())
                     .relative()
                     .w_full()
@@ -1354,47 +1376,39 @@ impl Tty7App {
                             }
                         })
                     })
-                    // The heading names the group; the chevron only says
-                    // something when there is something behind it. An open
-                    // group shows its rows, which is its own answer.
-                    .when(folded, |header| {
+                    .child(div().flex_shrink_0().child(deco.chevron()))
+                    // Every kept group carries the mark; it is what sets them
+                    // apart from the derived groups below, and the way to stop
+                    // keeping one — a click unpins, and its tabs fall back to
+                    // the groups their cwds resolve to. A label group too: a
+                    // pin that looks the same but ignores the click read as
+                    // broken. There it says Delete Group, as its menu does,
+                    // and asks first (`group_header`'s `pin_clicked`).
+                    .when_some(pinned_id, |header, id| {
+                        let folder = pinned_folder.is_some();
+                        let tip = match folder {
+                            true => L10nKey::SidebarUnpinGroup,
+                            false => L10nKey::SidebarDeleteGroup,
+                        };
                         header.child(
                             div()
                                 .flex_shrink_0()
-                                .child(Icon::new(IconName::ChevronRight).xsmall()),
-                        )
-                    })
-                    // Every kept group carries the mark; it is what sets them
-                    // apart from the derived groups below. On a folder group it
-                    // is also the way to stop keeping it — a click unpins, and
-                    // the folder's tabs fall back to the groups their cwds
-                    // resolve to. A label group's mark is only a mark: without a
-                    // folder there is nothing to fall back on, so letting go of
-                    // it is Delete Group, in its menu, not a stray click.
-                    .when_some(pinned_id, |header, id| {
-                        let mark = div()
-                            .flex_shrink_0()
-                            .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)));
-                        header.child(match pinned_folder.is_some() {
-                            false => mark.into_any_element(),
-                            true => mark
+                                .child(Icon::empty().path(PIN_MARK).size(px(PIN_MARK_SIZE)))
                                 .id(("sidebar-group-unpin", group_ix))
+                                .debug_selector(|| "sidebar-group-unpin".into())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(cx.theme().foreground))
-                                .tooltip(|window, cx| {
-                                    gpui_component::tooltip::Tooltip::new(t(
-                                        L10nKey::SidebarUnpinGroup,
-                                    ))
-                                    .build(window, cx)
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(t(tip)).build(window, cx)
                                 })
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, _window, cx| {
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.delete_group(id, cx);
-                                }))
-                                .into_any_element(),
-                        })
+                                    this.pin_clicked(id, folder, window, cx);
+                                })),
+                        )
                     })
+                    .child(deco.swatch())
                     .child(match renaming_group {
                         Some(input) => div()
                             .id(("sidebar-group-rename", group_ix))
@@ -1435,7 +1449,7 @@ impl Tty7App {
                             })
                             .into_any_element(),
                     })
-                    .when_some(shared_git, |bar, shared| {
+                    .when_some(header_git, |bar, shared| {
                         let SharedGit {
                             status,
                             click,
@@ -1528,7 +1542,7 @@ impl Tty7App {
                         group_ix,
                         group_key.clone(),
                         hover_group,
-                        rail_fill,
+                        deco.backing(),
                         cx,
                     ));
                 // Renaming is offered on a menu rather than a double click:
@@ -1616,6 +1630,7 @@ impl Tty7App {
             let block = v_flex()
                 .w_full()
                 .gap(px(ROW_GAP))
+                .map(|b| deco.block(b))
                 .when(preview.is_some_and(|p| Some(p.from) == slot), |b| {
                     b.opacity(0.75)
                 })
@@ -1625,7 +1640,7 @@ impl Tty7App {
                     |b| b.rounded_md().bg(cx.theme().drag_border.opacity(0.15)),
                 )
                 .children(header)
-                .children(rows)
+                .children(deco.clip(rows, rows_h - ROW_GAP, ROW_GAP))
                 .children(empty_row)
                 .child(
                     canvas(
@@ -2570,7 +2585,7 @@ impl Tty7App {
         };
         match folder {
             Some(folder) => self.new_tab_at(folder, window, cx),
-            None => self.new_tab(window, cx),
+            None => self.new_tab_with_shell(None, window, cx),
         }
         if self.tabs.len() == before {
             return;
@@ -2672,7 +2687,8 @@ impl Tty7App {
     /// — that is what lets a tab dragged out of a folder group while it is
     /// still inside the folder stay out: the watch already knows it is
     /// inside, so staying there is no entry. Only a tab not already kept in a
-    /// pinned group acts on an entry; a kept tab never leaves on its own.
+    /// pinned group acts on an entry. A tab in a folder group it is not in
+    /// leaves by [`group_follow`](crate::ui::group_follow)'s rule.
     ///
     /// A tab is only looked at once its repo probe has answered. Before that
     /// the question "is it inside" has half an answer — the cwd without the
@@ -2717,15 +2733,18 @@ impl Tty7App {
                 continue;
             };
             let inside = self.sidebar_groups.folder_for(Some(cwd), home.as_deref());
-            let mut watch = tab.folder_watch.get();
+            let before = tab.folder_watch.get();
+            let mut watch = before;
             let entered = watch.observe(inside);
             tab.folder_watch.set(watch);
-            let kept = tab
-                .group
-                .get()
-                .is_some_and(|g| self.sidebar_groups.contains(g));
-            if let Some(id) = entered
-                && !kept
+            let kept = tab.group.get().filter(|&g| self.sidebar_groups.contains(g));
+            if let Some(to) =
+                crate::ui::group_follow::walked_out(&self.sidebar_groups, kept, before, inside)
+            {
+                tab.group.set(to);
+                joined = true;
+            } else if let Some(id) = entered
+                && kept.is_none()
             {
                 tab.group.set(Some(id));
                 joined = true;
@@ -2814,7 +2833,7 @@ impl Tty7App {
 
     /// Where a tab about to be spawned in `cwd` goes.
     ///
-    /// A tab spawned from one kept in a pinned group joins it, before the cwd
+    /// A tab spawned from one kept in a label group joins it, before the cwd
     /// is consulted at all — the cwd says nothing about a group the user
     /// stated by hand. Every caller here spawns from the active tab (the ones
     /// that start from a named tab activate it first), so that is the one to
@@ -2833,7 +2852,7 @@ impl Tty7App {
             .tabs
             .get(self.active)
             .and_then(|t| t.group.get())
-            .filter(|g| self.sidebar_groups.contains(*g));
+            .filter(|&g| crate::ui::group_follow::inherits(&self.sidebar_groups, g));
         let known = cwd.and_then(|cwd| {
             let host = self
                 .window_workspace(cx)
@@ -2974,7 +2993,7 @@ fn auto_header_menu(
 /// Where a tab about to be spawned goes, worked out before it exists — see
 /// [`Tty7App::spawn_group`].
 pub(crate) struct SpawnPlace {
-    group: Option<GroupId>,
+    pub(crate) group: Option<GroupId>,
     auto: Option<Option<AutoKey>>,
 }
 
@@ -3232,6 +3251,11 @@ fn git_click(
     })
 }
 
+// For `group_follow`'s tests; the module stays plain `mod` so the host-boundary
+// check sees where the test region starts.
+#[cfg(test)]
+pub(crate) use fold_tests::{folder, plant_repo, repo};
+
 #[cfg(test)]
 mod fold_tests {
     use super::*;
@@ -3251,7 +3275,14 @@ mod fold_tests {
     /// reads the tab's cwd and looks it up in the cache, and either one
     /// missing makes it return "no decision", which would leave every group
     /// below untouched and every assertion about moving vacuous.
-    fn plant(app: &Tty7App, i: usize, cwd: &str, root: &str, home: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant(
+        app: &Tty7App,
+        i: usize,
+        cwd: &str,
+        root: &str,
+        home: &str,
+        cx: &mut gpui::App,
+    ) {
         use crate::terminal::git_status::{GitStatusCache, RepoSnapshot};
         use crate::ui::host_ops::HostId;
 
@@ -3276,12 +3307,12 @@ mod fold_tests {
         });
     }
 
-    fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
         plant(app, i, cwd, root, root, cx);
     }
 
     /// Put tab `i` somewhere the cache knows is in no repo at all.
-    fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
         use crate::terminal::git_status::GitStatusCache;
         use crate::ui::host_ops::HostId;
 
@@ -3297,12 +3328,12 @@ mod fold_tests {
         });
     }
 
-    fn repo(s: &str) -> Option<GroupKey> {
+    pub(crate) fn repo(s: &str) -> Option<GroupKey> {
         Some(GroupKey::Auto(AutoKey::Repo(PathBuf::from(s))))
     }
 
     /// Pin a label group called `name`, answering its id.
-    fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
         let group = PinnedGroup::label(name);
         let id = group.id;
         app.edit_groups(cx, |groups| groups.pinned.push(group));
@@ -3310,7 +3341,7 @@ mod fold_tests {
     }
 
     /// Pin `folder`, answering the group's id.
-    fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
         app.pin_folder(PathBuf::from(folder), cx);
         app.sidebar_groups
             .pinned
@@ -3935,6 +3966,8 @@ mod fold_tests {
         let beta = AutoKey::Repo(PathBuf::from("/w/beta"));
 
         app.update(&mut vcx, |app, cx| {
+            // Fork: rows stay drawn through the fold's slide; this is about where it ends.
+            cx.global_mut::<Config>().fork.animations = false;
             for (i, root) in [(0, &alpha), (1, &alpha), (2, &beta)] {
                 *app.tabs[i].auto_group.borrow_mut() = Some(root.clone());
             }

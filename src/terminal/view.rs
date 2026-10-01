@@ -1549,10 +1549,13 @@ impl TerminalView {
         restore_pane: Option<u64>,
         shell: Option<ShellSpec>,
         owner: Option<crate::core::session::WorkspaceId>,
+        grid: Option<crate::ui::background_grid::Grid>,
+        run_once: Option<String>,
     ) -> anyhow::Result<ShellParts> {
         let route = crate::terminal::PaneRoute::for_workspace(workspace.as_ref());
+        let (size, cell_w, cell_h) = crate::ui::background_grid::spawn_size(grid);
         let attached = match restore_pane {
-            Some(id) => match RemoteTerminal::attach_on(&route, TermSize::new(80, 24), 8, 17, id) {
+            Some(id) => match RemoteTerminal::attach_on(&route, size, cell_w, cell_h, id) {
                 Ok(terminal) => Some((terminal, id, None)),
                 Err(e) if crate::terminal::attach_unanswered(&e) => {
                     // Not "gone": nobody answered, which a daemon still coming
@@ -1599,12 +1602,13 @@ impl TerminalView {
                         crate::ui::i18n::t(crate::ui::i18n::L10nKey::PaneRestoredScreenBanner)
                             .to_string(),
                     ),
+                    run_once,
                 });
                 let (terminal, id) = RemoteTerminal::spawn_on(
                     &route,
-                    TermSize::new(80, 24),
-                    8,
-                    17,
+                    size,
+                    cell_w,
+                    cell_h,
                     working_directory,
                     shell.clone(),
                     owner.map(|id| id.to_string()),
@@ -1652,10 +1656,12 @@ impl TerminalView {
     pub fn spawn_native_ssh_terminal(
         spec: Box<crate::daemon::protocol::NativeSshSpec>,
         remote_start_dir: Option<std::path::PathBuf>,
+        grid: Option<crate::ui::background_grid::Grid>,
     ) -> anyhow::Result<NativeSshParts> {
         let persist = Box::new(spec.without_secrets());
+        let (size, cell_w, cell_h) = crate::ui::background_grid::spawn_size(grid);
         let (terminal, pane_id) =
-            RemoteTerminal::spawn_native_ssh(TermSize::new(80, 24), 8, 17, remote_start_dir, spec)?;
+            RemoteTerminal::spawn_native_ssh(size, cell_w, cell_h, remote_start_dir, spec)?;
         Ok(NativeSshParts {
             terminal,
             pane_id,
@@ -1683,7 +1689,7 @@ impl TerminalView {
         view
     }
 
-    fn with_terminal(
+    pub(super) fn with_terminal(
         terminal: RemoteTerminal,
         pane_id: u64,
         window: &mut Window,

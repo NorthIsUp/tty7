@@ -2783,6 +2783,8 @@ fn daemon_disconnected_before_spawn_reply(err: &anyhow::Error) -> bool {
     })
 }
 
+mod fork_pane;
+
 impl Drop for RemoteTerminal {
     fn drop(&mut self) {
         self.link.send(ClientMsg::Detach);
@@ -4251,6 +4253,7 @@ mod replay_tests {
             None,
             None,
             None,
+            None,
             false,
             || {},
         )
@@ -4336,6 +4339,7 @@ mod replay_tests {
             7712,
             std::env::current_dir().ok(),
             ws(80, 24),
+            None,
             None,
             None,
             None,
