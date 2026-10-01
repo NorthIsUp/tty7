@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#MISE description="Self-check for fold-plan: folds throwaway repos and asserts subjects and trees"
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+repo() { # fresh repo in a temp dir, cwd moves into it
+  cd "$(mktemp -d)"
+  git init -q -b main
+  git config user.email t@t; git config user.name t; git config commit.gpgsign false
+  echo base > base.txt; git add -A; git commit -qm base
+}
+commit() { # commit FILE CONTENT MESSAGE...
+  local f=$1 c=$2; shift 2
+  printf '%s\n' "$c" >> "$f"; git add -A
+  local args=(); for m in "$@"; do args+=(-m "$m"); done
+  git commit -q "${args[@]}"
+}
+fold() { # fold ORDER [MAP]: rebase base..HEAD with fold-plan's todo
+  local plan; plan=$(mktemp)
+  "$here/fold-plan" "$(git rev-list --max-parents=0 HEAD)" HEAD "$@" > "$plan"
+  git -c sequence.editor="cp $plan" rebase -q -i "$(git rev-list --max-parents=0 HEAD)"
+}
+subjects() { git log --reverse --format=%s "$(git rev-list --max-parents=0 HEAD)..HEAD"; }
+
+# sync mode: stack commits, a tagged tail, an unknown slug, an untagged commit
+repo
+printf 'a\tA feature\nb\tB feature\n' > order.tsv; order=$PWD/order.tsv
+commit a.txt 1 "fork(a): A feature" "Fork-Feature: a"
+commit b.txt 1 "fork(b): B feature" "Fork-Feature: b"
+commit b.txt 2 "fix(b): tweak" "Fork-Feature: b"
+commit a.txt 2 "fix(a): tweak" "Fork-Feature: a"
+commit c.txt 1 "feat(c): new thing" "Fork-Feature: c"
+commit u.txt 1 "chore: untagged"
+before=$(git rev-parse HEAD^{tree})
+fold "$order"
+[ "$(git rev-parse HEAD^{tree})" = "$before" ] || fail "sync mode changed the tree"
+want=$'fork(a): A feature\nfork(b): B feature\nfork(c): new thing\nchore: untagged'
+[ "$(subjects)" = "$want" ] || fail "sync mode subjects: $(subjects)"
+[ "$(git log -1 --format='%(trailers:key=Fork-Feature,valueonly)' HEAD~1 | tr -d '\n')" = c ] \
+  || fail "unknown slug lost its trailer"
+
+# build mode: no stack commits, slugs from a map, a summary with quotes and $
+repo
+printf "x\tdon't \$break \"it\"\n" > order.tsv; order=$PWD/order.tsv
+commit x.txt 1 "feat: one"
+commit y.txt 1 "feat: two"
+commit x.txt 2 "fix: three"
+git log --reverse --format='%H' HEAD~3..HEAD | sed -n '1p;3p' | sed 's/$/\tx/' > map.tsv
+before=$(git rev-parse HEAD^{tree})
+fold "$order" "$PWD/map.tsv"
+[ "$(git rev-parse HEAD^{tree})" = "$before" ] || fail "build mode changed the tree"
+want=$'fork(x): don\'t $break "it"\nfeat: two'
+[ "$(subjects)" = "$want" ] || fail "build mode subjects: $(subjects)"
+
+# merge: refused
+repo
+printf 'a\tA\n' > order.tsv
+git switch -qc side; commit s.txt 1 "side"; git switch -q main; commit m.txt 1 "main"
+git merge -q --no-edit side
+if "$here/fold-plan" "$(git rev-list --max-parents=0 HEAD)" HEAD order.tsv >/dev/null 2>&1; then
+  fail "fold-plan accepted a merge commit"
+fi
+
+echo "fold-plan-check: ok"

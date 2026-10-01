@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+#MISE description="Print the rebase todo that folds main-niu's commits into one per feature (docs/fork/patch-stack.md)"
+"""fold-plan BASE TIP ORDER_TSV [MAP_TSV]
+
+Groups BASE..TIP by feature slug and prints a `git rebase -i BASE` todo: each
+group's first commit picked, the rest fixed up into it, then retitled
+`fork(<slug>): <summary>` if it isn't already. A commit's slug comes from
+MAP_TSV, else a `fork(<slug>):` subject, else its `Fork-Feature` trailer.
+Groups follow ORDER_TSV; slugs it doesn't list follow in first-seen order;
+untagged commits are picked last, in order, untouched.
+"""
+import re
+import shlex
+import subprocess
+import sys
+
+STACK_SUBJECT = re.compile(r"^fork\(([a-z0-9-]+)\): ")
+CONVENTIONAL = re.compile(r"^[a-z]+(\([^)]*\))?!?: ")
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def read_tsv(path: str) -> list[tuple[str, str]]:
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line and not line.startswith("#"):
+                key, _, value = line.partition("\t")
+                rows.append((key.strip(), value.strip()))
+    return rows
+
+
+def main(base: str, tip: str, order_path: str, map_path: str | None) -> None:
+    merges = git("rev-list", "--merges", f"{base}..{tip}").split()
+    if merges:
+        sys.exit(f"fold-plan: {merges[0][:8]} is a merge commit; the stack is linear")
+    order = read_tsv(order_path)
+    summaries = dict(order)
+    mapping = read_tsv(map_path) if map_path else []
+
+    def mapped(sha: str) -> str | None:
+        return next((slug for key, slug in mapping if sha.startswith(key)), None)
+
+    groups: dict[str, list[tuple[str, str]]] = {}
+    untagged: list[str] = []
+    for sha in git("rev-list", "--reverse", f"{base}..{tip}").split():
+        subject = git("log", "-1", "--format=%s", sha).rstrip("\n")
+        trailer = git("log", "-1", "--format=%(trailers:key=Fork-Feature,valueonly,separator=%x2C)", sha)
+        stack = STACK_SUBJECT.match(subject)
+        slug = mapped(sha) or (stack and stack.group(1)) or trailer.split(",")[0].strip() or None
+        if slug:
+            groups.setdefault(slug, []).append((sha, subject))
+        else:
+            untagged.append(sha)
+
+    known = [slug for slug, _ in order if slug in groups]
+    extra = [slug for slug in groups if slug not in summaries]
+    for slug in known + extra:
+        (first, subject), *rest = groups[slug]
+        print(f"pick {first}")
+        for sha, _ in rest:
+            print(f"fixup {sha}")
+        summary = summaries.get(slug) or CONVENTIONAL.sub("", subject)
+        title = f"fork({slug}): {summary}"
+        if subject != title or rest:
+            msg = shlex.quote(title)
+            trailer = shlex.quote(f"Fork-Feature: {slug}")
+            print(f"exec git commit --amend --quiet -m {msg} -m {trailer}")
+    for sha in untagged:
+        print(f"pick {sha}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) not in (4, 5):
+        sys.exit(__doc__)
+    main(*sys.argv[1:4], sys.argv[4] if len(sys.argv) == 5 else None)
