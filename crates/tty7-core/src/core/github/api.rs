@@ -151,6 +151,8 @@ pub struct ListQuery {
     pub kind: Kind,
     pub state: StateFilter,
     pub label: Option<String>,
+    /// Created (so number) order instead of last updated.
+    pub by_number: bool,
 }
 
 /// One page of a list, and the page after it when there is one.
@@ -180,8 +182,9 @@ fn repo_path(slug: &RepoSlug) -> String {
 fn list_request(q: &ListQuery, page: u32) -> (String, Endpoint) {
     let base = repo_path(&q.slug);
     let common = format!(
-        "state={}&sort=updated&direction=desc&per_page={PAGE_SIZE}&page={page}",
-        q.state.as_query()
+        "state={}&sort={}&direction=desc&per_page={PAGE_SIZE}&page={page}",
+        q.state.as_query(),
+        if q.by_number { "created" } else { "updated" }
     );
     let label = q.label.as_deref().filter(|l| !l.is_empty());
     match (q.kind, label) {
@@ -244,6 +247,12 @@ pub fn list(t: &dyn Transport, q: &ListQuery, page: u32) -> Result<ListPage, Api
         items,
         next_page: reply.has_next.then_some(page + 1),
     })
+}
+
+/// One issue or pull request as a list row, in one request.
+pub fn item(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Item, ApiError> {
+    let reply = t.get(&format!("{}/issues/{number}", repo_path(slug)))?;
+    Ok(decode::<RawIssue>(&reply)?.into_item())
 }
 
 /// One issue or pull request with its body and conversation — and, for a pull
@@ -452,7 +461,39 @@ pub(crate) mod tests {
             kind,
             state: StateFilter::Open,
             label: label.map(str::to_string),
+            by_number: false,
         }
+    }
+
+    #[test]
+    fn by_number_asks_github_for_created_order() {
+        let q = ListQuery {
+            by_number: true,
+            ..query(Kind::Pulls, None)
+        };
+        assert!(
+            list_request(&q, 1)
+                .0
+                .contains("sort=created&direction=desc")
+        );
+    }
+
+    #[test]
+    fn an_item_is_one_issue_read_and_knows_a_merged_pull_request() {
+        let mut t = Fixture::new();
+        t.on(
+            "/repos/l0ng-ai/tty7/issues/8",
+            r#"{"number": 8, "title": "Fix typo", "state": "closed", "user": {"login": "cy"},
+                "labels": [], "comments": 0, "created_at": "2026-09-02T10:00:00Z",
+                "updated_at": "2026-09-03T10:00:00Z", "html_url": "https://github.com/l0ng-ai/tty7/pull/8",
+                "pull_request": {"url": "x", "merged_at": "2026-09-03T10:00:00Z"}}"#,
+            false,
+        );
+        let got = item(&t, &slug(), 8).unwrap();
+        assert!(got.is_pr);
+        assert_eq!(got.state, ItemState::Merged);
+        assert_eq!(*t.asked.lock().unwrap(), ["/repos/l0ng-ai/tty7/issues/8"]);
+        assert_eq!(item(&t, &slug(), 9), Err(ApiError::NotFound));
     }
 
     #[test]
