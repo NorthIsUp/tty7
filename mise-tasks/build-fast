@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="The day-to-day build: the fast profile (see Cargo.toml)"
+set -euo pipefail
+exec cargo build --locked --profile fast --bin tty7-app --bin tty7 "$@"
