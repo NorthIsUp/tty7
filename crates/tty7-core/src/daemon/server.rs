@@ -831,6 +831,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 // predecessor's commands behind that name.
                 crate::daemon::history::carry(dead, id);
             }
+            let run_once = restore.as_ref().and_then(|r| r.run_once.clone());
             let restore = restore.and_then(restored_screen);
             let on_dead = {
                 let registry = registry.clone();
@@ -851,6 +852,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 owner,
                 workspace,
                 restore,
+                run_once,
                 allow_remote_clipboard_write,
                 on_dead,
             ) {
