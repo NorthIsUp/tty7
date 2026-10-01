@@ -130,12 +130,16 @@ const AGENT_STALE_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::fro
 /// The pane a Codex or jcode hook's report is about, found from the report
 /// itself — where a hook runs says nothing for an agent that runs its hooks in
 /// a shared server (see [`crate::daemon::pane::codex_report_target`]). `None`
-/// for any other agent's report, which goes to the pane the hook named.
+/// for any other agent's report, and for one no pane can be told to own that
+/// the hook's own pane sent, which go to the pane the hook named; `Some(Err)`
+/// for one no pane can be told to own that came through Codex's shared
+/// app-server, whose `$TTY7_PANE` is only the pane that started it.
 fn codex_report_pane(
     registry: &Registry,
     named: u64,
+    pid: u32,
     body: &str,
-) -> Option<(Arc<DaemonPane>, crate::core::cli_agent::AgentEvent)> {
+) -> Option<Result<(Arc<DaemonPane>, crate::core::cli_agent::AgentEvent), String>> {
     let event = crate::core::cli_agent::parse_agent_event_body(body.as_bytes())?;
     use crate::core::cli_agent::CLIAgent;
     let agent = event
@@ -149,9 +153,27 @@ fn codex_report_pane(
         event.session_id.as_deref(),
         event.cwd.as_deref(),
         event.source.as_deref() == Some("clear"),
-    )?;
-    let pane = panes.into_iter().find(|p| p.id == target)?;
-    Some((pane, event))
+    );
+    match target.and_then(|t| panes.into_iter().find(|p| p.id == t)) {
+        Some(pane) => Some(Ok((pane, event))),
+        None if agent == CLIAgent::Codex && via_codex_app_server(pid) => Some(Err(format!(
+            "no pane can be told to own a report from Codex's app-server (it named pane {named})"
+        ))),
+        None => None,
+    }
+}
+
+fn via_codex_app_server(pid: u32) -> bool {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    return crate::daemon::procinfo::runs_under_one(pid, |p| {
+        crate::daemon::remote::foreground_argv(p as i32)
+            .is_some_and(|argv| argv.iter().any(|t| t == "app-server"))
+    });
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        false
+    }
 }
 
 fn spawn_agent_stale_sweep(registry: Arc<Registry>) {
@@ -402,7 +424,7 @@ pub fn run_daemon() -> anyhow::Result<()> {
 /// try_clone(), so existing screens work while new input connections get EOF.
 /// Do this before opening services, including when adopting a live handoff.
 #[cfg(unix)]
-fn raise_open_file_limit() {
+pub fn raise_open_file_limit() {
     const TARGET: libc::rlim_t = 4096;
     let mut limits = libc::rlimit {
         rlim_cur: 0,
@@ -897,6 +919,22 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
             restore,
             allow_remote_clipboard_write,
         } => {
+            // A restore stands in for a pane that is gone. One still running
+            // is the client's mistake — an attach that failed on its side — and
+            // a fresh pane over it would orphan the live one behind a duplicate.
+            if let Some(live) = restore
+                .as_ref()
+                .map(|r| r.pane_id)
+                .filter(|id| registry.get(*id).is_some_and(|p| p.alive()))
+            {
+                log::warn!("refused to restore pane {live} into a fresh pane: it is still running");
+                let mut w = write_stream;
+                DaemonMsg::Error(format!(
+                    "pane {live} is still running; attach to it instead"
+                ))
+                .encode(&mut w)?;
+                return Ok(());
+            }
             let id = registry.alloc_id();
             if let Some(dead) = restore.as_ref().map(|r| r.pane_id) {
                 // Before the spawn, because the spawn is what hands the shell
@@ -905,6 +943,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 crate::daemon::history::carry(dead, id);
             }
             let predecessor = restore.as_ref().map(|r| r.pane_id);
+            let run_once = restore.as_ref().and_then(|r| r.run_once.clone());
             let restore = restore.and_then(restored_screen);
             log::info!(
                 "pane {id} spawn requested; restore_from={predecessor:?} screen_restored={}",
@@ -930,6 +969,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 owner,
                 workspace,
                 restore,
+                run_once,
                 allow_remote_clipboard_write,
                 on_dead,
             ) {
@@ -1280,8 +1320,9 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
             event,
         } => {
             let mut w = write_stream;
-            let applied = match codex_report_pane(&registry, pane_id, &event) {
-                Some((pane, parsed)) => pane.apply_reported_agent_event(parsed),
+            let applied = match codex_report_pane(&registry, pane_id, pid, &event) {
+                Some(Ok((pane, parsed))) => pane.apply_reported_agent_event(parsed),
+                Some(Err(message)) => Err(message),
                 None => match registry.get(pane_id) {
                     Some(pane) => pane.report_agent_event(pid, &event),
                     None => Err(format!("no such pane {pane_id}")),
@@ -1582,6 +1623,26 @@ mod tests {
             panes: vec![PaneRecord::new(u64::MAX)],
         });
         assert_eq!(reg.alloc_id(), u64::MAX);
+    }
+
+    #[test]
+    fn an_app_server_report_no_pane_owns_is_refused_not_handed_to_the_named_pane() {
+        let reg = Registry::new();
+        let codex =
+            r#"{"v":1,"agent":"codex","event":"session-start","session_id":"s","cwd":"/w"}"#;
+        let mut server = std::process::Command::new("sh")
+            .args(["-c", "sleep 30; :", "app-server"])
+            .spawn()
+            .unwrap();
+        let refused = codex_report_pane(&reg, 7, server.id(), codex);
+        let _ = server.kill();
+        assert!(matches!(refused, Some(Err(_))), "from the app-server");
+        assert!(
+            codex_report_pane(&reg, 7, std::process::id(), codex).is_none(),
+            "a hook of the pane's own Codex goes to the pane it named"
+        );
+        let claude = r#"{"v":1,"agent":"claude","event":"session-start","session_id":"s"}"#;
+        assert!(codex_report_pane(&reg, 7, std::process::id(), claude).is_none());
     }
 
     #[test]

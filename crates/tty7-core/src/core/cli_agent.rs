@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,7 +232,10 @@ impl CLIAgent {
             CLIAgent::Grok => Some(format!("grok{flags} --resume {session_id}")),
             CLIAgent::QoderCLI => Some(format!("qodercli{flags} --resume {session_id}")),
             CLIAgent::QoderCLICn => Some(format!("qodercn{flags} --resume {session_id}")),
-            CLIAgent::Pi => Some(format!("pi{flags} --session {session_id}")),
+            // `--session` finds only a saved session, and Pi saves none until
+            // the first message, though it reports the id at startup;
+            // `--session-id` opens that session in this cwd or starts it anew.
+            CLIAgent::Pi => Some(format!("pi{flags} --session-id {session_id}")),
             CLIAgent::OhMyPi => Some(format!("omp{flags} --resume {session_id}")),
             CLIAgent::Kimi => Some(format!("kimi{flags} --session {session_id}")),
             CLIAgent::Crush => Some(format!("crush{flags} --session {session_id}")),
@@ -364,6 +369,41 @@ impl CLIAgent {
         })
     }
 
+    /// Whether [`Self::resume_command`] can be followed by a prompt the agent
+    /// sends as the resumed session's next turn.
+    pub fn resume_takes_prompt(self) -> bool {
+        matches!(self, CLIAgent::Claude | CLIAgent::Codex)
+    }
+
+    /// The session `argv` names by itself, so a resume needs no hook to learn
+    /// it: Claude's `--session-id <uuid>` (which quick launch mints) or
+    /// `--resume <uuid>`, and Codex's `resume <uuid>`, which reports no
+    /// session until its first turn. A fork starts an id only a hook can
+    /// report, and a bare `--resume` opens the picker, so neither counts.
+    pub fn session_id_in_argv(self, argv: &[String]) -> Option<String> {
+        if self == CLIAgent::Codex {
+            let at = argv.iter().position(|t| t == "resume")?;
+            return argv[at + 1..]
+                .iter()
+                .find(|t| uuid::Uuid::parse_str(t).is_ok())
+                .cloned();
+        }
+        if self != CLIAgent::Claude || argv.iter().any(|t| t == "--fork-session") {
+            return None;
+        }
+        let named = argv
+            .iter()
+            .enumerate()
+            .find_map(|(i, t)| match t.split_once('=') {
+                Some(("--session-id" | "--resume", v)) => Some(v),
+                _ if matches!(t.as_str(), "--session-id" | "--resume" | "-r") => {
+                    argv.get(i + 1).map(String::as_str)
+                }
+                _ => None,
+            })?;
+        uuid::Uuid::parse_str(named).ok().map(|_| named.to_string())
+    }
+
     fn session_command_flags(
         self,
         session_id: &str,
@@ -380,18 +420,14 @@ impl CLIAgent {
         {
             return None;
         }
-        Some(
-            launch_argv
-                .and_then(|argv| self.replay_flags(argv))
-                .map(|flags| {
-                    flags.iter().fold(String::new(), |mut s, f| {
-                        s.push(' ');
-                        s.push_str(f);
-                        s
-                    })
-                })
-                .unwrap_or_default(),
-        )
+        Some(self.replayed(launch_argv).unwrap_or_default())
+    }
+
+    /// The flags `launch_argv` ran the agent with, each after a space; `None`
+    /// when there are none to replay.
+    fn replayed(self, launch_argv: Option<&[String]>) -> Option<String> {
+        let flags = launch_argv.and_then(|argv| self.replay_flags(argv))?;
+        (!flags.is_empty()).then(|| flags.iter().map(|f| format!(" {f}")).collect())
     }
 
     fn replay_flags(self, argv: &[String]) -> Option<Vec<String>> {
@@ -731,6 +767,186 @@ impl CLIAgent {
         self.aliases()[0]
     }
 
+    /// The flag that picks a model, for the agents whose CLI was checked to
+    /// take one (`--help` of claude 2.1, codex 0.166, pi 1.4, cursor-agent
+    /// 2026.10).
+    pub fn model_flag(self) -> Option<&'static str> {
+        match self {
+            CLIAgent::Claude | CLIAgent::Codex | CLIAgent::Pi | CLIAgent::Cursor => Some("--model"),
+            _ => None,
+        }
+    }
+
+    /// The pick-one launch settings this agent's CLI takes, each option under
+    /// the name the agent's own UI gives it. Picking none adds nothing, so
+    /// the CLI's own config decides.
+    ///
+    /// Claude Code's are its permission modes as `/permissions` and
+    /// shift-tab name them (2.1.285). Codex's are its `/permissions` presets
+    /// (rust-v0.166.0: `builtin_approval_presets` and
+    /// `chatwidget/permissions_menu.rs`), each the sandbox, approval policy
+    /// and approvals reviewer the picker sets; "Approve for me" is the
+    /// `auto_review` reviewer. Cursor's are its `--help` modes (2026.10.22).
+    pub fn launch_choices(self) -> &'static [LaunchChoice] {
+        match self {
+            CLIAgent::Claude => &[LaunchChoice {
+                key: "permission",
+                options: &[
+                    LaunchOption {
+                        value: "manual",
+                        label: "Manual",
+                        hint: None,
+                        argv: &["--permission-mode", "manual"],
+                    },
+                    LaunchOption {
+                        value: "acceptEdits",
+                        label: "Accept edits",
+                        hint: None,
+                        argv: &["--permission-mode", "acceptEdits"],
+                    },
+                    LaunchOption {
+                        value: "plan",
+                        label: "Plan",
+                        hint: None,
+                        argv: &["--permission-mode", "plan"],
+                    },
+                    LaunchOption {
+                        value: "auto",
+                        label: "Auto",
+                        hint: None,
+                        argv: &["--permission-mode", "auto"],
+                    },
+                    LaunchOption {
+                        value: "bypassPermissions",
+                        label: "Bypass Permissions",
+                        hint: None,
+                        argv: &["--permission-mode", "bypassPermissions"],
+                    },
+                    LaunchOption {
+                        value: "dontAsk",
+                        label: "Don't Ask",
+                        hint: None,
+                        argv: &["--permission-mode", "dontAsk"],
+                    },
+                ],
+            }],
+            CLIAgent::Codex => &[LaunchChoice {
+                key: "permission",
+                options: &[
+                    LaunchOption {
+                        value: "ask",
+                        label: "Ask for approval",
+                        hint: Some(
+                            "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "workspace-write",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "approve-for-me",
+                        label: "Approve for me",
+                        hint: Some("Only ask for actions detected as potentially unsafe"),
+                        argv: &[
+                            "--sandbox",
+                            "workspace-write",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=auto_review",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "full-access",
+                        label: "Full Access",
+                        hint: Some(
+                            "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "danger-full-access",
+                            "--ask-for-approval",
+                            "never",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "read-only",
+                        label: "Read Only",
+                        hint: Some(
+                            "Read workspace files, with approval required for edits or internet access",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "read-only",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                ],
+            }],
+            CLIAgent::Cursor => &[
+                LaunchChoice {
+                    key: "permission",
+                    options: &[
+                        LaunchOption {
+                            value: "plan",
+                            label: "Plan",
+                            hint: Some("Read-only planning: analyze and propose plans, no edits"),
+                            argv: &["--mode", "plan"],
+                        },
+                        LaunchOption {
+                            value: "ask",
+                            label: "Ask",
+                            hint: Some("Q&A for explanations and questions, read-only"),
+                            argv: &["--mode", "ask"],
+                        },
+                        LaunchOption {
+                            value: "auto-review",
+                            label: "Auto-review",
+                            hint: Some(
+                                "A server classifier auto-runs safe tool calls and prompts for the rest",
+                            ),
+                            argv: &["--auto-review"],
+                        },
+                        LaunchOption {
+                            value: "force",
+                            label: "Run Everything",
+                            hint: Some("Allow commands unless explicitly denied"),
+                            argv: &["--force"],
+                        },
+                    ],
+                },
+                LaunchChoice {
+                    key: "sandbox",
+                    options: &[
+                        LaunchOption {
+                            value: "enabled",
+                            label: "Enabled",
+                            hint: None,
+                            argv: &["--sandbox", "enabled"],
+                        },
+                        LaunchOption {
+                            value: "disabled",
+                            label: "Disabled",
+                            hint: None,
+                            argv: &["--sandbox", "disabled"],
+                        },
+                    ],
+                },
+            ],
+            _ => &[],
+        }
+    }
+
     /// The command line a quick launch types for this agent: the user's
     /// `agent_launch` entry when there is one, the bare binary otherwise.
     ///
@@ -743,6 +959,21 @@ impl CLIAgent {
             .map(|(_, line)| line.trim())
             .filter(|line| !line.is_empty())
             .map_or_else(|| self.binary().to_string(), str::to_string)
+    }
+
+    /// A new session for a pane whose agent never reported one. Recorded
+    /// flags win over the `agent_launch` override when the argv has flags;
+    /// else [`Self::launch_command`], also when the argv carries more than
+    /// flags (a prompt, a wrapper).
+    pub fn relaunch_command(
+        self,
+        launch_argv: Option<&[String]>,
+        overrides: &HashMap<String, String>,
+    ) -> String {
+        self.replayed(launch_argv).map_or_else(
+            || self.launch_command(overrides),
+            |flags| format!("{}{flags}", self.binary()),
+        )
     }
 
     /// The arguments that start an interactive session whose first message is
@@ -787,6 +1018,30 @@ impl CLIAgent {
             }
         }
         Some(out)
+    }
+
+    /// The questions this agent can ask as it starts that tty7 answers for
+    /// the user ([`StartupWatch`]).
+    pub fn startup_prompts(self) -> &'static [StartupPrompt] {
+        match self {
+            // codex 0.166 `resume` from another directory: Esc picks the
+            // session's directory in one key, where `1` only moves the cursor.
+            CLIAgent::Codex => &[
+                StartupPrompt {
+                    name: "resume-cwd",
+                    screen: r"(?s)Use session directory.*Use current directory.*esc use session",
+                    answer: Answer::Keys(b"\x1b"),
+                },
+                // Every resume fails while the shared app-server drains, and
+                // restarting it cuts off running sessions: the user decides.
+                StartupPrompt {
+                    name: "app-server-draining",
+                    screen: r"Server is draining|serverShuttingDown",
+                    answer: Answer::Offer(Offer::RestartCodexServer),
+                },
+            ],
+            _ => &[],
+        }
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -929,6 +1184,84 @@ fn is_shell(stem: &str) -> bool {
         stem.to_ascii_lowercase().as_str(),
         "sh" | "bash" | "zsh" | "dash" | "ksh" | "fish"
     )
+}
+
+/// One of an agent's pick-one launch settings ([`CLIAgent::launch_choices`]),
+/// stored under `key` in `AgentLaunchSettings::choices`.
+pub struct LaunchChoice {
+    pub key: &'static str,
+    pub options: &'static [LaunchOption],
+}
+
+/// A value a [`LaunchChoice`] can take, and the arguments it adds.
+pub struct LaunchOption {
+    /// What `AgentLaunchSettings::choices` stores.
+    pub value: &'static str,
+    /// The agent's own name for it.
+    pub label: &'static str,
+    /// The agent's own one-line description, where it gives one.
+    pub hint: Option<&'static str>,
+    pub argv: &'static [&'static str],
+}
+
+/// Something an agent shows as it starts ([`CLIAgent::startup_prompts`]),
+/// recognised by `screen` matching the pane's visible text.
+pub struct StartupPrompt {
+    pub name: &'static str,
+    pub screen: &'static str,
+    pub answer: Answer,
+}
+
+pub enum Answer {
+    /// Typed into the agent while it still runs.
+    Keys(&'static [u8]),
+    /// Offered to the user, once per incident however many panes show it.
+    Offer(Offer),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offer {
+    RestartCodexServer,
+}
+
+impl Offer {
+    /// Run by the agent's own binary.
+    pub fn args(self) -> &'static [&'static str] {
+        match self {
+            Offer::RestartCodexServer => &["app-server", "daemon", "restart"],
+        }
+    }
+}
+
+/// Watches a pane whose agent just started for [`STARTUP_WINDOW`], to answer
+/// the first of its [`StartupPrompt`]s that shows up, once.
+pub struct StartupWatch {
+    pub agent: CLIAgent,
+    until: Instant,
+}
+
+pub const STARTUP_WINDOW: Duration = Duration::from_secs(10);
+
+impl StartupWatch {
+    /// `None` for an agent with nothing to answer.
+    pub fn new(agent: CLIAgent, now: Instant) -> Option<StartupWatch> {
+        (!agent.startup_prompts().is_empty()).then(|| StartupWatch {
+            agent,
+            until: now + STARTUP_WINDOW,
+        })
+    }
+
+    pub fn expired(&self, now: Instant) -> bool {
+        now >= self.until
+    }
+
+    /// The prompt `screen` shows, if any.
+    pub fn answer(&self, screen: &str) -> Option<&'static StartupPrompt> {
+        self.agent
+            .startup_prompts()
+            .iter()
+            .find(|p| Regex::new(p.screen).is_ok_and(|re| re.is_match(screen)))
+    }
 }
 
 /// The program a launch command line runs: its first word that is not an
@@ -1304,6 +1637,62 @@ pub fn parse_agent_event_body(json: &[u8]) -> Option<AgentEvent> {
 mod tests {
     use super::*;
 
+    /// codex 0.166's picker for `codex resume` from another directory.
+    const CODEX_CWD_PICKER: &str = "Working directory · resume
+Session = latest cwd recorded in the resumed session
+Current = your current working directory
+1. Use session directory (/path)
+2. Use current directory (/path)
+3. Always use session directory
+4. Always use current directory
+enter continue · esc use session · ^c quit";
+
+    #[test]
+    fn codex_resume_cwd_picker_is_answered_with_esc() {
+        let now = Instant::now();
+        let watch = StartupWatch::new(CLIAgent::Codex, now).unwrap();
+        let prompt = watch.answer(CODEX_CWD_PICKER).unwrap();
+        assert_eq!(prompt.name, "resume-cwd");
+        assert!(matches!(prompt.answer, Answer::Keys(b"\x1b")));
+        assert!(watch.answer("› Ask Codex to do anything").is_none());
+        assert!(
+            watch
+                .answer("1. Use session directory (/path)\nUse current directory")
+                .is_none(),
+            "only the picker whose footer says what esc does"
+        );
+    }
+
+    #[test]
+    fn a_draining_codex_app_server_offers_a_restart() {
+        let watch = StartupWatch::new(CLIAgent::Codex, Instant::now()).unwrap();
+        let screen = "Error: Failed to resume session from /x thread/resume failed during TUI \
+                      bootstrap: thread/resume failed: Server is draining; retry after \
+                      reconnecting (code -32600), data: {\"reason\":\"serverShuttingDown\"}";
+        let prompt = watch.answer(screen).unwrap();
+        assert_eq!(prompt.name, "app-server-draining");
+        assert!(matches!(
+            prompt.answer,
+            Answer::Offer(Offer::RestartCodexServer)
+        ));
+        assert_eq!(
+            Offer::RestartCodexServer.args(),
+            ["app-server", "daemon", "restart"]
+        );
+    }
+
+    #[test]
+    fn a_startup_watch_lasts_its_window() {
+        let now = Instant::now();
+        let watch = StartupWatch::new(CLIAgent::Codex, now).unwrap();
+        assert!(!watch.expired(now + STARTUP_WINDOW - Duration::from_millis(1)));
+        assert!(watch.expired(now + STARTUP_WINDOW));
+        assert!(
+            StartupWatch::new(CLIAgent::Claude, now).is_none(),
+            "nothing to answer"
+        );
+    }
+
     /// A later event that leaves a field out keeps what an earlier one said.
     #[test]
     fn the_readout_keeps_what_later_events_leave_out() {
@@ -1365,6 +1754,58 @@ mod tests {
         assert_eq!(
             CLIAgent::Codex.restore_command(ID, None, Some("bash")),
             CLIAgent::Codex.resume_command(ID, None)
+        );
+    }
+
+    #[test]
+    fn claude_argv_names_its_own_session() {
+        const ID: &str = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let c = CLIAgent::Claude;
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--session-id", ID]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "-r", ID, "--model", "opus"]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", &format!("--resume={ID}")]))
+                .as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--resume"])),
+            None,
+            "the picker"
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "--resume", "fix the bug"])),
+            None
+        );
+        assert_eq!(
+            c.session_id_in_argv(&argv(&["claude", "-r", ID, "--fork-session"])),
+            None
+        );
+        let x = CLIAgent::Codex;
+        for named in [
+            &["node", "/bin/codex", "resume", ID][..],
+            &["codex", "--yolo", "resume", "-m", "o3", ID, "continue"],
+        ] {
+            assert_eq!(x.session_id_in_argv(&argv(named)).as_deref(), Some(ID));
+        }
+        for unnamed in [
+            &["codex", "resume", "--last"][..],
+            &["codex", "fork", ID],
+            &["codex", ID],
+        ] {
+            assert_eq!(x.session_id_in_argv(&argv(unnamed)), None, "{unnamed:?}");
+        }
+        assert_eq!(
+            CLIAgent::Gemini.session_id_in_argv(&argv(&["gemini", "--resume", ID])),
+            None
         );
     }
 
@@ -2185,7 +2626,7 @@ mod tests {
             CLIAgent::Pi
                 .resume_command("0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17", None)
                 .as_deref(),
-            Some("pi --session 0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17")
+            Some("pi --session-id 0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17")
         );
         assert_eq!(
             CLIAgent::Kimi.resume_command("abc-123", None).as_deref(),
@@ -2347,7 +2788,7 @@ mod tests {
             CLIAgent::Pi
                 .resume_command("id-a", Some(&argv(&["pi", "--model", "opus"])))
                 .as_deref(),
-            Some("pi --model opus --session id-a")
+            Some("pi --model opus --session-id id-a")
         );
         assert_eq!(
             CLIAgent::Pi
@@ -2365,7 +2806,7 @@ mod tests {
                     ]))
                 )
                 .as_deref(),
-            Some("pi --model opus --session id-b")
+            Some("pi --model opus --session-id id-b")
         );
         assert_eq!(
             CLIAgent::Pi.resume_command(
@@ -2387,7 +2828,7 @@ mod tests {
                     ]))
                 )
                 .as_deref(),
-            Some("pi --session-dir /w/.sessions --session id-c")
+            Some("pi --session-dir /w/.sessions --session-id id-c")
         );
         assert_eq!(
             CLIAgent::Claude
@@ -3045,6 +3486,32 @@ mod tests {
         assert_eq!(CLIAgent::Codex.launch_command(&set), "codex --model o3");
         assert_eq!(CLIAgent::Gemini.launch_command(&set), "gemini");
         assert_eq!(CLIAgent::Aider.launch_command(&set), "aider");
+    }
+
+    #[test]
+    fn a_relaunch_keeps_the_flags_the_agent_ran_with() {
+        let set = overrides(&[("codex", "codex --model o3")]);
+        let relaunch = |agent: CLIAgent, a: &[&str]| agent.relaunch_command(Some(&argv(a)), &set);
+        assert_eq!(
+            relaunch(CLIAgent::Codex, &["node", "/bin/codex", "--yolo"]),
+            "codex --yolo"
+        );
+        assert_eq!(relaunch(CLIAgent::Codex, &["codex"]), "codex --model o3");
+        assert_eq!(
+            relaunch(CLIAgent::Codex, &["codex", "Reply with OK."]),
+            "codex --model o3",
+            "a prompt is not sent again"
+        );
+        assert_eq!(
+            relaunch(CLIAgent::Pi, &["pi", "--no-session"]),
+            "pi --no-session"
+        );
+        assert_eq!(
+            relaunch(CLIAgent::Pi, &["pi", "COLORTERM=truecolor"]),
+            "pi",
+            "environment read as arguments is dropped"
+        );
+        assert_eq!(CLIAgent::Pi.relaunch_command(None, &set), "pi");
     }
 
     #[test]

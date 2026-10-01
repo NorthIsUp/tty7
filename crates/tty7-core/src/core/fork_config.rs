@@ -2,11 +2,13 @@
 //! one field there: `Config::fork`, flattened, so they sit at the top level
 //! of `config.json` exactly as they did when they were `Config`'s own.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
-use super::config::{ProfileUsage, de_lenient};
+use super::cli_agent::CLIAgent;
+use super::config::{Config, ProfileUsage, de_lenient};
+use super::shell_quote::quote_for_shell;
 
 /// Every default is in [`Default`] below: the struct-level `serde(default)`
 /// fills a missing key from it, so no field names its own.
@@ -71,6 +73,10 @@ pub struct ForkConfig {
     pub global_hotkey_hide_on_blur: bool,
     /// How long the hotkey's fade in and out takes; 0 is instant.
     pub global_hotkey_fade_ms: u64,
+    /// Settings → Agents' launch settings, by agent slug. Appended to the
+    /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
+    #[serde(deserialize_with = "de_lenient")]
+    pub agent_settings: HashMap<String, AgentLaunchSettings>,
 }
 
 /// A bare "continue" read as "move on", so a resumed agent that stopped on a
@@ -102,7 +108,213 @@ impl Default for ForkConfig {
             global_hotkey_fullscreen: false,
             global_hotkey_hide_on_blur: false,
             global_hotkey_fade_ms: 150,
+            agent_settings: HashMap::new(),
         }
+    }
+}
+
+/// One agent's launch settings. Every part left empty adds nothing, so the
+/// agent's own config wins.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AgentLaunchSettings {
+    /// The value for [`CLIAgent::model_flag`].
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    /// [`CLIAgent::launch_choices`] key to the option picked.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub choices: BTreeMap<String, String>,
+    /// Argument lines in shell syntax, each typed as written after the flags
+    /// above: `--add-dir ~/src`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_args: Vec<String>,
+}
+
+impl AgentLaunchSettings {
+    /// Codex's separate Sandbox and Approval policy choices, from before its
+    /// one Permissions preset: the pair a preset sets becomes that preset,
+    /// any other stays as the flags it added, now extra lines.
+    fn merge_codex_sandbox_and_approval(&mut self) {
+        let sandbox = self.choices.remove("sandbox");
+        let approval = self.choices.remove("approval");
+        let preset = match (sandbox.as_deref(), approval.as_deref()) {
+            (None, None) => return,
+            (Some("workspace-write"), Some("on-request")) => Some("ask"),
+            (Some("danger-full-access"), Some("never")) => Some("full-access"),
+            (Some("read-only"), Some("on-request")) => Some("read-only"),
+            _ => None,
+        };
+        match preset {
+            Some(p) if !self.choices.contains_key("permission") => {
+                self.choices.insert("permission".into(), p.into());
+            }
+            _ => {
+                let flags = [("--sandbox", sandbox), ("--ask-for-approval", approval)];
+                let lines = flags
+                    .into_iter()
+                    .filter_map(|(flag, v)| Some(format!("{flag} {}", v?)));
+                self.extra_args.splice(0..0, lines);
+            }
+        }
+    }
+
+    /// What these settings add to `agent`'s launch line, as shell words:
+    /// model, then each choice, then the extra lines. A choice value the
+    /// agent does not offer (a hand-edited file) adds nothing.
+    pub fn flags(&self, agent: CLIAgent) -> Vec<String> {
+        let mut out = Vec::new();
+        let model = self.model.trim();
+        if let Some(flag) = agent.model_flag().filter(|_| !model.is_empty()) {
+            out.push(flag.to_string());
+            out.push(quote_for_shell(model, None));
+        }
+        for choice in agent.launch_choices() {
+            let picked = self.choices.get(choice.key);
+            if let Some(opt) = choice
+                .options
+                .iter()
+                .find(|o| Some(o.value) == picked.map(String::as_str))
+            {
+                out.extend(opt.argv.iter().map(|a| a.to_string()));
+            }
+        }
+        out.extend(
+            self.extra_args
+                .iter()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .map(str::to_string),
+        );
+        out
+    }
+
+    /// `line` as settings, when it is `agent`'s bare binary followed by flags
+    /// alone, every word plain enough to need no quoting: the model and the
+    /// choices it spells come out as those, the rest as one extra line per
+    /// flag with its values. `None` for anything else (a wrapper, a path,
+    /// env assignments, a prompt, quoting), which stays an `agent_launch`
+    /// line.
+    pub fn from_launch_line(agent: CLIAgent, line: &str) -> Option<Self> {
+        let mut words = line.split_whitespace();
+        if words.next() != Some(agent.binary()) {
+            return None;
+        }
+        let plain = |w: &str| {
+            w.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_=./,:@+~".contains(&b))
+        };
+        let words: Vec<&str> = words.collect();
+        if !words.iter().all(|w| plain(w)) {
+            return None;
+        }
+        let mut groups = flag_groups(&words)?;
+        let mut out = Self::default();
+        // A choice option can span several flags (Codex's presets), so it is
+        // taken when every one of its groups is on the line.
+        for choice in agent.launch_choices() {
+            for opt in choice.options {
+                let wanted = flag_groups(opt.argv).unwrap_or_default();
+                let at: Option<Vec<usize>> = wanted
+                    .iter()
+                    .map(|w| groups.iter().position(|g| g == w))
+                    .collect();
+                if let Some(mut at) = at {
+                    at.sort_unstable();
+                    at.dedup();
+                    if at.len() != wanted.len() {
+                        continue;
+                    }
+                    for i in at.into_iter().rev() {
+                        groups.remove(i);
+                    }
+                    out.choices
+                        .insert(choice.key.to_string(), opt.value.to_string());
+                    break;
+                }
+            }
+        }
+        for group in groups {
+            if let ([flag, model], Some(model_flag)) = (group.as_slice(), agent.model_flag())
+                && *flag == model_flag
+                && out.model.is_empty()
+            {
+                out.model = model.to_string();
+                continue;
+            }
+            out.extra_args.push(group.join(" "));
+        }
+        Some(out)
+    }
+}
+
+/// `words` as flags with their values: `["-c", "k=v", "--x"]` is
+/// `[["-c", "k=v"], ["--x"]]`. `None` when a value comes before any flag.
+fn flag_groups<'a>(words: &[&'a str]) -> Option<Vec<Vec<&'a str>>> {
+    let mut groups: Vec<Vec<&str>> = Vec::new();
+    for &word in words {
+        match (word.starts_with('-'), groups.last_mut()) {
+            (true, _) => groups.push(vec![word]),
+            (false, Some(group)) => group.push(word),
+            (false, None) => return None,
+        }
+    }
+    Some(groups)
+}
+
+impl Config {
+    /// Each `agent_launch` line that is the agent's binary and plain flags
+    /// becomes that agent's Settings → Agents controls, so the page shows
+    /// what a launch runs. An agent that already has settings keeps its line
+    /// as it is: moving it would add the same flags twice.
+    pub fn move_agent_launch_into_settings(&mut self) {
+        for (slug, s) in self.fork.agent_settings.iter_mut() {
+            if CLIAgent::from_slug(slug) == Some(CLIAgent::Codex) {
+                s.merge_codex_sandbox_and_approval();
+            }
+        }
+        let settings = &mut self.fork.agent_settings;
+        self.agent_launch.retain(|slug, line| {
+            let Some(agent) = CLIAgent::from_slug(slug) else {
+                return true;
+            };
+            if settings
+                .keys()
+                .any(|k| CLIAgent::from_slug(k) == Some(agent))
+            {
+                return true;
+            }
+            match AgentLaunchSettings::from_launch_line(agent, line.trim()) {
+                Some(moved) => {
+                    if moved != AgentLaunchSettings::default() {
+                        settings.insert(agent.slug().to_string(), moved);
+                    }
+                    false
+                }
+                None => true,
+            }
+        });
+    }
+
+    /// `agent_launch` with each agent's Settings → Agents flags appended: the
+    /// line every new tab, split, resume, fork and fresh restart starts from.
+    pub fn launch_lines(&self) -> HashMap<String, String> {
+        let mut out = self.agent_launch.clone();
+        for (slug, settings) in &self.fork.agent_settings {
+            let Some(agent) = CLIAgent::from_slug(slug) else {
+                continue;
+            };
+            let flags = settings.flags(agent);
+            if flags.is_empty() {
+                continue;
+            }
+            let base = agent.launch_command(&self.agent_launch);
+            out.retain(|k, _| CLIAgent::from_slug(k) != Some(agent));
+            out.insert(
+                agent.slug().to_string(),
+                format!("{base} {}", flags.join(" ")),
+            );
+        }
+        out
     }
 }
 

@@ -151,6 +151,12 @@ pub struct AgentDetected(pub crate::core::cli_agent::CLIAgent);
 
 impl gpui::EventEmitter<AgentDetected> for TerminalView {}
 
+/// The agent that just started here showed something its startup prompts
+/// offer the user an action for.
+pub struct StartupOffer(pub crate::core::cli_agent::Offer);
+
+impl gpui::EventEmitter<StartupOffer> for TerminalView {}
+
 /// A file link the user clicked, on its way to whoever can show it. The
 /// terminal resolves the path — it is the only thing that knows the pane's
 /// directory and host — and the app opens it, because the editor and the file
@@ -458,6 +464,9 @@ pub struct TerminalView {
     /// counted when it started, so it arms only once its shell is seen back
     /// at the prompt with no agent in front.
     agent_detection_armed: bool,
+    /// The agent that just started here, watched for a startup question to
+    /// answer.
+    startup_watch: Option<crate::core::cli_agent::StartupWatch>,
     last_agent_status: Option<crate::core::cli_agent::AgentStatus>,
     last_agent_session: (Option<String>, Option<Vec<String>>),
     agent_turn_started: Option<std::time::Instant>,
@@ -1661,6 +1670,7 @@ impl TerminalView {
         restore_pane: Option<u64>,
         shell: Option<ShellSpec>,
         owner: Option<crate::core::session::WorkspaceId>,
+        run_once: Option<String>,
     ) -> anyhow::Result<ShellParts> {
         let route = crate::terminal::PaneRoute::for_workspace(workspace.as_ref());
         let attached = match restore_pane {
@@ -1711,6 +1721,7 @@ impl TerminalView {
                         crate::ui::i18n::t(crate::ui::i18n::L10nKey::PaneRestoredScreenBanner)
                             .to_string(),
                     ),
+                    run_once,
                 });
                 let (terminal, id) = RemoteTerminal::spawn_on(
                     &route,
@@ -1795,7 +1806,7 @@ impl TerminalView {
         view
     }
 
-    fn with_terminal(
+    pub(super) fn with_terminal(
         terminal: RemoteTerminal,
         pane_id: u64,
         window: &mut Window,
@@ -2031,6 +2042,7 @@ impl TerminalView {
             running_agent: None,
             seen_agent: None,
             agent_detection_armed,
+            startup_watch: None,
             last_agent_status: None,
             last_agent_session: (None, None),
             agent_turn_started: None,
@@ -4668,12 +4680,56 @@ impl TerminalView {
             if let Some(agent) = agent
                 && self.agent_detection_armed
             {
+                self.startup_watch =
+                    crate::core::cli_agent::StartupWatch::new(agent, std::time::Instant::now());
                 cx.emit(AgentDetected(agent));
             }
         }
+        self.answer_startup_prompt(std::time::Instant::now(), cx);
         if agent.is_none() && at_prompt {
             self.agent_detection_armed = true;
         }
+    }
+
+    /// Answer the startup question on screen, once, within the watch's window.
+    /// It outlives its agent: what the agent printed as it died may be what
+    /// it is watching for.
+    fn answer_startup_prompt(&mut self, now: std::time::Instant, cx: &mut Context<Self>) {
+        use crate::core::cli_agent::Answer;
+        let Some(watch) = &self.startup_watch else {
+            return;
+        };
+        if watch.expired(now) {
+            self.startup_watch = None;
+            return;
+        }
+        let screen = {
+            let term = self.terminal.term.lock();
+            let grid = term.grid();
+            (0..grid.screen_lines() as i32)
+                .map(|line| {
+                    let row = &grid[Line(line)];
+                    let text: String = (0..grid.columns()).map(|c| row[Column(c)].c).collect();
+                    text.trim_end().to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let running = self.terminal.foreground_agent() == Some(watch.agent);
+        let Some(prompt) = watch.answer(&screen) else {
+            return;
+        };
+        match prompt.answer {
+            Answer::Keys(_) if !running => return,
+            Answer::Keys(keys) => self.terminal.write(keys),
+            Answer::Offer(offer) => cx.emit(StartupOffer(offer)),
+        }
+        log::info!(
+            "agent startup prompt answered: {} {}",
+            watch.agent.slug(),
+            prompt.name
+        );
+        self.startup_watch = None;
     }
 
     fn poll_agent_status(
@@ -17816,6 +17872,122 @@ mod gpui_tests {
             vec![CLIAgent::Codex, CLIAgent::Claude],
             "a spawned pane counts its first agent, once"
         );
+    }
+
+    /// A Codex pane that just started gets one Esc for its resume
+    /// directory picker, and nothing once the watch is answered or over.
+    #[gpui::test]
+    fn a_codex_startup_picker_is_answered_once_within_its_window(cx: &mut TestAppContext) {
+        use crate::core::cli_agent::{CLIAgent, STARTUP_WINDOW};
+
+        crate::core::config::pin_test_config_dir();
+        let (window, _root_daemon) = harness(cx);
+        let picker = "Working directory \u{b7} resume\r\n\
+                      1. Use session directory (/a)\r\n\
+                      2. Use current directory (/b)\r\n\
+                      enter continue \u{b7} esc use session \u{b7} ^c quit\r\n";
+        let start = |output: &str, cx: &mut TestAppContext| {
+            let (pane, mut daemon) = window
+                .update(cx, |_, window, cx| super::quiet_test_pane(3, window, cx))
+                .unwrap();
+            DaemonMsg::Output(output.as_bytes().to_vec())
+                .encode(&mut daemon)
+                .unwrap();
+            DaemonMsg::Agent(Some(CLIAgent::Codex))
+                .encode(&mut daemon)
+                .unwrap();
+            for _ in 0..200 {
+                let landed = pane.read_with(cx, |p, _| {
+                    p.terminal.foreground_agent().is_some()
+                        && (output.is_empty()
+                            || p.terminal.term.lock().grid().cursor.point.line.0 > 0)
+                });
+                if landed {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            (pane, daemon)
+        };
+        let inputs = |daemon: &mut Stream| {
+            daemon
+                .set_read_timeout(Some(std::time::Duration::from_millis(300)))
+                .unwrap();
+            let mut keys = Vec::new();
+            while let Ok(msg) = ClientMsg::read(daemon) {
+                if let ClientMsg::Input(bytes) = msg {
+                    keys.push(bytes);
+                }
+            }
+            keys
+        };
+
+        let (pane, mut daemon) = start(picker, cx);
+        pane.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        pane.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        assert_eq!(inputs(&mut daemon), vec![b"\x1b".to_vec()], "answered once");
+
+        let (late, mut late_daemon) = start("", cx);
+        late.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        DaemonMsg::Output(picker.as_bytes().to_vec())
+            .encode(&mut late_daemon)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        late.update(cx, |p, cx| {
+            p.answer_startup_prompt(std::time::Instant::now() + STARTUP_WINDOW, cx)
+        });
+        late.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        assert!(
+            inputs(&mut late_daemon).is_empty(),
+            "the window closed first"
+        );
+    }
+
+    /// A Codex resume that died on a draining app-server, its agent already
+    /// gone, offers the restart once and types nothing.
+    #[gpui::test]
+    fn a_draining_codex_app_server_is_offered_once_after_codex_exits(cx: &mut TestAppContext) {
+        use crate::core::cli_agent::{CLIAgent, Offer};
+
+        crate::core::config::pin_test_config_dir();
+        let (window, _root_daemon) = harness(cx);
+        let (pane, mut daemon) = window
+            .update(cx, |_, window, cx| super::quiet_test_pane(3, window, cx))
+            .unwrap();
+        let offers = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = offers.clone();
+        cx.update(|cx| {
+            cx.subscribe(&pane, move |_, ev: &StartupOffer, _| {
+                seen.borrow_mut().push(ev.0)
+            })
+            .detach()
+        });
+        let wait = |cx: &mut TestAppContext, done: &dyn Fn(&TerminalView) -> bool| {
+            for _ in 0..200 {
+                if pane.read_with(cx, |p, _| done(p)) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            panic!("the daemon frame never landed");
+        };
+        DaemonMsg::Agent(Some(CLIAgent::Codex))
+            .encode(&mut daemon)
+            .unwrap();
+        wait(cx, &|p| p.terminal.foreground_agent().is_some());
+        pane.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        DaemonMsg::Output(
+            b"Error: thread/resume failed: Server is draining; retry after reconnecting\r\n"
+                .to_vec(),
+        )
+        .encode(&mut daemon)
+        .unwrap();
+        DaemonMsg::Agent(None).encode(&mut daemon).unwrap();
+        wait(cx, &|p| p.terminal.foreground_agent().is_none());
+        pane.update(cx, |p, cx| p.poll_agent_detection(true, cx));
+        pane.update(cx, |p, cx| p.poll_agent_detection(true, cx));
+        cx.run_until_parked();
+        assert_eq!(*offers.borrow(), vec![Offer::RestartCodexServer]);
     }
 
     /// #958: `prompt_cursor_style` shapes the shell's own caret at a prompt,

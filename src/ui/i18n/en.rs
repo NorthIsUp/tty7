@@ -2007,6 +2007,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "Removed worktree; kept branch \"{branch}\", which has unmerged commits"
         }
         L10nKey::AppPaneNoCodingAgent => "This pane isn't running a coding agent",
+        L10nKey::AppCodexServerDraining => "Codex's background server is shutting down",
+        L10nKey::AppCodexServerRestart => "Restart Codex server",
+        L10nKey::AppCodexServerRestartFailed => "Couldn't restart Codex's background server",
         L10nKey::AppForkNoCommand => "tty7 has no fork command for {name}",
         L10nKey::AppForkLocalOnly => {
             "{name} sessions can't be forked from inside an SSH or WSL session"
@@ -2468,6 +2471,23 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "This session hasn't mentioned an issue or pull request"
         }
         L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
+        L10nKey::SettingsAgentLaunchesAs => "Launches as: {command}",
+        L10nKey::SettingsAgentModel => "Model",
+        L10nKey::SettingsAgentModelDesc => {
+            "Passed as {flag}. Empty leaves it to the agent's own config."
+        }
+        L10nKey::SettingsAgentPermission => "Permissions",
+        L10nKey::SettingsAgentSandbox => "Sandbox",
+        L10nKey::SettingsAgentDefault => "Default",
+        L10nKey::SettingsAgentExtraArgs => "CLI options",
+        L10nKey::SettingsAgentExtraArgsDesc => {
+            "One argument line each, typed after the options above, as a shell reads it: --add-dir ~/src"
+        }
+        L10nKey::SettingsAgentAddArg => "+ Add CLI option",
+        L10nKey::SettingsAgentRemoveArg => "Remove option",
+        L10nKey::SettingsAgentLaunchOptions => "Launch options…",
+        L10nKey::SettingsAgentSummaryModel => "model: {model}",
+        L10nKey::SettingsAgentSummaryExtras => "+{count} options",
     }
 }
 
@@ -2491,6 +2511,9 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMoreAgents, "zero") => "No more agents",
         (L10nKey::SettingsMoreAgents, "one") => "1 more agent available",
         (L10nKey::SettingsMoreAgents, "other") => "{count} more agents available",
+        (L10nKey::SettingsAgentSummaryExtras, "zero") => "No options",
+        (L10nKey::SettingsAgentSummaryExtras, "one") => "+1 option",
+        (L10nKey::SettingsAgentSummaryExtras, "other") => "+{count} options",
         (L10nKey::SettingsAliasesLinked, "zero") => "No aliases linked yet.",
         (L10nKey::SettingsAliasesLinked, "one") => "1 alias linked.",
         (L10nKey::SettingsAliasesLinked, "other") => "{count} aliases linked.",
