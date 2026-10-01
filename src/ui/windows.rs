@@ -701,6 +701,7 @@ fn stop_workspace_keeping(cx: &mut App, workspace: WorkspaceId, ids: Vec<u64>) {
 }
 
 pub fn delete_workspace(cx: &mut App, workspace: WorkspaceId) {
+    crate::ui::agent_resume::forget_workspace_restored(workspace, cx);
     let remote = WorkspaceStore::remote_ref(cx, workspace);
     let doomed = delete_from_tree(cx, workspace);
     stop_workspace_keeping(cx, workspace, doomed);

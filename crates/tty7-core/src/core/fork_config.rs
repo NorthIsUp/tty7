@@ -19,12 +19,11 @@ pub struct ForkConfig {
     /// What Continue All Agents tells each agent it resumes. Empty resumes
     /// them without a word.
     pub continue_prompt: String,
-    /// The gap Continue All Agents leaves between one tab's resume and the
-    /// next, so they do not all cold-start and hit the API at once.
-    pub continue_stagger_ms: u64,
-    /// Wake every sleeping tab with an agent session at launch, staggered
-    /// like Continue All Agents but with no prompt; shell-only tabs stay
-    /// asleep.
+    /// How many tabs a wake starts at once, so they do not all cold-start and
+    /// hit the API together; `None` is a quarter of the cores. 1 to 20.
+    pub agent_wake_concurrency: Option<u8>,
+    /// Wake every agent tab restore put to sleep at launch, with no prompt;
+    /// tabs the user hibernated and shell-only tabs stay asleep.
     pub resume_agents_on_launch: bool,
     /// New Tab opens the new tab page — pick an agent or a terminal and a
     /// directory — instead of a shell in the current tab's directory.
@@ -72,7 +71,7 @@ impl Default for ForkConfig {
         Self {
             restore_asleep: true,
             continue_prompt: "continue".into(),
-            continue_stagger_ms: 3000,
+            agent_wake_concurrency: None,
             resume_agents_on_launch: true,
             new_tab_page: true,
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
@@ -125,7 +124,7 @@ mod tests {
         "font_size": 15.0,
         "restore_asleep": false,
         "continue_prompt": "go on",
-        "continue_stagger_ms": 500,
+        "agent_wake_concurrency": 3,
         "resume_agents_on_launch": false,
         "new_tab_page": false,
         "dir_roots": ["~/work"],
@@ -207,17 +206,19 @@ mod tests {
         );
     }
 
-    /// The GitHub panel's Session tab replaced these two.
+    /// The GitHub panel's Session tab replaced the first two;
+    /// `agent_wake_concurrency` replaced `continue_stagger_ms`.
     #[test]
-    fn retired_github_keys_still_load() {
+    fn retired_keys_still_load() {
         let cfg: Config = serde_json::from_str(
-            r#"{"github_panel_session_filter": false, "github_panel_default_list": "issues", "nice": 2}"#,
+            r#"{"github_panel_session_filter": false, "github_panel_default_list": "issues", "continue_stagger_ms": 500, "nice": 2}"#,
         )
         .unwrap();
         assert_eq!(cfg.fork.nice, 2);
         let saved = serde_json::to_value(&cfg).unwrap();
         assert!(saved.get("github_panel_default_list").is_none());
         assert!(saved.get("github_panel_session_filter").is_none());
+        assert!(saved.get("continue_stagger_ms").is_none());
     }
 
     #[test]

@@ -184,8 +184,8 @@ angle brackets, and a tab:
 | `restore_agent_sessions` | bool | `true` | Relaunch an agent conversation when a lost pane is restored. |
 | `restore_asleep` | bool | `true` | Restore a tab whose panes all died (reboot, Quit and Stop) asleep; it starts, and resumes its agent, when first opened. |
 | `continue_prompt` | string | `"continue"` | What **Continue All Agents** tells each agent it resumes (Claude Code and Codex); empty resumes without a prompt. |
-| `continue_stagger_ms` | int | `3000` | Gap between one tab's resume and the next under **Continue All Agents** and `resume_agents_on_launch`. |
-| `resume_agents_on_launch` | bool | `true` | Settings → General → **Resume agents on restart**. At launch, and after a Restart tty7 server that ends the shells, wake every sleeping tab with an agent session, one every `continue_stagger_ms`, with no prompt. Shell-only tabs stay asleep; `--continue` sends `continue_prompt` instead. |
+| `agent_wake_concurrency` | int \| null | `null` | Settings → General → **Agents starting at once**. How many tabs a wake starts together (1–20); `null` is a quarter of the cores. Replaces `continue_stagger_ms`, which is ignored. |
+| `resume_agents_on_launch` | bool | `true` | Settings → General → **Resume agents on workspace restart**. At launch, and after a Restart tty7 server that ends the shells, wake every agent tab tty7 put to sleep, with no prompt, as `--continue` does. Tabs you hibernated and shell-only tabs stay asleep. |
 | `new_tab_page` | bool | `true` | New Tab opens the new tab page (agent or terminal, and a directory) instead of a shell. |
 | `dir_roots` | string[] | `["~/src","~/code","~/projects"]` | Directories whose children the new tab page offers. |
 | `dir_frecency` | object | `{}` | Maintained by tty7: how often each directory was launched into from the new tab page. |

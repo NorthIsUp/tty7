@@ -205,7 +205,7 @@ impl Tty7App {
     }
 
     /// Launch's and Restart Server's wake: only the agent tabs restore put to
-    /// sleep because nothing of them survived. A tab the user hibernated
+    /// sleep because nothing of them survived, so a tab the user hibernated
     /// stays asleep.
     pub(crate) fn wake_restored(
         &mut self,
@@ -223,7 +223,7 @@ impl Tty7App {
             ids.len(),
             self.tabs.len()
         );
-        self.wake_agent_tabs(ids, wake.prompt, window, cx);
+        self.wake_agent_tabs(ids, None, window, cx);
     }
 
     fn asleep_layouts(&self) -> Vec<(TabId, Option<&SessionPane>)> {
@@ -233,10 +233,10 @@ impl Tty7App {
             .collect()
     }
 
-    /// Wake `ids`, one every `continue_stagger_ms`, and tell each agent
-    /// `prompt` — the morning after a reboot, in one step. Tabs are found by
-    /// id when their turn comes, so closing or moving one meanwhile is
-    /// harmless.
+    /// Wake `ids` through the wake pool, a few at a time, and tell each
+    /// agent `prompt` — the morning after a reboot, in one step. Tabs are
+    /// found by id in this window when their turn comes: one closed or
+    /// dragged to another window meanwhile counts as gone, and stays asleep.
     fn wake_agent_tabs(
         &mut self,
         ids: Vec<TabId>,
@@ -244,33 +244,14 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let stagger =
-            std::time::Duration::from_millis(cx.global::<Config>().fork.continue_stagger_ms);
-        cx.spawn_in(window, async move |this, cx| {
-            for (n, id) in ids.into_iter().enumerate() {
-                if n > 0 {
-                    smol::Timer::after(stagger).await;
-                }
-                let woke = this.update_in(cx, |this, window, cx| {
-                    if let Some(i) = this.tabs.iter().position(|t| t.tree_id.get() == id) {
-                        this.wake_tab_with(i, prompt.as_deref(), window, cx);
-                    }
-                });
-                if woke.is_err() {
-                    return;
-                }
-            }
-        })
-        .detach();
+        crate::ui::wake_pool::queue(ids, prompt, window.window_handle(), cx);
     }
 }
 
-/// An automatic wake (launch, Restart Server): what it sends each agent it
-/// resumes (`None`: resume without a prompt).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Wake {
-    pub prompt: Option<String>,
-}
+/// An automatic wake (launch, Restart Server): the agent tabs restore found
+/// dead, resumed without a prompt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Wake;
 
 /// The tabs restore put to sleep because none of their panes survived (a
 /// reboot, Quit and Stop, a restart that killed the shells), as opposed to
@@ -306,6 +287,14 @@ fn restored_file() -> Option<std::path::PathBuf> {
     )))
 }
 
+/// Removes this test thread's file.
+#[cfg(test)]
+pub(crate) fn remove_restored_file() {
+    if let Some(path) = restored_file() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn load_restored() -> HashSet<TabId> {
     let Some(text) = restored_file().and_then(|p| std::fs::read_to_string(p).ok()) else {
         return HashSet::new();
@@ -316,23 +305,25 @@ fn load_restored() -> HashSet<TabId> {
     })
 }
 
-/// [`RestoredDead`], after `edit`. A change is written once the current
-/// effect cycle is over, so a restore of thirty tabs writes the file once.
-fn edit_restored<R>(cx: &mut App, edit: impl FnOnce(&mut HashSet<TabId>) -> R) -> R {
+/// [`RestoredDead`], read off disk the first time.
+fn restored(cx: &mut App) -> &mut RestoredDead {
     let state = cx.default_global::<RestoredDead>();
     if !state.loaded {
         state.ids = load_restored();
         state.loaded = true;
     }
-    let before = state.ids.len();
-    let had = state.ids.clone();
-    let out = edit(&mut state.ids);
-    let changed = state.ids.len() != before || state.ids != had;
-    if changed && !state.flush_queued {
+    state
+}
+
+/// [`RestoredDead`] after `edit`, which answers whether it changed it. A
+/// change is written once the current effect cycle is over, so a restore of
+/// thirty tabs writes the file once.
+fn edit_restored(cx: &mut App, edit: impl FnOnce(&mut HashSet<TabId>) -> bool) {
+    let state = restored(cx);
+    if edit(&mut state.ids) && !state.flush_queued {
         state.flush_queued = true;
         cx.defer(flush_restored);
     }
-    out
 }
 
 fn flush_restored(cx: &mut App) {
@@ -350,6 +341,15 @@ fn flush_restored(cx: &mut App) {
 /// to touch it.
 pub(crate) fn forget_restored(id: TabId, cx: &mut App) {
     edit_restored(cx, |set| set.remove(&id));
+}
+
+/// Workspace `ws` is being deleted: none of its tabs is any wake's.
+pub(crate) fn forget_workspace_restored(ws: WorkspaceId, cx: &mut App) {
+    let Some((views, _)) = crate::ui::machine_mirror::tab_views_for(cx, ws) else {
+        return;
+    };
+    let ids: Vec<TabId> = views.iter().map(|v| v.id).collect();
+    edit_restored(cx, |set| ids.iter().fold(false, |c, id| set.remove(id) | c));
 }
 
 /// Whether restore brings `st` back asleep: hibernated, or (with
@@ -397,24 +397,14 @@ fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>
 /// Read only: a tab leaves [`RestoredDead`] when its wake succeeds, so one
 /// cut short by a quit or a failure is still tty7's to wake next launch.
 fn take_restored(tabs: Vec<(TabId, Option<&SessionPane>)>, cx: &mut App) -> Vec<TabId> {
-    edit_restored(cx, |dead| {
-        agent_tabs(tabs.iter().copied().filter(|(id, _)| dead.contains(id)))
-    })
+    let dead = &restored(cx).ids;
+    agent_tabs(tabs.iter().copied().filter(|(id, _)| dead.contains(id)))
 }
 
-/// What launch wakes agents with: `--continue` sends `continue_prompt`,
-/// `resume_agents_on_launch` resumes without a prompt, else nothing wakes.
-/// One answer, so a launch with both wakes each tab once.
+/// Whether launch wakes agents: under `--continue` or
+/// `resume_agents_on_launch`.
 fn launch_wake(continue_flag: bool, cfg: &Config) -> Option<Wake> {
-    if continue_flag {
-        Some(Wake {
-            prompt: Some(cfg.fork.continue_prompt.clone()),
-        })
-    } else if cfg.fork.resume_agents_on_launch {
-        Some(Wake { prompt: None })
-    } else {
-        None
-    }
+    (continue_flag || cfg.fork.resume_agents_on_launch).then_some(Wake)
 }
 
 /// This launch's agent wake, run once in each workspace a window lands tabs
@@ -472,9 +462,7 @@ pub(crate) fn arm_restart_wake(in_place: bool, cx: &mut App) {
             continue;
         }
         if let Some(app) = app.upgrade() {
-            app.update(cx, |this, _| {
-                this.continue_when_tabs_land = Some(Wake { prompt: None })
-            });
+            app.update(cx, |this, _| this.continue_when_tabs_land = Some(Wake));
         }
     }
 }
@@ -500,19 +488,30 @@ pub(crate) fn restart_body(cx: &App) -> L10nKey {
 }
 
 impl Tty7App {
-    /// The Startup & Restore row for `resume_agents_on_launch`.
-    pub(crate) fn resume_agents_setting(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// The Startup & Restore rows for `resume_agents_on_launch` and
+    /// `agent_wake_concurrency`.
+    pub(crate) fn resume_agents_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 2] {
         let on = cx.global::<Config>().fork.resume_agents_on_launch;
-        let switch = self.settings_switch("resume-agents", on, cx, |this, on, _, cx| {
+        let resume = self.settings_switch("resume-agents", on, cx, |this, on, _, cx| {
             this.update_config(cx, |c| c.fork.resume_agents_on_launch = on)
         });
-        self.settings_row(
-            t(L10nKey::SettingsResumeAgents),
-            t(L10nKey::SettingsResumeAgentsDesc),
-            switch,
-            cx,
-        )
-        .into_any_element()
+        let slider = crate::ui::wake_pool::concurrency_slider(cx);
+        [
+            (
+                L10nKey::SettingsResumeAgents,
+                L10nKey::SettingsResumeAgentsDesc,
+                resume,
+            ),
+            (
+                L10nKey::SettingsAgentWakeConcurrency,
+                L10nKey::SettingsAgentWakeConcurrencyDesc,
+                slider,
+            ),
+        ]
+        .map(|(title, desc, control)| {
+            self.settings_row(t(title), t(desc), control, cx)
+                .into_any_element()
+        })
     }
 }
 
@@ -551,7 +550,7 @@ mod tests {
     use super::{
         AtPrompt, LaunchWake, RestoredDead, Resume, ResumePlan, Wake, agent_tabs, flush_restored,
         forget_restored, launch_wake, layout_has_live_pane, load_restored, record_restores_asleep,
-        restart_wakes, take_launch_wake, take_restored, with_minted_session,
+        remove_restored_file, restart_wakes, take_launch_wake, take_restored, with_minted_session,
     };
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
@@ -721,6 +720,7 @@ mod tests {
             assert!(take_restored(asleep.clone(), cx).is_empty());
             assert_eq!(agent_tabs(asleep).len(), 2, "Continue All wakes both");
         });
+        remove_restored_file();
     }
 
     #[gpui::test]
@@ -730,7 +730,7 @@ mod tests {
         cx.update(|cx| {
             assert_eq!(take_launch_wake(launched, cx), None, "before launch");
             cx.set_global(LaunchWake {
-                wake: Some(Wake { prompt: None }),
+                wake: Some(Wake),
                 done: Default::default(),
             });
             assert!(take_launch_wake(launched, cx).is_some());
@@ -744,31 +744,33 @@ mod tests {
     }
 
     #[test]
-    fn launch_wakes_once_with_the_prompt_only_under_continue() {
-        let mut cfg = Config::default();
-        cfg.fork.continue_prompt = "go".into();
-        assert!(cfg.fork.resume_agents_on_launch);
-        let go = Some(Wake {
-            prompt: Some("go".into()),
-        });
-        assert_eq!(launch_wake(true, &cfg), go);
-        assert_eq!(launch_wake(false, &cfg), Some(Wake { prompt: None }));
-        cfg.fork.resume_agents_on_launch = false;
-        assert_eq!(launch_wake(true, &cfg), go);
-        assert_eq!(launch_wake(false, &cfg), None);
+    fn a_launch_wakes_under_resume_or_continue_only() {
+        for (resume, flag, want) in [
+            (true, false, Some(Wake)),
+            (true, true, Some(Wake)),
+            (false, true, Some(Wake)),
+            (false, false, None),
+        ] {
+            let mut cfg = Config::default();
+            cfg.fork.resume_agents_on_launch = resume;
+            assert_eq!(launch_wake(flag, &cfg), want, "{resume} {flag}");
+        }
+        assert_eq!(
+            launch_wake(false, &Config::default()),
+            Some(Wake),
+            "on by default"
+        );
     }
 
     #[test]
-    fn with_resume_off_launch_and_restart_leave_agent_tabs_asleep() {
+    fn with_resume_off_restart_leaves_agent_tabs_asleep() {
         let mut cfg = Config::default();
-        assert_eq!(launch_wake(false, &cfg), Some(Wake { prompt: None }));
         assert!(restart_wakes(false, &cfg));
         assert!(
             !restart_wakes(true, &cfg),
             "a handoff kills nothing to resume"
         );
         cfg.fork.resume_agents_on_launch = false;
-        assert_eq!(launch_wake(false, &cfg), None);
         assert!(!restart_wakes(false, &cfg));
     }
 

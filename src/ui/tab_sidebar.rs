@@ -636,7 +636,8 @@ impl Tty7App {
                 };
                 // The sleep mark takes the zoom mark's size; a sleeping tab
                 // has no panes on screen to zoom, so the two never share a row.
-                let zoom_extra = if asleep {
+                let zoom_extra = if asleep || crate::ui::wake_pool::is_waking(tab.tree_id.get(), cx)
+                {
                     zoom_extra + row_metrics::ZOOM + row_metrics::GAP
                 } else {
                     zoom_extra
@@ -1115,9 +1116,12 @@ impl Tty7App {
                     .when(zoomed, |row| {
                         row.child(self.zoom_mark(("sidebar-zoom", i), cx))
                     })
-                    .when(asleep, |row| {
-                        row.child(self.sleep_mark(("sidebar-asleep", i), cx))
-                    })
+                    .children(crate::ui::wake_pool::state_mark(
+                        self,
+                        ("sidebar-asleep", i),
+                        tab,
+                        cx,
+                    ))
                     .child(label_region)
                     .children(status_dot)
                     .when(show_badges && badge_pos < 9, |row| {

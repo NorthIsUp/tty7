@@ -65,6 +65,7 @@ pub mod tab_strip;
 pub mod theme;
 pub mod tray;
 pub mod tree_sync;
+pub mod wake_pool;
 pub mod windows;
 pub mod worktree_prompt;
 

@@ -5385,7 +5385,12 @@ impl Tty7App {
 
     /// The part of [`Self::hibernate_tab`] that does not ask whether it may:
     /// the tab lets go of its panes and keeps what a wake needs instead.
-    fn put_to_sleep(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn put_to_sleep(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tab) = self.tabs.get(index).filter(|t| !t.is_asleep()) else {
             return;
         };
@@ -10573,7 +10578,7 @@ fn tabs_from_session(
 
 /// A tab restored asleep: its place, its name and its group, and nothing
 /// running behind them.
-fn asleep_tab(st: &SessionTab, home: Option<std::path::PathBuf>) -> Tab {
+pub(crate) fn asleep_tab(st: &SessionTab, home: Option<std::path::PathBuf>) -> Tab {
     let mut tab = Tab::new(Pane::Empty);
     tab.name = st.name.clone();
     tab.group.set(st.group);
