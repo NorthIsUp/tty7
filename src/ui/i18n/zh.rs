@@ -167,6 +167,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchSessionsEmptyHint => "这里列出本机上各编码 agent 的历史会话。",
         L10nKey::SearchSectionSessionsHere => "在 {dir}",
         L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::SearchSectionSessionsOpen => "已在标签页中打开",
         L10nKey::AppSessionNotResumable => "{name} 不支持按 ID 恢复会话。",
         L10nKey::AppSessionDirectoryGone => "会话所在的目录已不存在：{path}",
         L10nKey::SearchSessionActions => "选择要对这个会话执行的操作…",
@@ -2225,9 +2226,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryTooShort => "输入至少 3 个字符以搜索 agent 对话。",
         L10nKey::SearchHistoryRemote => "只能搜索这台电脑上的 agent 历史。",
         L10nKey::SearchHistoryHits => "{count} 处匹配",
-        L10nKey::CmdSearchAgents => "搜索标签页和 Agent 会话…",
-        L10nKey::SearchTabAgents => "Agent",
-        L10nKey::SearchPlaceholderAgents => "搜索打开的标签页和 Agent 会话…",
+        L10nKey::CmdSearchAgents => "搜索 Agent 会话…",
         L10nKey::CmdContinueAllAgents => "继续所有 Agent",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "逐个唤醒休眠的 agent 标签页（间隔几秒），并让每个继续工作"
@@ -2235,11 +2234,20 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
-        L10nKey::NewTabPageHint => "Enter 打开 · ←/→ 或 {first}–9 选择类型 · Esc 取消",
-        L10nKey::NewTabPageHintBackground => "⇧Enter 在后台打开",
+        L10nKey::NewTabPageDirsHeading => "选择 {kind} 启动的目录",
+        L10nKey::SettingsTabUsagePid => "显示每个标签页的 PID",
+        L10nKey::SettingsTabUsagePidDesc => "在侧边栏标签行末尾显示前台窗格的 shell 进程 ID",
+        L10nKey::SettingsTabUsageCpu => "显示每个标签页的 CPU",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "标签页所有窗格中全部进程（含子进程）的 CPU 占用。100% 为一个核心"
+        }
+        L10nKey::SettingsTabUsageMemory => "显示每个标签页的内存",
+        L10nKey::SettingsTabUsageMemoryDesc => "标签页所有窗格中全部进程（含子进程）的常驻内存",
+        L10nKey::SettingsTabUsageAnnotate => "标注高资源占用的标签页",
+        L10nKey::SettingsTabUsageAnnotateDesc => "占用较高时，以警告色显示该标签页的 CPU 或内存",
         L10nKey::SearchHintBackground => "在后台打开",
         L10nKey::SettingsGroupOutline => "分组轮廓",
-        L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",
+        L10nKey::SettingsGroupOutlineDesc => "在每个分组（标题及其标签页）周围绘制细轮廓。",
         L10nKey::SettingsGroupOutlineColor => "轮廓颜色",
         L10nKey::SettingsGroupOutlineColorDesc => "使用主题边框色，或每个分组自己的颜色。",
         L10nKey::SettingsGroupBackground => "分组背景",
@@ -2299,6 +2307,40 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "全部",
         L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
         L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
+        L10nKey::SettingsNewTabAgents => "新标签页中的 Agent",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitPage => "拆分时选择打开什么",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D 和 ⌘⇧D 打开新标签页选择器，拆分出的窗格可以是终端或 Agent，并可选择任意目录。"
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "拆分 窗格 选择器 Agent 终端 split pane picker agent terminal claude codex cmd d"
+        }
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "编号",
+        L10nKey::GitHubReviewPlaceholder => "留下审查意见…",
+        L10nKey::GitHubReviewComment => "评论",
+        L10nKey::GitHubReviewApprove => "批准",
+        L10nKey::GitHubMergeCommit => "合并",
+        L10nKey::GitHubMergeSquash => "压缩合并",
+        L10nKey::GitHubMergeRebase => "变基合并",
+        L10nKey::GitHubAutoMergeEnable => "启用自动合并",
+        L10nKey::GitHubAutoMergeDisable => "停用自动合并",
+        L10nKey::GitHubMergeConfirm => "将 #{number} 合并到 {base}？",
+        L10nKey::GitHubAutoMergeConfirm => "在满足要求后将 #{number} 合并到 {base}（{method}）？",
+        L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
+        L10nKey::SettingsShellStartup => "Shell 启动",
+        L10nKey::SettingsShellStartupDesc => {
+            "新的 zsh、bash 或 fish 启动时读取的内容。不读取 rc 文件时，你的别名、提示符主题和其他 rc 文件中的设置都不会加载；tty7 的 shell 集成仍会加载。环境工具：找到 mise 时只用 mise，否则用 asdf、direnv 和 .env。"
+        }
+        L10nKey::SettingsShellStartupUser => "你的 rc 文件",
+        L10nKey::SettingsShellStartupNoRcs => "不读取 rc 文件",
+        L10nKey::SettingsShellStartupEnvlibs => "不读取 rc 文件 + 环境工具",
     })
 }
 

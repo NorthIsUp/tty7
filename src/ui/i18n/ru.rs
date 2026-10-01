@@ -194,6 +194,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "В {dir}",
         L10nKey::SearchSectionSessionsRecent => "Недавние",
+        L10nKey::SearchSectionSessionsOpen => "Открыты во вкладке",
         L10nKey::AppSessionNotResumable => "{name} не поддерживает продолжение сеанса по ID.",
         L10nKey::AppSessionDirectoryGone => "Папка сеанса больше не существует: {path}",
         L10nKey::SearchSessionActions => "Выберите действие с этим сеансом…",
@@ -2479,9 +2480,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
         L10nKey::SearchHistoryHits => "Совпадений: {count}",
-        L10nKey::CmdSearchAgents => "Искать вкладки и сеансы агентов…",
-        L10nKey::SearchTabAgents => "Агенты",
-        L10nKey::SearchPlaceholderAgents => "Искать открытые вкладки и сеансы агентов…",
+        L10nKey::CmdSearchAgents => "Искать сеансы агентов…",
         L10nKey::CmdContinueAllAgents => "Продолжить всех агентов",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "возобновить каждую спящую вкладку агента с интервалом в несколько секунд и попросить продолжить"
@@ -2489,13 +2488,28 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "Новая вкладка",
         L10nKey::NewTabPageTerminal => "Терминал",
         L10nKey::NewTabPagePlaceholder => "Папка…",
-        L10nKey::NewTabPageHint => {
-            "Enter открывает · ←/→ или {first}–9 выбирают вид · Esc отменяет"
+        L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
+        L10nKey::SettingsTabUsagePid => "Показывать PID вкладки",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "Идентификатор процесса оболочки переднего окна в конце строки вкладки на боковой панели"
         }
-        L10nKey::NewTabPageHintBackground => "⇧Enter открывает в фоне",
+        L10nKey::SettingsTabUsageCpu => "Показывать CPU вкладки",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "Загрузка CPU всеми процессами в панелях вкладки, включая дочерние. 100% — одно ядро"
+        }
+        L10nKey::SettingsTabUsageMemory => "Показывать память вкладки",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "Резидентная память всех процессов в панелях вкладки, включая дочерние"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "Отмечать ресурсоёмкие вкладки",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "Показывать CPU или память вкладки цветом предупреждения, пока они высоки"
+        }
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
-        L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "Тонкий контур вокруг каждой группы: заголовка и её вкладок."
+        }
         L10nKey::SettingsGroupOutlineColor => "Цвет контура",
         L10nKey::SettingsGroupOutlineColorDesc => {
             "Цвет рамки из темы или собственный цвет каждой группы."
@@ -2571,6 +2585,42 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "Все",
         L10nKey::GitHubNoSessionMentions => "Этот сеанс не упоминал ни задач, ни пул-реквестов",
         L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
+        L10nKey::SettingsNewTabAgents => "Агенты в новой вкладке",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitPage => "Разделение спрашивает, что открыть",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D и ⌘⇧D открывают выбор новой вкладки: в разделённой панели можно открыть терминал или агента в любой папке."
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "разделить панель выбор агент терминал split pane picker agent terminal claude codex cmd d"
+        }
+        L10nKey::GitHubSortRecent => "Недавние",
+        L10nKey::GitHubSortNumber => "Номер",
+        L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",
+        L10nKey::GitHubReviewComment => "Комментировать",
+        L10nKey::GitHubReviewApprove => "Одобрить",
+        L10nKey::GitHubMergeCommit => "Слить",
+        L10nKey::GitHubMergeSquash => "Сжать и слить",
+        L10nKey::GitHubMergeRebase => "Перебазировать и слить",
+        L10nKey::GitHubAutoMergeEnable => "Включить автослияние",
+        L10nKey::GitHubAutoMergeDisable => "Выключить автослияние",
+        L10nKey::GitHubMergeConfirm => "Слить #{number} в {base}?",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
+        }
+        L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
+        L10nKey::SettingsShellStartup => "Запуск оболочки",
+        L10nKey::SettingsShellStartupDesc => {
+            "Что новая zsh, bash или fish читает при запуске. Без rc-файлов не загружаются ваши алиасы, тема приглашения и прочие настройки из rc-файлов; интеграция tty7 с оболочкой загружается. Инструменты окружения: mise, если найден, иначе asdf, direnv и .env."
+        }
+        L10nKey::SettingsShellStartupUser => "Ваши rc-файлы",
+        L10nKey::SettingsShellStartupNoRcs => "Без rc-файлов",
+        L10nKey::SettingsShellStartupEnvlibs => "Без rc-файлов + инструменты окружения",
     })
 }
 
