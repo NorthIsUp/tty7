@@ -4221,6 +4221,9 @@ impl Tty7App {
     /// The new session starts in the far directory the pane was in, as a
     /// local ⌘T starts in the local one.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_new_tab_page(window, cx) {
+            return;
+        }
         let source = self
             .tabs
             .get(self.active)
@@ -6369,7 +6372,7 @@ impl Tty7App {
             None => Vec::new(),
         };
         out.extend(rest.drain(..).map(|s| row(s, recent.clone())));
-        (out, count)
+        crate::ui::search::open_first(out, count, &self.open_agent_sessions(cx))
     }
 
     /// The Actions tab: the fixed set, plus the rows only this window can
@@ -6588,7 +6591,8 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let catalog = self.search_catalog(window, cx);
+        let mut catalog = self.search_catalog(window, cx);
+        catalog.live = self.palette_live_tabs(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6832,6 +6836,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Sessions, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
@@ -6940,6 +6945,7 @@ impl Tty7App {
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
             QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            SearchText => self.open_search(SearchTab::Text, "", window, cx),
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
@@ -7133,6 +7139,9 @@ impl Tty7App {
             L10nKey::SettingsTrimTrailingSpaces => {
                 self.set_clipboard_trim(defaults.clipboard_trim_trailing_spaces, cx)
             }
+            L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
+                c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
+            }),
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
             L10nKey::SettingsPromptEditor => self.set_prompt_editor(defaults.prompt_editor, cx),
@@ -10175,6 +10184,9 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
                     this.continue_all_agents(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
+                    this.open_palette_on(SearchTab::Sessions, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)

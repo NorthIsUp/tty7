@@ -26,6 +26,7 @@ pub mod keymap;
 pub mod local_link;
 pub mod lsp;
 pub mod machine_mirror;
+pub mod new_tab_page;
 pub mod notice;
 pub(crate) mod palette;
 pub mod pane;
