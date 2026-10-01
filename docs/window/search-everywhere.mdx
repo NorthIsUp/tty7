@@ -5,8 +5,15 @@ description: "One key for every action, open tab, past agent session and host �
 
 <kbd>⌘ P</kbd> (<kbd>Ctrl ⇧ P</kbd> on Linux and Windows) opens Search
 Everywhere. Type to filter, <kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>⏎</kbd> to
-run, <kbd>⇥</kbd> / <kbd>⇧ ⇥</kbd> to move between its tabs. Press the key again
+run, <kbd>⇥</kbd> / <kbd>⇧ ⇥</kbd>, or <kbd>→</kbd> / <kbd>←</kbd> with nothing
+typed, to move between its tabs. Press the key again
 or <kbd>Esc</kbd> to close it.
+
+<kbd>⌘ T</kbd>, <kbd>⌘ P</kbd> and <kbd>⌘ K</kbd> open it on **New Tab**, **All**
+and **Sessions** wherever the keyboard is — a pane, the side panel, a text field,
+Settings. With it open, another of the three switches tab and the same one
+closes it. It is modal: every other shortcut waits until it closes, and a
+click outside it closes it.
 
 ## Tabs
 
@@ -15,8 +22,11 @@ or <kbd>Esc</kbd> to close it.
 | **All** | The best few rows from each tab below, each under the tab's name. The tab holding the best match comes first, so <kbd>⏎</kbd> always runs the best answer anywhere. When a tab has more rows than fit, a *N more in …* row opens that tab with your query still typed. |
 | **Actions** | Every action tty7 can perform, whether or not it has a keybinding — the fastest way to reach the ones that deliberately ship unbound, like pane resize and swap. |
 | **Terminals** | Every open tab of every workspace, this window's first and most recently used first, then every way to open a new one: the shells this machine has (*Shell: zsh*) and the coding agents on your `PATH` (*Agent: Claude Code*). |
-| **Sessions** | Past coding-agent sessions on this machine — the ones that ran in the focused tab's directory first, then the rest, newest first. <kbd>⏎</kbd> resumes one. |
+| **Sessions** | <kbd>⌘ K</kbd>: coding-agent sessions on this machine. The ones open in a tab come first, and <kbd>⏎</kbd> goes to that tab; then the ones that ran in the focused tab's directory, then the rest, newest first, and <kbd>⏎</kbd> resumes one. |
+| **History** | What you and your agents said in past Claude Code and Codex sessions on this computer: one row per session, its best matching message with what you typed picked out, the agent and where it ran beside it. <kbd>⏎</kbd> resumes it there, as on **Sessions**. Tool calls and their output are not searched. Like **Text**, it searches once you have typed three characters and paused, and is never part of **All**; in a remote workspace it is empty, since the history is this computer's. |
+| **New Tab** | <kbd>⌘ T</kbd>: what to open and where — see [the new tab page](/window/new-tab-page). Not on the tab row. |
 | **Hosts** | Your saved SSH hosts, most used first — and whatever address you type. |
+| **Text** | Every line in the project's files that contains what you type, as `file:line`; <kbd>⏎</kbd> opens the file there. It searches once you have typed three characters and paused, on the machine the project is on, and is never part of **All**, since every query reads files. |
 
 With nothing typed, **All** leads with this window's other tabs, most recent
 first, so <kbd>⌘ P</kbd> <kbd>⏎</kbd> takes you back to the tab you were just
@@ -81,6 +91,9 @@ so instead.
 In a remote workspace the tab lists the sessions on that machine, and resume
 and fork open their tab there. That needs a `tty7-server` recent enough to
 answer; an older one needs an update first.
+
+<kbd>⇧ ⏎</kbd> or ⇧-click opens the tab in the background instead, as does
+⇧ on an agent's Launch row: it starts, and you stay on the tab you were on.
 
 The list is read in the background when the search opens, so a session started
 a moment ago may appear a beat after the rest. Cursor records a chat's

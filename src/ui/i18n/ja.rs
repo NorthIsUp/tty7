@@ -201,6 +201,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "{dir} 内",
         L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::SearchSectionSessionsOpen => "タブで開いている",
         L10nKey::AppSessionNotResumable => "{name} は ID によるセッション再開に対応していません。",
         L10nKey::AppSessionDirectoryGone => "セッションのディレクトリが存在しません: {path}",
         L10nKey::SearchSessionActions => "このセッションの操作を選択…",
@@ -2434,9 +2435,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "エージェントの履歴はこのコンピューター上でのみ検索できます。"
         }
         L10nKey::SearchHistoryHits => "{count} 件",
-        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
-        L10nKey::SearchTabAgents => "エージェント",
-        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
+        L10nKey::CmdSearchAgents => "エージェントのセッションを検索…",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
@@ -2444,10 +2443,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新しいタブ",
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
         L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
@@ -2518,6 +2514,13 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "すべて",
         L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
         L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
+        L10nKey::SettingsNewTabAgents => "新しいタブのエージェント",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
+        }
     })
 }
 
