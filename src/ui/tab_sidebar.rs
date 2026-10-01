@@ -1047,6 +1047,12 @@ impl Tty7App {
                                 let reveal = self.sidebar_reveal.clone();
                                 let scroll = self.sidebar_scroll.clone();
                                 let id = tab.tree_id.get();
+                                // The header sits directly above a group's
+                                // first row, one gap away.
+                                let lead = match slot == 0 && section.name.is_some() {
+                                    true => px(HEADER_HEIGHT + ROW_GAP),
+                                    false => px(0.),
+                                };
                                 move |bounds, window, _cx| {
                                     if let Some(s) = slots.borrow_mut().get_mut(slot) {
                                         *s = bounds;
@@ -1059,6 +1065,7 @@ impl Tty7App {
                                         let view = scroll.bounds();
                                         let shift = reveal_shift(
                                             (bounds.top(), bounds.bottom()),
+                                            lead,
                                             (view.top(), view.bottom()),
                                         );
                                         if shift != px(0.) {
@@ -2981,10 +2988,13 @@ impl Section {
 /// How far to move the sidebar's scroll offset so a newly active row shows.
 /// A row with any part in view stays put — clicking a row must not move the
 /// list under the pointer; one out of view comes in at the nearest edge.
-fn reveal_shift(row: (Pixels, Pixels), view: (Pixels, Pixels)) -> Pixels {
+/// `lead` is what sits on top of the row and belongs with it — its group's
+/// header, for the first row — so a row coming in from above brings the
+/// name of the group it is in, not just itself.
+fn reveal_shift(row: (Pixels, Pixels), lead: Pixels, view: (Pixels, Pixels)) -> Pixels {
     let ((top, bottom), (view_top, view_bottom)) = (row, view);
     if bottom <= view_top {
-        view_top - top
+        view_top - (top - lead)
     } else if top >= view_bottom {
         view_bottom - bottom
     } else {
@@ -4231,13 +4241,24 @@ mod tests {
     fn reveal_shift_moves_only_rows_out_of_view() {
         let view = (px(100.), px(400.));
         // On screen, or cut by an edge: a click there scrolls nothing.
-        assert_eq!(reveal_shift((px(200.), px(230.)), view), px(0.));
-        assert_eq!(reveal_shift((px(90.), px(120.)), view), px(0.));
-        assert_eq!(reveal_shift((px(390.), px(420.)), view), px(0.));
+        assert_eq!(reveal_shift((px(200.), px(230.)), px(0.), view), px(0.));
+        assert_eq!(reveal_shift((px(90.), px(120.)), px(0.), view), px(0.));
+        assert_eq!(reveal_shift((px(390.), px(420.)), px(0.), view), px(0.));
         // Above: its top lands on the top edge.
-        assert_eq!(reveal_shift((px(10.), px(40.)), view), px(90.));
+        assert_eq!(reveal_shift((px(10.), px(40.)), px(0.), view), px(90.));
         // Below: its bottom lands on the bottom edge.
-        assert_eq!(reveal_shift((px(500.), px(530.)), view), px(-130.));
+        assert_eq!(reveal_shift((px(500.), px(530.)), px(0.), view), px(-130.));
+    }
+
+    #[test]
+    fn a_first_row_revealed_from_above_brings_its_header() {
+        let view = (px(100.), px(400.));
+        // The header's top, not the row's, lands on the top edge.
+        assert_eq!(reveal_shift((px(10.), px(40.)), px(23.), view), px(113.));
+        // A header half under the top edge, row on screen: still nothing.
+        assert_eq!(reveal_shift((px(110.), px(140.)), px(23.), view), px(0.));
+        // Below: the header is already above the row, only the bottom counts.
+        assert_eq!(reveal_shift((px(500.), px(530.)), px(23.), view), px(-130.));
     }
 
     fn p(s: &str) -> PathBuf {
