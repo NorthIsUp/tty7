@@ -1,7 +1,8 @@
 //! The fork's global hotkey: a system-wide chord (`global_hotkey`, ⌥Space by
 //! default) that shows and hides one dedicated tty7 window, iTerm2's hotkey
 //! window. Only the hotkey shows it: ⌘Tab, the Dock and launch restore leave
-//! it hidden, and the hotkey leaves every other tty7 window where it is.
+//! it hidden, unless its workspace is the only one there is (see
+//! [`summon_alone`]), and the hotkey leaves every other tty7 window where it is.
 //! Optionally over the whole screen the mouse is on
 //! (`global_hotkey_fullscreen`), hidden on focus loss, faded in and out.
 //!
@@ -24,7 +25,7 @@ use gpui::{
 };
 use gpui_component::menu::{PopupMenu, PopupMenuItem};
 
-use crate::core::session::{WindowViews, WorkspaceId};
+use crate::core::session::{WindowViews, WorkspaceId, WorkspaceStore};
 use crate::ui::app::Tty7App;
 use crate::ui::i18n::{L10nKey, t};
 
@@ -141,6 +142,69 @@ pub(crate) fn to_restore(views: &WindowViews, hotkey: Option<WorkspaceId>) -> Op
     let mut views = views.clone();
     views.views.retain(|w| w.id != hotkey);
     views.workspace_to_restore()
+}
+
+/// Launch, a Dock click or a windowless `tty7` with nothing to restore but
+/// the hotkey workspace: show the hotkey window instead of minting a blank
+/// workspace beside it. True when it did, so the caller opens nothing.
+pub(crate) fn summon_alone(cx: &mut App, path: Option<&std::path::Path>) -> bool {
+    let hotkey = armed_workspace(cx);
+    summon_alone_with(cx, path, hotkey, summon)
+}
+
+fn summon_alone_with(
+    cx: &mut App,
+    path: Option<&std::path::Path>,
+    hotkey: Option<WorkspaceId>,
+    summon: fn(&mut App),
+) -> bool {
+    let views = WorkspaceStore::all(cx);
+    let alone = path.is_none()
+        && hotkey.is_some_and(|id| views.get(id).is_some_and(|view| !view.synced))
+        && to_restore(views, hotkey).is_none();
+    if alone {
+        // On its own loop turn, as a press arrives, so launch has finished
+        // setting up (its agent wake included) before the window opens.
+        cx.spawn(async move |cx| cx.update(summon)).detach();
+    }
+    alone
+}
+
+/// The hotkey workspace, only while the chord is configured and macOS took
+/// it: a hotkey that never registered cannot bring the window back.
+fn armed(
+    spec: &Option<String>,
+    registered: bool,
+    workspace: Option<WorkspaceId>,
+) -> Option<WorkspaceId> {
+    configured(spec)?;
+    registered.then_some(workspace?)
+}
+
+fn armed_workspace(cx: &App) -> Option<WorkspaceId> {
+    #[cfg(test)]
+    if let Some(hk) = cx.try_global::<tests::FakeHotkey>() {
+        return hk.workspace;
+    }
+    #[cfg(target_os = "macos")]
+    return appkit::armed_workspace(cx);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = cx;
+        None
+    }
+}
+
+fn summon(cx: &mut App) {
+    #[cfg(test)]
+    if cx.has_global::<tests::FakeHotkey>() {
+        cx.global_mut::<tests::FakeHotkey>().summoned = true;
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    appkit::summon(cx);
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// The hotkey window's workspace while the hotkey is on, which "most recent
@@ -282,9 +346,10 @@ impl crate::ui::app::Tty7App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::core::config::CoreConfig as Config;
+    use crate::core::session::WindowView;
 
     #[test]
     fn the_hotkey_defaults_on_at_option_space_and_null_or_blank_turns_it_off() {
@@ -388,7 +453,6 @@ mod tests {
 
     #[test]
     fn a_launch_or_dock_click_never_restores_the_hotkey_window() {
-        use crate::core::session::WindowView;
         let (hot, other) = (WindowView::default(), WindowView::default());
         let (hot_id, other_id) = (hot.id, other.id);
         let views = WindowViews {
@@ -415,9 +479,118 @@ mod tests {
         assert_eq!(to_restore(&alone, Some(hot_id)), None);
     }
 
+    /// Stands in for the registered hotkey, and records a summon.
+    pub(crate) struct FakeHotkey {
+        pub(crate) workspace: Option<WorkspaceId>,
+        pub(crate) summoned: bool,
+    }
+    impl gpui::Global for FakeHotkey {}
+
+    fn summoned(cx: &mut App) {
+        cx.set_global(Summoned);
+    }
+    struct Summoned;
+    impl gpui::Global for Summoned {}
+
+    fn only(view: WindowView) -> WindowViews {
+        let id = view.id;
+        WindowViews {
+            views: vec![view],
+            active: Some(id),
+        }
+    }
+
+    #[gpui::test]
+    fn the_hotkey_workspace_alone_is_summoned_after_the_caller_returns(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let hot = WindowView::default();
+        let hot_id = hot.id;
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(cx, only(hot));
+            assert!(summon_alone_with(cx, None, Some(hot_id), summoned));
+            assert!(!cx.has_global::<Summoned>());
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(cx.has_global::<Summoned>());
+            assert_eq!(WorkspaceStore::all(cx).views.len(), 1);
+        });
+    }
+
+    #[gpui::test]
+    fn a_launch_with_a_path_still_opens_a_workspace_for_it(cx: &mut gpui::TestAppContext) {
+        let hot = WindowView::default();
+        let hot_id = hot.id;
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(cx, only(hot));
+            assert!(!summon_alone_with(
+                cx,
+                Some("/tmp".as_ref()),
+                Some(hot_id),
+                summoned
+            ));
+        });
+    }
+
+    #[gpui::test]
+    fn without_an_armed_hotkey_nothing_is_summoned(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(cx, only(WindowView::default()));
+            assert!(!summon_alone_with(cx, None, None, summoned));
+        });
+    }
+
+    #[gpui::test]
+    fn a_synced_hotkey_workspace_is_not_summoned(cx: &mut gpui::TestAppContext) {
+        let hot = WindowView {
+            synced: true,
+            ..WindowView::default()
+        };
+        let hot_id = hot.id;
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(cx, only(hot));
+            assert!(!summon_alone_with(cx, None, Some(hot_id), summoned));
+        });
+    }
+
+    #[gpui::test]
+    fn another_workspace_beside_the_hotkey_one_is_restored_as_before(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (hot, other) = (WindowView::default(), WindowView::default());
+        let (hot_id, other_id) = (hot.id, other.id);
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(
+                cx,
+                WindowViews {
+                    views: vec![other, hot],
+                    active: Some(hot_id),
+                },
+            );
+            assert!(!summon_alone_with(cx, None, Some(hot_id), summoned));
+            assert_eq!(
+                to_restore(WorkspaceStore::all(cx), Some(hot_id)),
+                Some(other_id)
+            );
+        });
+        cx.run_until_parked();
+        cx.update(|cx| assert!(!cx.has_global::<Summoned>()));
+    }
+
+    #[test]
+    fn only_a_configured_and_registered_hotkey_is_armed() {
+        let id = WindowView::default().id;
+        let on = Some("alt-space".to_string());
+        assert_eq!(armed(&on, true, Some(id)), Some(id));
+        assert_eq!(armed(&on, false, Some(id)), None, "macOS refused the chord");
+        assert_eq!(armed(&None, true, Some(id)), None, "hotkey off");
+        assert_eq!(armed(&Some(" ".into()), true, Some(id)), None);
+        assert_eq!(armed(&on, true, None), None, "no hotkey workspace yet");
+    }
+
     #[test]
     fn a_row_sets_itself_as_the_hotkey_workspace_and_the_current_one_unsets() {
-        use crate::core::session::WindowView;
         let (a, b) = (WindowView::default().id, WindowView::default().id);
         assert_eq!(
             pick(None, a),
@@ -435,7 +608,6 @@ mod tests {
 
     #[test]
     fn only_the_hotkey_workspace_row_gets_the_chord_and_only_while_the_hotkey_is_on() {
-        use crate::core::session::WindowView;
         let (a, b) = (WindowView::default().id, WindowView::default().id);
         let on = Some("alt-space".to_string());
         assert_eq!(badge(&on, Some(a), a), Some("alt-space"));

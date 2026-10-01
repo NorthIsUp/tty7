@@ -6,7 +6,7 @@
 
 | file | what it holds |
 |---|---|
-| `src/ui/hotkey_window/` | the global hotkey (`global_hotkey`, ⌥Space), macOS only: `mod.rs` the platform-free rules (toggle, the lift stack, restore, the switcher row's item and badge, the Workspaces menu label); `carbon.rs` the chord table and `RegisterEventHotKey`; `appkit.rs` the one dedicated hotkey window (its workspace saved in `hotkey-window`) shown / focused / ordered out with a fade, full screen (the screen below its menu bar, floating level under Force Quit, the Dock moved aside by presentation options while it is the key window and covered, and only what it set put back), windows activated over it lifted above it, hide on focus loss; `settings.rs` its Settings rows |
+| `src/ui/hotkey_window/` | the global hotkey (`global_hotkey`, ⌥Space), macOS only: `mod.rs` the platform-free rules (toggle, the lift stack, restore, `summon_alone` (launch, a Dock click or a windowless `tty7` with only the hotkey workspace to restore shows the hotkey window, deferred, instead of making a workspace; only while the chord is registered), the switcher row's item and badge, the Workspaces menu label); `carbon.rs` the chord table and `RegisterEventHotKey`; `appkit.rs` the one dedicated hotkey window (its workspace saved in `hotkey-window`) shown / focused / ordered out with a fade, full screen (the screen below its menu bar, floating level under Force Quit, the Dock moved aside by presentation options while it is the key window and covered, and only what it set put back), windows activated over it lifted above it, hide on focus loss; `settings.rs` its Settings rows |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 
 ## Hooks in upstream files
@@ -18,6 +18,7 @@
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
 | `Cargo.toml` | macOS deps | `raw-window-handle`, for the hotkey window's NSWindow; `block2`, for its AppKit notification observers |
 | `src/ui/windows.rs` | `WindowRegistry::most_recent`, `most_recent_local` | skip `hotkey_window::workspace`, so the Dock, the tray and the CLI never land in the hotkey window |
+| `src/ui/windows.rs`, `src/main.rs` | `open_restored` (launch, `reopen_with`, `open_from_cli` with no window up) | `hotkey_window::summon_alone` first: with only the hotkey workspace, it is shown and nothing new is made |
 | `src/core/session.rs` | `WorkspaceStore::restore_one` | `hotkey_window::to_restore`: a launch or a Dock click never reopens the hotkey window as a plain one |
 | `src/ui/switcher.rs` | `row_menu` (one line after the workspace verbs), `render_row` (after the slot number) | `hotkey_window::menu_item` (Set as / Unset Hotkey Workspace) and `row_badge` (the chord's keycaps on the hotkey workspace's row) |
 | `src/ui/theme.rs` | `window_menu_items` | `hotkey_window::menu_label`: the chord after the hotkey workspace in the Workspaces menu |
