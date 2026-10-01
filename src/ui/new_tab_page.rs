@@ -638,15 +638,10 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) {
         self.close_search(window, cx);
-        let _ = background;
-        match kind {
-            Kind::Terminal => {
-                self.new_tab_at(dir.clone(), window, cx);
-            }
-            Kind::Agent(agent) => {
-                self.launch_agent_in(agent, Some(dir.clone()), window, cx);
-            }
-        }
+        self.in_background(background, |this| match kind {
+            Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
+            Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
+        });
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }
 }
