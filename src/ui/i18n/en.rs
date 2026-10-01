@@ -188,6 +188,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SearchSectionSessionsHere => "In {dir}",
         L10nKey::SearchSectionSessionsRecent => "Recent",
+        L10nKey::SearchSectionSessionsOpen => "Open in a tab",
         L10nKey::AppSessionNotResumable => "{name} cannot resume a session by id.",
         L10nKey::AppSessionDirectoryGone => "The session's directory no longer exists: {path}",
         L10nKey::SearchSessionActions => "Choose what to do with this session…",
@@ -2382,9 +2383,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
         L10nKey::SearchHistoryHits => "{count} hits",
-        L10nKey::CmdSearchAgents => "Search Tabs and Agent Sessions…",
-        L10nKey::SearchTabAgents => "Agents",
-        L10nKey::SearchPlaceholderAgents => "Search open tabs and agent sessions…",
+        L10nKey::CmdSearchAgents => "Search Agent Sessions…",
         L10nKey::CmdContinueAllAgents => "Continue All Agents",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "resume every sleeping agent tab, a few seconds apart, and tell each to continue"
@@ -2392,11 +2391,28 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
-        L10nKey::NewTabPageHint => "Enter opens · ←/→ or {first}–9 picks the kind · Esc cancels",
-        L10nKey::NewTabPageHintBackground => "⇧Enter opens in background",
+        L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
+        L10nKey::SettingsTabUsagePid => "Show each tab's pid",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "The front pane's shell process id, at the end of the tab's row in the sidebar"
+        }
+        L10nKey::SettingsTabUsageCpu => "Show each tab's CPU",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "CPU use of every process in the tab's panes, children included. 100% is one core"
+        }
+        L10nKey::SettingsTabUsageMemory => "Show each tab's memory",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "Resident memory of every process in the tab's panes, children included"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "Annotate high-resource tabs",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "Show a tab's CPU or memory in the warning colour while it runs high"
+        }
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",
-        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "A thin outline round each group, its header and its tabs."
+        }
         L10nKey::SettingsGroupOutlineColor => "Outline colour",
         L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
         L10nKey::SettingsGroupBackground => "Group background",
@@ -2468,6 +2484,42 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "This session hasn't mentioned an issue or pull request"
         }
         L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
+        L10nKey::SettingsNewTabAgents => "Agents in New Tab",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "The agents the New Tab page offers beside Terminal. One switched off is still on PATH and everywhere else"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitPage => "Split asks what to open",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D and ⌘⇧D open the New Tab picker, so the split can be a terminal or an agent in any directory."
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "split pane picker agent terminal claude codex cmd d"
+        }
+        L10nKey::GitHubSortRecent => "Recent",
+        L10nKey::GitHubSortNumber => "Number",
+        L10nKey::GitHubReviewPlaceholder => "Leave a review…",
+        L10nKey::GitHubReviewComment => "Comment",
+        L10nKey::GitHubReviewApprove => "Approve",
+        L10nKey::GitHubMergeCommit => "Merge",
+        L10nKey::GitHubMergeSquash => "Squash and merge",
+        L10nKey::GitHubMergeRebase => "Rebase and merge",
+        L10nKey::GitHubAutoMergeEnable => "Enable auto-merge",
+        L10nKey::GitHubAutoMergeDisable => "Disable auto-merge",
+        L10nKey::GitHubMergeConfirm => "Merge #{number} into {base}?",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "Merge #{number} into {base} once its requirements pass ({method})?"
+        }
+        L10nKey::GitHubOpenInGraphite => "Open in Graphite",
+        L10nKey::SettingsShellStartup => "Shell startup",
+        L10nKey::SettingsShellStartupDesc => {
+            "What a new zsh, bash or fish reads first. Without rc files, your aliases, prompt theme and other rc-file setup are not loaded; tty7's shell integration still is. Env tools: mise if found, else asdf, direnv and .env."
+        }
+        L10nKey::SettingsShellStartupUser => "Your rc files",
+        L10nKey::SettingsShellStartupNoRcs => "No rc files",
+        L10nKey::SettingsShellStartupEnvlibs => "No rc files + env tools",
     }
 }
 

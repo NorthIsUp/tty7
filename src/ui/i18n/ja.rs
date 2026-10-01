@@ -201,6 +201,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "{dir} 内",
         L10nKey::SearchSectionSessionsRecent => "最近",
+        L10nKey::SearchSectionSessionsOpen => "タブで開いている",
         L10nKey::AppSessionNotResumable => "{name} は ID によるセッション再開に対応していません。",
         L10nKey::AppSessionDirectoryGone => "セッションのディレクトリが存在しません: {path}",
         L10nKey::SearchSessionActions => "このセッションの操作を選択…",
@@ -2457,9 +2458,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "エージェントの履歴はこのコンピューター上でのみ検索できます。"
         }
         L10nKey::SearchHistoryHits => "{count} 件",
-        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
-        L10nKey::SearchTabAgents => "エージェント",
-        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
+        L10nKey::CmdSearchAgents => "エージェントのセッションを検索…",
         L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
@@ -2467,13 +2466,28 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新しいタブ",
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
+        L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
+        L10nKey::SettingsTabUsagePid => "各タブの PID を表示",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "サイドバーのタブ行の末尾に、前面ペインのシェルのプロセス ID を表示します"
         }
-        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::SettingsTabUsageCpu => "各タブの CPU を表示",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の CPU 使用率。100% は 1 コア分です"
+        }
+        L10nKey::SettingsTabUsageMemory => "各タブのメモリを表示",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の常駐メモリ"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "リソースを多く使うタブを強調",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "使用量が多い間、そのタブの CPU・メモリを警告色で表示します"
+        }
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
-        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "各グループ（見出しとタブ）の周りに細い枠線を引きます。"
+        }
         L10nKey::SettingsGroupOutlineColor => "枠線の色",
         L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
         L10nKey::SettingsGroupBackground => "グループの背景",
@@ -2541,6 +2555,42 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "すべて",
         L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
         L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
+        L10nKey::SettingsNewTabAgents => "新しいタブのエージェント",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitPage => "分割時に開くものを選ぶ",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D と ⌘⇧D で新しいタブのピッカーを開き、分割をターミナルまたはエージェントにして任意のディレクトリで開けます。"
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "分割 ペイン ピッカー エージェント ターミナル split pane picker agent terminal claude codex cmd d"
+        }
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "番号",
+        L10nKey::GitHubReviewPlaceholder => "レビューを書く…",
+        L10nKey::GitHubReviewComment => "コメント",
+        L10nKey::GitHubReviewApprove => "承認",
+        L10nKey::GitHubMergeCommit => "マージ",
+        L10nKey::GitHubMergeSquash => "スカッシュしてマージ",
+        L10nKey::GitHubMergeRebase => "リベースしてマージ",
+        L10nKey::GitHubAutoMergeEnable => "自動マージを有効にする",
+        L10nKey::GitHubAutoMergeDisable => "自動マージを無効にする",
+        L10nKey::GitHubMergeConfirm => "#{number} を {base} にマージしますか？",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "要件を満たしたら #{number} を {base} にマージしますか（{method}）？"
+        }
+        L10nKey::GitHubOpenInGraphite => "Graphite で開く",
+        L10nKey::SettingsShellStartup => "シェルの起動",
+        L10nKey::SettingsShellStartupDesc => {
+            "新しい zsh・bash・fish が最初に読み込むもの。rc ファイルなしでは、エイリアス、プロンプトテーマ、その他の rc ファイルの設定は読み込まれません。tty7 のシェル統合は読み込まれます。環境ツール: mise があれば mise、なければ asdf・direnv・.env。"
+        }
+        L10nKey::SettingsShellStartupUser => "自分の rc ファイル",
+        L10nKey::SettingsShellStartupNoRcs => "rc ファイルなし",
+        L10nKey::SettingsShellStartupEnvlibs => "rc ファイルなし + 環境ツール",
     })
 }
 

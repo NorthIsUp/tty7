@@ -2,7 +2,7 @@
 //! one field there: `Config::fork`, flattened, so they sit at the top level
 //! of `config.json` exactly as they did when they were `Config`'s own.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +35,11 @@ pub struct ForkConfig {
     /// New Tab opens the new tab page — pick an agent or a terminal and a
     /// directory — instead of a shell in the current tab's directory.
     pub new_tab_page: bool,
+    /// ⌘D and ⌘⇧D open the new tab page to pick the split's kind and
+    /// directory, instead of copying the pane being split.
+    pub split_page: bool,
+    /// Agents the new tab page leaves out, by slug, though they are on `PATH`.
+    pub new_tab_hidden_agents: BTreeSet<String>,
     /// Directories whose children the new tab page offers (`~` expands).
     pub dir_roots: Vec<String>,
     /// How often and how recently each directory was launched into from the
@@ -83,6 +88,8 @@ impl Default for ForkConfig {
             agent_resume_mode: AgentResumeMode::Typed,
             continue_interrupted_agents: false,
             new_tab_page: true,
+            split_page: false,
+            new_tab_hidden_agents: BTreeSet::new(),
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
             dir_frecency: HashMap::new(),
             group_colors: HashMap::new(),
@@ -150,6 +157,7 @@ mod tests {
         "agent_resume_mode": "program",
         "continue_interrupted_agents": true,
         "new_tab_page": false,
+        "split_page": true,
         "dir_roots": ["~/work"],
         "dir_frecency": {"/Users/me/src/x": {"count": 2, "last_used": 9}},
         "group_colors": {"clawmux": "#ffd7d7"},
