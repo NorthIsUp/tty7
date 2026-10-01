@@ -1,6 +1,9 @@
 pub mod agent_launch;
+pub mod agent_resume;
 pub mod app;
 pub mod assets;
+pub(crate) mod background_grid;
+pub mod background_tab;
 pub mod code_editor;
 pub mod dialog;
 pub mod diff_list;
@@ -11,19 +14,26 @@ pub mod editor_session;
 pub mod editor_text;
 pub mod file_copy;
 pub mod file_tree;
+pub mod first_prompt;
 pub mod forwards;
 pub mod github;
+pub mod github_session;
+pub mod group_color;
+pub mod group_follow;
+pub mod group_header;
 pub mod hints;
 pub mod home;
 #[allow(dead_code)]
 pub mod host_ops;
 #[allow(dead_code)]
 pub mod host_registry;
+pub mod hotkey_window;
 pub mod i18n;
 pub mod keymap;
 pub mod local_link;
 pub mod lsp;
 pub mod machine_mirror;
+pub mod new_tab_page;
 pub mod notice;
 pub(crate) mod palette;
 pub mod pane;
@@ -57,6 +67,7 @@ pub mod tab_strip;
 pub mod theme;
 pub mod tray;
 pub mod tree_sync;
+pub mod wake_pool;
 pub mod windows;
 pub mod worktree_prompt;
 

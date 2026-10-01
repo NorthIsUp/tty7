@@ -1090,6 +1090,8 @@ pub struct Tty7App {
     /// Where the active tab's panes were last drawn, which is the frame of
     /// reference a drag's landing is worked out in.
     pub(crate) pane_area: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Fork: the grid new panes spawn at (see `background_grid`).
+    pub(crate) whole_tab_grid: crate::ui::background_grid::WholeTabGrid,
     pub(crate) sidebar_search: Entity<InputState>,
     pub(crate) file_search: Entity<InputState>,
     _sidebar_search_sub: Subscription,
@@ -1105,13 +1107,18 @@ pub struct Tty7App {
     /// the tab or pane captured when the question was raised, not on whatever
     /// the app happens to be pointing at by the time it is answered.
     close_prompt_open: bool,
-    window_bounds: Bounds<Pixels>,
+    /// A launch or restart wake asked before this window's tabs arrived from the tree,
+    /// held until they land.
+    pub(crate) continue_when_tabs_land: Option<crate::ui::agent_resume::Wake>,
+    pub(crate) window_bounds: Bounds<Pixels>,
     pub(crate) workspace: WorkspaceId,
     pub(crate) workspace_rename: Option<WorkspaceRename>,
     pub(crate) group_rename: Option<GroupRename>,
     window_title: std::cell::RefCell<String>,
     pub(crate) connect: Option<crate::ui::remote_workspace::ConnectFlow>,
     pub(crate) switcher: Option<crate::ui::switcher::Switcher>,
+    /// Set only inside [`Tty7App::in_background`]; see `background_tab.rs`.
+    pub(crate) open_in_background: bool,
     pub(crate) host_snapshots: std::collections::HashMap<
         crate::ui::host_registry::HostId,
         crate::ui::switcher::HostSnapshot,
@@ -1577,6 +1584,7 @@ impl Tty7App {
                 pane_ws.clone(),
                 Some(workspace),
                 font_size,
+                None,
                 initial_cwd,
                 None,
                 None,
@@ -1598,8 +1606,15 @@ impl Tty7App {
                 }
             },
             some => {
-                let (tabs, active, dropped) =
-                    tabs_from_session(pane_ws.as_ref(), workspace, some, font_size, window, cx);
+                let (tabs, active, dropped) = tabs_from_session(
+                    pane_ws.as_ref(),
+                    workspace,
+                    some,
+                    font_size,
+                    None,
+                    window,
+                    cx,
+                );
                 if dropped > 0 {
                     startup_error = Some(gpui::SharedString::from(t_plural(
                         L10nKey::AppTabsNotRestored,
@@ -1723,6 +1738,7 @@ impl Tty7App {
             sidebar_divider: Rc::new(Cell::new(None)),
             sidebar_groups: Default::default(),
             pane_area: Rc::new(Cell::new(None)),
+            whole_tab_grid: Default::default(),
             sidebar_search,
             _sidebar_search_sub: sidebar_search_sub,
             file_search,
@@ -1731,6 +1747,7 @@ impl Tty7App {
             settings_window: None,
             ssh_prompt: crate::ui::ssh_prompt::SshPromptState::new(cx),
             close_prompt_open: false,
+            continue_when_tabs_land: None,
             window_bounds: window_bounds_to_remember(window),
             workspace,
             workspace_rename: None,
@@ -1738,6 +1755,7 @@ impl Tty7App {
             window_title: std::cell::RefCell::new(String::new()),
             connect: None,
             switcher: None,
+            open_in_background: false,
             host_snapshots: std::collections::HashMap::new(),
             remote_host_errors: std::collections::HashMap::new(),
             parked_dismissed: std::collections::HashSet::new(),
@@ -1768,8 +1786,10 @@ impl Tty7App {
         })
         .detach();
 
-        cx.observe_window_bounds(window, |this, window, _cx| {
-            this.window_bounds = window_bounds_to_remember(window);
+        cx.observe_window_bounds(window, |this, window, cx| {
+            if !crate::ui::hotkey_window::covering(cx, window.window_handle()) {
+                this.window_bounds = window_bounds_to_remember(window);
+            }
         })
         .detach();
 
@@ -2091,6 +2111,7 @@ impl Tty7App {
             self.workspace,
             Some(session),
             font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         );
@@ -2111,6 +2132,13 @@ impl Tty7App {
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
+        if let Some(wake) = self
+            .continue_when_tabs_land
+            .take()
+            .or_else(|| crate::ui::agent_resume::take_launch_wake(self.workspace, cx))
+        {
+            self.wake_restored(wake, window, cx);
+        }
         cx.notify();
     }
 
@@ -2208,6 +2236,7 @@ impl Tty7App {
             &st.pane,
             alive.as_ref(),
             self.font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         ) else {
@@ -2389,7 +2418,7 @@ impl Tty7App {
         let answer = window.prompt(
             PromptLevel::Warning,
             t(crate::ui::i18n::L10nKey::QuitStopServerTitle),
-            Some(t(crate::ui::i18n::L10nKey::QuitStopServerBody)),
+            Some(t(crate::ui::agent_resume::quit_stop_body(cx))),
             &crate::ui::confirm_answers(
                 t(crate::ui::i18n::L10nKey::QuitAndStop),
                 t(crate::ui::i18n::L10nKey::Cancel),
@@ -2495,7 +2524,7 @@ impl Tty7App {
             Some(t(if in_place {
                 L10nKey::AppRestartServerBodyInPlace
             } else {
-                L10nKey::AppRestartServerBody
+                crate::ui::agent_resume::restart_body(cx)
             })),
             &crate::ui::confirm_answers(
                 t(L10nKey::AppRestart),
@@ -2507,6 +2536,7 @@ impl Tty7App {
             if !matches!(answer.await, Ok(0)) {
                 return;
             }
+            let _ = cx.update(|cx| crate::ui::agent_resume::arm_restart_wake(in_place, cx));
             let _ = this.update_in(cx, |this, _window, cx| this.restart_daemon_confirmed(cx));
         })
         .detach();
@@ -4180,22 +4210,7 @@ impl Tty7App {
         let was_focused = pending.read(cx).focus_handle.contains_focused(window, cx);
         let restored = parts.restored;
         let view = build_terminal_view(parts, font_size, window, cx);
-        let resume = (!restored)
-            .then(|| {
-                let spawn = &pending.read(cx).spawn;
-                agent_resume_command(
-                    &spawn.agent,
-                    spawn.agent_session_id.as_deref(),
-                    spawn.agent_launch_argv.as_deref(),
-                    view.read(cx),
-                    cx,
-                )
-                .or_else(|| spawn.run_on_land.clone())
-            })
-            .flatten();
-        if let Some(cmd) = resume {
-            view.read(cx).run_command_line(&cmd);
-        }
+        crate::ui::agent_resume::landed(&view, &pending.read(cx).spawn.clone(), restored, cx);
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
         if was_focused {
@@ -4211,7 +4226,7 @@ impl Tty7App {
         }
     }
 
-    fn new_tab_insert_at(&self, cx: &App) -> usize {
+    pub(crate) fn new_tab_insert_at(&self, cx: &App) -> usize {
         match cx.global::<Config>().new_tab_position {
             NewTabPosition::AfterCurrent => (self.active + 1).min(self.tabs.len()),
             NewTabPosition::End => self.tabs.len(),
@@ -4224,6 +4239,9 @@ impl Tty7App {
     /// The new session starts in the far directory the pane was in, as a
     /// local ⌘T starts in the local one.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_new_tab_page(window, cx) {
+            return;
+        }
         let source = self
             .tabs
             .get(self.active)
@@ -4370,6 +4388,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             cwd,
             None,
             shell,
@@ -4390,14 +4409,9 @@ impl Tty7App {
         };
         // Something opened, so whatever the last failure was is stale.
         self.startup_error = None;
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
         let new_tab = Tab::new(Pane::leaf(tab.clone()));
         group.seat(&new_tab);
-        self.tabs.insert(insert_at, new_tab);
-        self.active = insert_at;
-        self.focus_active(window, cx);
+        self.seat_new_tab(new_tab, window, cx);
         self.save_session(cx);
         cx.notify();
         Some(tab)
@@ -4414,7 +4428,14 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = match new_terminal_native(self.font_size, remote_start_dir, spec, window, cx) {
+        let view = match new_terminal_native(
+            self.font_size,
+            self.whole_tab_grid.get(),
+            remote_start_dir,
+            spec,
+            window,
+            cx,
+        ) {
             Ok(view) => view,
             Err(e) => {
                 log::error!("native SSH spawn failed: {e}");
@@ -4452,7 +4473,14 @@ impl Tty7App {
         // The far shell's last report, not a local path: a native SSH pane's
         // cwd only ever comes from OSC 7 sent across the link.
         let remote_start_dir = dead.read(cx).cwd();
-        let fresh = match new_terminal_native(self.font_size, remote_start_dir, spec, window, cx) {
+        let fresh = match new_terminal_native(
+            self.font_size,
+            self.whole_tab_grid.get(),
+            remote_start_dir,
+            spec,
+            window,
+            cx,
+        ) {
             Ok(view) => view,
             Err(e) => {
                 log::error!("native SSH respawn failed: {e}");
@@ -4539,7 +4567,14 @@ impl Tty7App {
         };
         let new = match spawn {
             SpawnAs::Ssh(spec) => {
-                match new_terminal_native(self.font_size, cwd, spec, window, cx) {
+                match new_terminal_native(
+                    self.font_size,
+                    self.whole_tab_grid.get(),
+                    cwd,
+                    spec,
+                    window,
+                    cx,
+                ) {
                     Ok(view) => PaneSlot::Ready(view),
                     Err(e) => {
                         log::error!("native SSH split spawn failed: {e}");
@@ -4562,6 +4597,7 @@ impl Tty7App {
                     self.window_workspace(cx),
                     Some(self.workspace),
                     self.font_size,
+                    self.whole_tab_grid.get(),
                     cwd,
                     None,
                     shell,
@@ -5367,7 +5403,12 @@ impl Tty7App {
 
     /// The part of [`Self::hibernate_tab`] that does not ask whether it may:
     /// the tab lets go of its panes and keeps what a wake needs instead.
-    fn put_to_sleep(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn put_to_sleep(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tab) = self.tabs.get(index).filter(|t| !t.is_asleep()) else {
             return;
         };
@@ -5381,6 +5422,7 @@ impl Tty7App {
         tab.last_focused = None;
         tab.focus_origin.clear();
         tab.asleep = Some(Asleep { layout, view, home });
+        crate::ui::agent_resume::forget_restored(tab.tree_id.get(), cx);
         drop(panes);
         self.save_session(cx);
         cx.notify();
@@ -5412,6 +5454,7 @@ impl Tty7App {
             &layout,
             None,
             self.font_size,
+            self.whole_tab_grid.get(),
             window,
             cx,
         );
@@ -5426,6 +5469,7 @@ impl Tty7App {
         };
         tab.pane = pane;
         tab.last_focused = None;
+        crate::ui::agent_resume::forget_restored(tab.tree_id.get(), cx);
         self.save_session(cx);
         cx.notify();
         true
@@ -5533,6 +5577,7 @@ impl Tty7App {
         let closing = self.tabs[index].tree_id.get();
         self.editor_close_tab_files(index, cx);
         self.editor_forget_tab(closing, cx);
+        crate::ui::agent_resume::forget_restored(closing, cx);
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);
         let leaves: Vec<(u64, crate::terminal::PaneRoute, bool)> = self.tabs[index]
@@ -5933,6 +5978,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             cwd,
             None,
             shell,
@@ -6126,6 +6172,7 @@ impl Tty7App {
             self.window_workspace(cx),
             Some(self.workspace),
             self.font_size,
+            self.whole_tab_grid.get(),
             Some(wt.path),
             None,
             None,
@@ -6291,6 +6338,7 @@ impl Tty7App {
         catalog.sessions = sessions;
         catalog.sessions_here = here;
         catalog.files = self.file_list_now(cx);
+        catalog.open_agent_sessions = self.open_agent_session_ids(cx);
         catalog
     }
 
@@ -6583,7 +6631,8 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let catalog = self.search_catalog(window, cx);
+        let mut catalog = self.search_catalog(window, cx);
+        catalog.live = self.palette_live_tabs(window, cx);
         let view = cx.new(|cx| SearchView::new(catalog, tab, query, window, cx));
         if tab.in_editor_row() {
             let tabs = self.editor_search_tabs();
@@ -6826,13 +6875,17 @@ impl Tty7App {
             CopyWorkingDirectory => self.copy_active_cwd(window, cx),
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
+            ContinueAllAgents => self.continue_all_agents(window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Agents, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
             // is: a split beside the focused pane instead of a tab.
             LaunchAgent(agent) => {
                 let at = SpawnWhere::from_modifiers(window.modifiers());
-                self.launch_agent(agent, at, window, cx)
+                self.maybe_background(window, |this, window| {
+                    this.launch_agent(agent, at, window, cx)
+                })
             }
             CopyAgentSessionId => self.copy_agent_session_id(self.active, window, cx),
             RenameWorkspace => self.start_workspace_rename(window, cx),
@@ -6934,6 +6987,7 @@ impl Tty7App {
             OpenThemePicker => {}
             SearchHosts => self.open_search(SearchTab::Hosts, "", window, cx),
             QuickOpenFile => self.open_search(SearchTab::Files, "", window, cx),
+            SearchText => self.open_search(SearchTab::Text, "", window, cx),
             OpenFile { path, line, column } => {
                 self.open_indexed_file(&path, line, column, window, cx)
             }
@@ -6946,12 +7000,16 @@ impl Tty7App {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, false, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, false, window, cx)
+            }),
             ForkSession {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, true, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, true, window, cx)
+            }),
             CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
             HideSession { agent, session_id } => self.update_config(cx, |cfg| {
                 cfg.hidden_agent_sessions
@@ -7375,6 +7433,7 @@ impl Tty7App {
             self.build_shell_inputs(&mut subs, window, cx);
         let link_file_command_input = self.build_link_file_command_input(&mut subs, window, cx);
         let http_proxy_input = self.build_http_proxy_input(&mut subs, window, cx);
+        self.build_continue_prompt_input(&mut subs, window, cx);
         // One query box for whichever popover is open — a theme list or a
         // font list — since only one is ever open at a time.
         // Shared by every searchable dropdown on the page, so the hint is the
@@ -9354,6 +9413,7 @@ impl Render for Tty7App {
         // (`text_sm`, `text_xs`, `rems(..)`) resolves against it, and the
         // terminal grid, sized in absolute px from `font_size`, does not move.
         window.set_rem_size(px(cx.global::<Config>().ui_font_size));
+        crate::ui::background_grid::track(self, window, cx);
         self.claim_pending_tab(window, cx);
         // Before anything asks where a tab is drawn: a tab that walked into a
         // pinned folder since the last frame is filed there on this one.
@@ -10166,6 +10226,12 @@ impl Render for Tty7App {
                 .on_action(cx.listener(|this, _: &HibernateTab, window, cx| {
                     this.hibernate_tab(this.active, window, cx)
                 }))
+                .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
+                    this.continue_all_agents(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
+                    this.open_palette_on(SearchTab::Agents, window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)
                 }))
@@ -10325,48 +10391,6 @@ fn tab_to_session(tab: &Tab, cx: &App) -> SessionTab {
     }
 }
 
-fn agent_resume_command(
-    agent: &Option<crate::core::cli_agent::CLIAgent>,
-    session_id: Option<&str>,
-    launch_argv: Option<&[String]>,
-    view: &TerminalView,
-    cx: &App,
-) -> Option<String> {
-    if !cx.global::<Config>().restore_agent_sessions {
-        return None;
-    }
-    let agent = agent.as_ref()?;
-    let Some(session_id) = session_id else {
-        log::info!(
-            "{}'s pane had no captured session id; it comes back as a plain shell",
-            agent.display_name()
-        );
-        return None;
-    };
-    agent.restore_command(
-        session_id,
-        launch_argv,
-        pane_shell_program(view, cx).as_deref(),
-    )
-}
-
-/// The shell `view` is running, for deciding what a line typed into it may
-/// use. A pane spawned without an explicit shell got the configured one or,
-/// failing that, the login shell — but only a local pane got this machine's;
-/// a workspace pane's default lives on its host, so it stays unknown.
-fn pane_shell_program(view: &TerminalView, cx: &App) -> Option<String> {
-    if let Some(spec) = view.shell_spec() {
-        return Some(spec.program);
-    }
-    if view.workspace().is_some() || view.ssh_spec().is_some() || view.remote_context().is_some() {
-        return None;
-    }
-    Some(match &cx.global::<Config>().shell {
-        Some(shell) if !shell.program.trim().is_empty() => shell.program.clone(),
-        _ => crate::core::shells::login_shell(),
-    })
-}
-
 fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
     match pane {
         Pane::Leaf(PaneSlot::Connecting(pending)) => {
@@ -10383,6 +10407,8 @@ fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
         }
         Pane::Leaf(PaneSlot::Ready(view)) => {
             let view = view.read(cx);
+            let (agent, agent_session_id, agent_launch_argv) =
+                crate::ui::agent_resume::sleeping_agent(view, cx);
             SessionPane::Leaf {
                 // A native SSH leaf keeps the far shell's directory, so a
                 // sleeping SSH tab wakes where it was: the redial that wakes it
@@ -10401,9 +10427,9 @@ fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
                 // reads, so the gap here costs nothing it can see.
                 shell: view.shell_spec(),
                 ssh_spec: view.ssh_spec(),
-                agent: view.agent(),
-                agent_session_id: view.agent_session().and_then(|s| s.session_id),
-                agent_launch_argv: view.agent_session().and_then(|s| s.launch_argv),
+                agent,
+                agent_session_id,
+                agent_launch_argv,
             }
         }
         Pane::Split {
@@ -10518,6 +10544,7 @@ fn tabs_from_session(
     owner: WorkspaceId,
     session: Option<Session>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> (Vec<Tab>, usize, usize) {
@@ -10536,7 +10563,9 @@ fn tabs_from_session(
         // the point. The one exception is the tab the window opens onto — a
         // tab on screen is awake, so that one is woken here, by the same
         // restore every other tab is getting.
-        if st.hibernated && index != session.active {
+        if crate::ui::agent_resume::record_restores_asleep(workspace, alive.as_ref(), st, cx)
+            && index != session.active
+        {
             tabs.push(asleep_tab(st, home.clone()));
             continue;
         }
@@ -10546,6 +10575,7 @@ fn tabs_from_session(
             &st.pane,
             alive.as_ref(),
             font_size,
+            grid,
             window,
             cx,
         ) else {
@@ -10584,7 +10614,7 @@ fn tabs_from_session(
 
 /// A tab restored asleep: its place, its name and its group, and nothing
 /// running behind them.
-fn asleep_tab(st: &SessionTab, home: Option<std::path::PathBuf>) -> Tab {
+pub(crate) fn asleep_tab(st: &SessionTab, home: Option<std::path::PathBuf>) -> Tab {
     let mut tab = Tab::new(Pane::Empty);
     tab.name = st.name.clone();
     tab.group.set(st.group);
@@ -10689,6 +10719,7 @@ fn session_to_pane(
     sp: &SessionPane,
     alive: Option<&std::collections::HashMap<u64, Option<String>>>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> Option<Pane> {
@@ -10720,7 +10751,7 @@ fn session_to_pane(
                     let resolved = crate::ui::ssh_connect::resolve_persisted_ssh_spec(spec, cx);
                     // A native SSH leaf's recorded cwd is the far shell's own
                     // report, so it is where the redialled shell starts.
-                    match new_terminal_native(font_size, cwd.clone(), resolved, window, cx) {
+                    match new_terminal_native(font_size, grid, cwd.clone(), resolved, window, cx) {
                         Ok(view) => return Some(Pane::leaf(PaneSlot::Ready(view))),
                         Err(e) => log::error!("restoring native SSH pane failed: {e}"),
                     }
@@ -10734,10 +10765,16 @@ fn session_to_pane(
                 Some(_) => None,
                 None => cwd.clone(),
             };
+            if let Some(spawn) = crate::ui::agent_resume::dead_agent_spawn(
+                sp, workspace, owner, &local_cwd, restore, alive, font_size, grid, cx,
+            ) {
+                return Some(Pane::leaf(pending_terminal(spawn, window, cx)));
+            }
             let view = match new_terminal(
                 workspace.cloned(),
                 Some(owner),
                 font_size,
+                grid,
                 local_cwd,
                 restore,
                 shell.clone(),
@@ -10750,27 +10787,6 @@ fn session_to_pane(
                     return None;
                 }
             };
-            match &view {
-                PaneSlot::Ready(terminal) if !terminal.read(cx).restored() => {
-                    if let Some(cmd) = agent_resume_command(
-                        agent,
-                        agent_session_id.as_deref(),
-                        agent_launch_argv.as_deref(),
-                        terminal.read(cx),
-                        cx,
-                    ) {
-                        terminal.read(cx).run_command_line(&cmd);
-                    }
-                }
-                PaneSlot::Ready(_) => {}
-                PaneSlot::Connecting(pending) => {
-                    pending.update(cx, |pending, _| {
-                        pending.spawn.agent = *agent;
-                        pending.spawn.agent_session_id = agent_session_id.clone();
-                        pending.spawn.agent_launch_argv = agent_launch_argv.clone();
-                    });
-                }
-            }
             Some(Pane::leaf(view))
         }
         SessionPane::Split { axis, ratio, a, b } => {
@@ -10779,8 +10795,8 @@ fn session_to_pane(
                 SessionAxis::Vertical => Axis::Vertical,
             };
             match (
-                session_to_pane(workspace, owner, a, alive, font_size, window, cx),
-                session_to_pane(workspace, owner, b, alive, font_size, window, cx),
+                session_to_pane(workspace, owner, a, alive, font_size, grid, window, cx),
+                session_to_pane(workspace, owner, b, alive, font_size, grid, window, cx),
             ) {
                 (Some(a), Some(b)) => Some(Pane::split_node(axis, *ratio, a, b)),
                 (Some(only), None) | (None, Some(only)) => Some(only),
@@ -10794,6 +10810,7 @@ pub(crate) fn new_terminal(
     workspace: Option<crate::terminal::PaneWorkspace>,
     owner: Option<WorkspaceId>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     working_directory: Option<std::path::PathBuf>,
     restore_pane: Option<u64>,
     shell: Option<ShellSpec>,
@@ -10810,6 +10827,8 @@ pub(crate) fn new_terminal(
             restore_pane,
             shell,
             owner,
+            grid,
+            None,
         )?;
         return Ok(PaneSlot::Ready(build_terminal_view(
             parts, font_size, window, cx,
@@ -10827,7 +10846,18 @@ pub(crate) fn new_terminal(
         run_on_land: None,
         owner,
         font_size,
+        grid,
+        ..Default::default()
     };
+    Ok(pending_terminal(spawn, window, cx))
+}
+
+/// A pane slot that spawns `spawn` off the UI thread and lands it when done.
+fn pending_terminal(
+    spawn: crate::ui::pending_pane::PendingSpawn,
+    window: &mut Window,
+    cx: &mut Context<Tty7App>,
+) -> PaneSlot {
     // The same leak the reconnect banner had: this name is read out as
     // "Connecting to {machine}…" and "Could not reach {machine}", and a
     // `Profile` target spells itself as its config UUID (#485). The pane's own
@@ -10849,7 +10879,7 @@ pub(crate) fn new_terminal(
     let handle = pending.read(cx).focus_handle.clone();
     watch_pane_focus(&handle, pending.entity_id(), window, cx);
     start_pane_spawn(pending.clone(), window, cx);
-    Ok(PaneSlot::Connecting(pending))
+    PaneSlot::Connecting(pending)
 }
 
 fn start_pane_spawn(
@@ -10857,23 +10887,13 @@ fn start_pane_spawn(
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) {
-    let spawn = pending.read(cx).spawn.clone();
     let slot_id = pending.entity_id();
-    let font_size = spawn.font_size;
+    let font_size = pending.read(cx).spawn.font_size;
+    let job = pending.update(cx, |p, cx| {
+        crate::ui::agent_resume::spawn_job(&mut p.spawn, cx)
+    });
     cx.spawn_in(window, async move |this, cx| {
-        let parts = cx
-            .background_executor()
-            .spawn(async move {
-                TerminalView::spawn_shell_terminal_in(
-                    spawn.workspace.clone(),
-                    spawn.working_directory.clone(),
-                    spawn.restore_pane,
-                    spawn.shell.clone(),
-                    spawn.owner,
-                )
-                .map_err(|e| format!("{e:#}"))
-            })
-            .await;
+        let parts = cx.background_executor().spawn(async move { job() }).await;
         let _ = this.update_in(cx, |app, window, cx| {
             app.land_pane(slot_id, &pending, parts, font_size, window, cx);
         });
@@ -11045,12 +11065,13 @@ fn watch_pane_focus(
 /// [`inherited_start_dir`] for which openings carry one.
 pub(crate) fn new_terminal_native(
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     remote_start_dir: Option<std::path::PathBuf>,
     spec: Box<crate::daemon::protocol::NativeSshSpec>,
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> anyhow::Result<Entity<TerminalView>> {
-    let parts = TerminalView::spawn_native_ssh_terminal(spec, remote_start_dir)?;
+    let parts = TerminalView::spawn_native_ssh_terminal(spec, remote_start_dir, grid)?;
     let view = cx.new(|cx| {
         let mut view = TerminalView::from_native_ssh_parts(parts, window, cx);
         view.font_size = px(font_size);
@@ -12251,6 +12272,7 @@ mod tests {
                         run_on_land: None,
                         owner: None,
                         font_size: 14.0,
+                        ..Default::default()
                     },
                     cx,
                 )
@@ -14028,6 +14050,7 @@ mod tab_focus_memory_tests {
                     run_on_land: None,
                     owner: None,
                     font_size: 14.,
+                    ..Default::default()
                 },
                 cx,
             )

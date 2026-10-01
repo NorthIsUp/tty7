@@ -412,6 +412,10 @@ pub struct PaneRecord {
     pub ssh_spec: Option<Box<NativeSshSpec>>,
     #[serde(default)]
     pub agent: Option<AgentFacts>,
+    /// Fork: the last session an agent reported here, kept after it leaves
+    /// (`claude_background::note_session`).
+    #[serde(default)]
+    pub last_session: Option<AgentFacts>,
     /// What the pane is actually running, resolved: the spawn's override if it
     /// had one, otherwise the shell the config named at the time.
     ///
@@ -434,6 +438,7 @@ impl PaneRecord {
             osc_title: None,
             ssh_spec: None,
             agent: None,
+            last_session: None,
             shell: None,
             live: false,
         }
@@ -491,6 +496,7 @@ impl PaneSeed {
             osc_title: None,
             ssh_spec: self.ssh_spec.map(|s| Box::new(s.without_secrets())),
             agent: self.agent,
+            last_session: None,
             shell: self.shell,
             live,
         }
@@ -583,6 +589,8 @@ pub struct MachineStore {
     subscribers: Mutex<Vec<(SubscriberId, Notify)>>,
     next_subscriber: AtomicU64,
     unwritten: AtomicBool,
+    /// `group_migrate`'s marker is owed, written once the tree is.
+    mark_repaired: AtomicBool,
     flushing: AtomicBool,
 }
 
@@ -603,17 +611,28 @@ fn not_found(msg: impl Into<String>) -> io::Error {
 impl MachineStore {
     pub fn open(path: impl Into<PathBuf>) -> Arc<MachineStore> {
         let path = path.into();
-        let machine = load_machine(&path);
-        Arc::new(MachineStore {
+        let existed = path.exists();
+        let mut machine = load_machine(&path);
+        // An empty tree is either one that parsed empty or a failed load; the
+        // repair of the latter waits for a good one. A parse failure copies the
+        // file aside rather than moving it, so only reading it again tells.
+        let loaded = existed
+            && (!machine.workspaces.is_empty()
+                || std::fs::read_to_string(&path).is_ok_and(|t| parse_machine(&t).is_ok()));
+        let repair = crate::core::group_migrate::run_once(&mut machine, &path, existed, loaded);
+        let store = Arc::new(MachineStore {
             path,
             state: Mutex::new(machine),
             liveness: Mutex::new(None),
             notify_order: Mutex::new(()),
             subscribers: Mutex::new(Vec::new()),
             next_subscriber: AtomicU64::new(1),
-            unwritten: AtomicBool::new(false),
+            unwritten: AtomicBool::new(repair == Some(true)),
             flushing: AtomicBool::new(false),
-        })
+            mark_repaired: AtomicBool::new(repair.is_some()),
+        });
+        store.flush();
+        store
     }
 
     pub fn set_liveness_probe(&self, probe: LivenessProbe) {
@@ -1491,7 +1510,11 @@ impl MachineStore {
                 self.path.display()
             );
         }
-        crate::core::config::write_atomic_private(&self.path, &bytes)
+        crate::core::config::write_atomic_private(&self.path, &bytes)?;
+        if self.mark_repaired.swap(false, Ordering::AcqRel) {
+            crate::core::group_migrate::mark_done(&self.path);
+        }
+        Ok(())
     }
 
     fn notify_all(&self, deltas: &[(WorkspaceId, LayoutDelta)], origin: Option<SubscriberId>) {
@@ -1563,6 +1586,7 @@ fn register_pane(m: &mut Machine, seed: PaneSeed, live: bool) -> io::Result<()> 
         if record.shell.is_none() {
             record.shell = kept.shell;
         }
+        record.last_session = kept.last_session;
         return Ok(());
     }
     if m.panes.len() >= MAX_PANES {
