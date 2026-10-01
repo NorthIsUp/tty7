@@ -68,7 +68,8 @@ impl Client {
 
 fn connect(data_dir: &Path, token: &str) -> Client {
     let mut child = Command::new(env!("CARGO_BIN_EXE_tty7-server"))
-        .args(["--stdio", "--serve"])
+        .args(["--stdio", "--serve", "--config-dir"])
+        .arg(data_dir.join("config"))
         .env("TTY7_DATA_DIR", data_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -478,6 +479,8 @@ fn started_once(home: &Path, extra: &[&str]) {
         .args(["--stdio", "--serve"])
         .args(extra)
         .env("HOME", home)
+        // HOME is scratch, so the default dir the dev build refuses is too.
+        .env("TTY7_DEV_USE_REAL_CONFIG", "1")
         .env_remove("TTY7_DATA_DIR")
         .env_remove("TTY7_CONFIG_DIR")
         .env_remove("XDG_DATA_HOME")

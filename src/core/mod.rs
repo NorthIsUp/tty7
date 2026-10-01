@@ -8,6 +8,7 @@ pub mod cli_install;
 pub mod config;
 pub mod default_terminal;
 pub mod explorer_context_menu;
+pub mod fork_update;
 pub mod keychain;
 pub mod rate_meter;
 pub mod session;

@@ -446,6 +446,17 @@ fn run_daemon_inner() -> anyhow::Result<()> {
     // descriptor open, and adopting one marks it close-on-exec again.
     #[cfg(target_os = "macos")]
     crate::daemon::responsibility::disclaim_inherited();
+    // After the disclaim's re-exec, which needs it still set; before any
+    // thread exists, since this takes it out of the environment.
+    crate::daemon::dev_config_guard::opted_in();
+    // Before stderr is captured: its relay thread dies with the exit, and the
+    // refusal with it. An adopted handoff was checked by the server it left.
+    #[cfg(unix)]
+    if crate::daemon::handoff::requested().is_none() {
+        crate::daemon::dev_config_guard::enforce();
+    }
+    #[cfg(not(unix))]
+    crate::daemon::dev_config_guard::enforce();
 
     if let Err(e) = crate::core::logfile::capture_stderr() {
         log::warn!("could not capture daemon stderr: {e}");
@@ -604,6 +615,9 @@ fn hand_over(registry: &Registry, exe: &std::path::Path) -> anyhow::Error {
     // fail after this — a wrong architecture, a permission the metadata does
     // not show — but the everyday failures, a path that is not there or not a
     // program, are caught while everything is still intact.
+    if let Some(why) = crate::daemon::dev_config_guard::handoff_refusal(exe) {
+        return anyhow::anyhow!("cannot become {}: {why}", exe.display());
+    }
     match std::fs::metadata(exe) {
         Err(e) => return anyhow::anyhow!("cannot become {}: {e}", exe.display()),
         Ok(meta) => {
@@ -672,6 +686,10 @@ fn reaper(registry: Arc<Registry>, id: u64) -> impl FnOnce() + Send + 'static {
 
 pub fn control_services() -> crate::host::server::Services {
     use crate::core::machine::MachineStore;
+    if let Some(why) = crate::daemon::dev_config_guard::refusal() {
+        startup_note!("tty7-server: {why}; serving panes only");
+        return crate::host::server::Services::none();
+    }
     crate::core::machine::adopt_legacy_data_dir();
     match MachineStore::shared() {
         Ok(machine) => {

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run the debug GUI in the foreground"
+set -euo pipefail
+# A dev build refuses the real config dir unless told this run means it.
+TTY7_DEV_USE_REAL_CONFIG=1 exec cargo run --locked --bin tty7-app "$@"
