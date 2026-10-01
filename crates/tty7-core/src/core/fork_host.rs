@@ -6,7 +6,6 @@
 use std::io;
 
 use crate::core::agent_history::Roots;
-use crate::core::claude_background::{self, ResumePlan};
 use crate::core::cli_agent::CLIAgent;
 use crate::core::github::RepoSlug;
 use crate::core::history_search::{self, HistoryHit, Mentions};
@@ -14,7 +13,7 @@ use crate::host::guard_off_ui;
 use crate::host::local::LocalHost;
 
 /// Each call's default is the answer of a host that has none of it: nothing
-/// found, and a plain resume.
+/// found.
 pub trait ForkHost {
     /// Past sessions whose conversation contains `query`
     /// ([`history_search::search`]).
@@ -31,12 +30,6 @@ pub trait ForkHost {
         _repo: &RepoSlug,
     ) -> io::Result<Mentions> {
         Ok(Mentions::default())
-    }
-
-    /// How to reopen `agent`'s session `session_id`
-    /// ([`claude_background::resume_plan`]).
-    fn resume_plan(&self, _agent: CLIAgent, _session_id: &str) -> io::Result<ResumePlan> {
-        Ok(ResumePlan::Resume)
     }
 }
 
@@ -65,15 +58,6 @@ impl ForkHost for LocalHost {
         guard_off_ui();
         Ok(history_search::session_mentions(&roots()?, agent, id, repo))
     }
-
-    fn resume_plan(&self, agent: CLIAgent, session_id: &str) -> io::Result<ResumePlan> {
-        guard_off_ui();
-        Ok(claude_background::resume_plan(
-            &roots()?.claude,
-            agent,
-            session_id,
-        ))
-    }
 }
 
 #[cfg(test)]
@@ -81,7 +65,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_host_without_the_fork_calls_finds_nothing_and_just_resumes() {
+    fn a_host_without_the_fork_calls_finds_nothing() {
         let host: &dyn ForkHost = &NoFork;
         assert!(host.search_agent_history("x").unwrap().is_empty());
         let repo = RepoSlug {
@@ -90,9 +74,5 @@ mod tests {
         };
         let mentions = host.agent_session_mentions(CLIAgent::Claude, "id", &repo);
         assert_eq!(mentions.unwrap(), Mentions::default());
-        assert_eq!(
-            host.resume_plan(CLIAgent::Claude, "id").unwrap(),
-            ResumePlan::Resume
-        );
     }
 }

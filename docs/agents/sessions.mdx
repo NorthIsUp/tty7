@@ -36,13 +36,40 @@ Every wake starts **Settings → General → Agents starting at once**
 together; the next one starts as soon as one's agent is up (it reports a
 session, or has held the foreground for 5 s), or after 60 s at most. A tab waiting or starting shows a spinner where its moon was.
 
-With **Settings → General → Resume agents on workspace restart** on (the
-default, `resume_agents_on_launch`), every launch resumes, without a prompt,
-each agent tab tty7 put to sleep, in every window, the hotkey window included,
-even across a relaunch that happens before it wakes; `--continue` does the
-same. Tabs you hibernated and shell-only tabs stay asleep until opened. So does
-**Restart tty7 server…** when it ends the shells; an in-place restart keeps them
-running and wakes nothing. Turned off, agent tabs wait until you open them.
+With **Settings → General → Resume agents on workspace restart** on
+(`resume_agents_on_launch`, off by default), every launch resumes each agent
+tab tty7 put to sleep, in every window, the hotkey window included, even across
+a relaunch that happens before it wakes; `--continue` does the same. Tabs you
+hibernated and shell-only tabs stay asleep until opened. So does **Restart tty7
+server…** when it ends the shells; an in-place restart keeps them running and
+wakes nothing. Turned off, agent tabs wait until you open them.
+
+**How agents resume** (`agent_resume_mode`) picks how the resume reaches the
+shell: **Type into the shell** (`typed`, the default) types it at the first
+prompt; **Run as the tab** (`program`) has the new shell run it once itself,
+nothing typed, and leaves the shell behind when the agent exits. Only sh, bash,
+zsh, dash, ksh and fish run it; any other shell, and a pane on another machine,
+is typed into.
+
+**Continue interrupted agents** (`continue_interrupted_agents`, off by default)
+reads the end of a Claude session's transcript before resuming it. When the
+last turn was cut off — the agent was mid-reply or mid-tool, a message of yours
+went unanswered, or the turn ended waiting on a background agent or command
+that never reported back — the resume sends the **Continue message**
+(`continue_prompt`) so the agent picks up where it was. A turn that ended, one
+you stopped with Esc, and Claude's own error or usage-limit messages resume
+without a word.
+
+| Resume on restart | How agents resume | Continue interrupted | A launch after a reboot |
+|---|---|---|---|
+| off | either | either | nothing wakes; each agent resumes when you open its tab |
+| on | Type into the shell | off | every agent tab tty7 put to sleep types its resume, no message |
+| on | Type into the shell | on | the same, and interrupted ones are told the Continue message |
+| on | Run as the tab | off | each resume runs as its tab's first command, no message |
+| on | Run as the tab | on | the same, and interrupted ones are told the Continue message |
+
+**Continue All Agents** always sends the Continue message, to every sleeping
+agent tab, whatever these settings say.
 
 <Note>
   Resume needs the session id. Claude Code names it on its own command line —

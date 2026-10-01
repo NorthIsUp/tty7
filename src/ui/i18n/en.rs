@@ -2054,6 +2054,20 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAgentWakeConcurrencyDesc => {
             "How many agent tabs a wake starts together; the rest wait their turn."
         }
+        L10nKey::SettingsAgentResumeMode => "How agents resume",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "Run the resume as the tab, or type it into the shell. Shells other than sh, bash, zsh, dash, ksh and fish are always typed into."
+        }
+        L10nKey::SettingsAgentResumeProgram => "Run as the tab",
+        L10nKey::SettingsAgentResumeTyped => "Type into the shell",
+        L10nKey::SettingsContinueInterrupted => "Continue interrupted agents",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "Send the continue message to an agent whose turn was cut off or whose background work never finished. Off, agents resume without a word."
+        }
+        L10nKey::SettingsContinuePrompt => "Continue message",
+        L10nKey::SettingsContinuePromptDesc => {
+            "What an interrupted agent, and Continue All Agents, sends."
+        }
         L10nKey::QuitStopServerBodyResume => {
             "This quits tty7 and stops tty7 server; anything running in your shells is terminated. Your tabs and layout come back next launch, and every agent picks its conversation back up right away; other tabs start when you open them. (Closing the window only retires tty7 to the tray — the shells keep running.)"
         }

@@ -45,6 +45,10 @@ pub const FEATURE_UPDATE_SERVER: &str = "update-server";
 /// and drops the connection.
 pub const FEATURE_SIZE_LEASE: &str = "size-lease";
 
+/// The daemon reads [`RestoreFrom::run_once`]; an older one drops it, so a
+/// client hands the command over only after seeing this.
+pub const FEATURE_RUN_ONCE: &str = "run-once";
+
 /// What a [`ClientMsg::Lease`] asks. The first two are an observer's, the last
 /// two the controller's; each side's are ignored from the other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +85,7 @@ impl DaemonVersion {
             FEATURE_RESTORE_SCROLLBACK.to_string(),
             FEATURE_UPDATE_SERVER.to_string(),
             FEATURE_SIZE_LEASE.to_string(),
+            FEATURE_RUN_ONCE.to_string(),
         ];
         if cfg!(unix) {
             features.push(FEATURE_HANDOFF.to_string());
@@ -1242,6 +1247,10 @@ pub struct RestoreFrom {
     pub pane_id: u64,
     #[serde(default)]
     pub banner: Option<String>,
+    /// A command the new shell runs once (the dead pane's agent, resumed),
+    /// never recorded as its shell. See `daemon::run_once`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_once: Option<String>,
 }
 
 impl ClientMsg {

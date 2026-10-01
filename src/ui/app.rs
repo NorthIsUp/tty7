@@ -4210,25 +4210,7 @@ impl Tty7App {
         let was_focused = pending.read(cx).focus_handle.contains_focused(window, cx);
         let restored = parts.restored;
         let view = build_terminal_view(parts, font_size, window, cx);
-        let resume = (!restored)
-            .then(|| {
-                let spawn = &pending.read(cx).spawn;
-                crate::ui::agent_resume::Resume::restored(
-                    &spawn.agent,
-                    spawn.agent_session_id.as_deref(),
-                    spawn.agent_launch_argv.as_deref(),
-                    cx,
-                )
-                .map(|r| r.landing(spawn.agent_prompt.clone()))
-                .or_else(|| {
-                    let line = spawn.run_on_land.clone();
-                    line.map(crate::ui::agent_resume::AtPrompt::Line)
-                })
-            })
-            .flatten();
-        if let Some(at) = resume {
-            at.run(&view, cx);
-        }
+        crate::ui::agent_resume::landed(&view, &pending.read(cx).spawn.clone(), restored, cx);
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
         if was_focused {
@@ -7446,6 +7428,7 @@ impl Tty7App {
             self.build_shell_inputs(&mut subs, window, cx);
         let link_file_command_input = self.build_link_file_command_input(&mut subs, window, cx);
         let http_proxy_input = self.build_http_proxy_input(&mut subs, window, cx);
+        self.build_continue_prompt_input(&mut subs, window, cx);
         // One query box for whichever popover is open — a theme list or a
         // font list — since only one is ever open at a time.
         // Shared by every searchable dropdown on the page, so the hint is the
@@ -10773,6 +10756,11 @@ fn session_to_pane(
                 Some(_) => None,
                 None => cwd.clone(),
             };
+            if let Some(spawn) = crate::ui::agent_resume::dead_agent_spawn(
+                sp, workspace, owner, &local_cwd, restore, alive, font_size, grid, cx,
+            ) {
+                return Some(Pane::leaf(pending_terminal(spawn, window, cx)));
+            }
             let view = match new_terminal(
                 workspace.cloned(),
                 Some(owner),
@@ -10790,28 +10778,6 @@ fn session_to_pane(
                     return None;
                 }
             };
-            match &view {
-                PaneSlot::Ready(terminal) if !terminal.read(cx).restored() => {
-                    if let Some(resume) = crate::ui::agent_resume::Resume::restored(
-                        agent,
-                        agent_session_id.as_deref(),
-                        agent_launch_argv.as_deref(),
-                        cx,
-                    ) {
-                        let at = crate::ui::agent_resume::AtPrompt::Resume(resume);
-                        at.run(terminal, cx);
-                    }
-                }
-                PaneSlot::Ready(_) => {}
-                PaneSlot::Connecting(pending) => {
-                    pending.update(cx, |pending, cx| {
-                        pending.spawn.agent = *agent;
-                        pending.spawn.agent_session_id = agent_session_id.clone();
-                        pending.spawn.agent_launch_argv = agent_launch_argv.clone();
-                        pending.spawn.agent_prompt = crate::ui::agent_resume::wake_prompt(cx);
-                    });
-                }
-            }
             Some(Pane::leaf(view))
         }
         SessionPane::Split { axis, ratio, a, b } => {
@@ -10853,6 +10819,7 @@ pub(crate) fn new_terminal(
             shell,
             owner,
             grid,
+            None,
         )?;
         return Ok(PaneSlot::Ready(build_terminal_view(
             parts, font_size, window, cx,
@@ -10873,6 +10840,15 @@ pub(crate) fn new_terminal(
         grid,
         ..Default::default()
     };
+    Ok(pending_terminal(spawn, window, cx))
+}
+
+/// A pane slot that spawns `spawn` off the UI thread and lands it when done.
+fn pending_terminal(
+    spawn: crate::ui::pending_pane::PendingSpawn,
+    window: &mut Window,
+    cx: &mut Context<Tty7App>,
+) -> PaneSlot {
     // The same leak the reconnect banner had: this name is read out as
     // "Connecting to {machine}…" and "Could not reach {machine}", and a
     // `Profile` target spells itself as its config UUID (#485). The pane's own
@@ -10894,7 +10870,7 @@ pub(crate) fn new_terminal(
     let handle = pending.read(cx).focus_handle.clone();
     watch_pane_focus(&handle, pending.entity_id(), window, cx);
     start_pane_spawn(pending.clone(), window, cx);
-    Ok(PaneSlot::Connecting(pending))
+    PaneSlot::Connecting(pending)
 }
 
 fn start_pane_spawn(
@@ -10902,24 +10878,13 @@ fn start_pane_spawn(
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) {
-    let spawn = pending.read(cx).spawn.clone();
     let slot_id = pending.entity_id();
-    let font_size = spawn.font_size;
+    let font_size = pending.read(cx).spawn.font_size;
+    let job = pending.update(cx, |p, cx| {
+        crate::ui::agent_resume::spawn_job(&mut p.spawn, cx)
+    });
     cx.spawn_in(window, async move |this, cx| {
-        let parts = cx
-            .background_executor()
-            .spawn(async move {
-                TerminalView::spawn_shell_terminal_in(
-                    spawn.workspace.clone(),
-                    spawn.working_directory.clone(),
-                    spawn.restore_pane,
-                    spawn.shell.clone(),
-                    spawn.owner,
-                    spawn.grid,
-                )
-                .map_err(|e| format!("{e:#}"))
-            })
-            .await;
+        let parts = cx.background_executor().spawn(async move { job() }).await;
         let _ = this.update_in(cx, |app, window, cx| {
             app.land_pane(slot_id, &pending, parts, font_size, window, cx);
         });

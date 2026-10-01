@@ -183,9 +183,11 @@ angle brackets, and a tab:
 | `agent_frecency` | object | `{}` | Written by tty7: how often and how recently each agent ran, to order quick launch. |
 | `restore_agent_sessions` | bool | `true` | Relaunch an agent conversation when a lost pane is restored. |
 | `restore_asleep` | bool | `true` | Restore a tab whose panes all died (reboot, Quit and Stop) asleep; it starts, and resumes its agent, when first opened. |
-| `continue_prompt` | string | `"continue"` | What **Continue All Agents** tells each agent it resumes (Claude Code and Codex); empty resumes without a prompt. |
+| `continue_prompt` | string | `"continue"` | Settings → General → **Continue message**. What **Continue All Agents**, and with `continue_interrupted_agents` an interrupted agent, is told on resume (Claude Code and Codex); empty says nothing. |
 | `agent_wake_concurrency` | int \| null | `null` | Settings → General → **Agents starting at once**. How many tabs a wake starts together (1–20); `null` is a quarter of the cores. Replaces `continue_stagger_ms`, which is ignored. |
-| `resume_agents_on_launch` | bool | `true` | Settings → General → **Resume agents on workspace restart**. At launch, and after a Restart tty7 server that ends the shells, wake every agent tab tty7 put to sleep, with no prompt, as `--continue` does. Tabs you hibernated and shell-only tabs stay asleep. |
+| `resume_agents_on_launch` | bool | `false` | Settings → General → **Resume agents on workspace restart**. At launch, and after a Restart tty7 server that ends the shells, wake every agent tab tty7 put to sleep, as `--continue` does. Tabs you hibernated and shell-only tabs stay asleep. |
+| `agent_resume_mode` | `"typed"` \| `"program"` | `"typed"` | Settings → General → **How agents resume**. `typed` types the resume at the new shell's first prompt; `program` has the shell run it once itself. sh, bash, zsh, dash, ksh and fish only; other shells and remote panes are typed into. [More →](/agents/sessions) |
+| `continue_interrupted_agents` | bool | `false` | Settings → General → **Continue interrupted agents**. Send `continue_prompt` to a resumed Claude session whose last turn was cut off or left background work unfinished; off, agents resume without a word. |
 | `new_tab_page` | bool | `true` | New Tab opens the new tab page (agent or terminal, and a directory) instead of a shell. |
 | `dir_roots` | string[] | `["~/src","~/code","~/projects"]` | Directories whose children the new tab page offers. |
 | `dir_frecency` | object | `{}` | Maintained by tty7: how often each directory was launched into from the new tab page. |

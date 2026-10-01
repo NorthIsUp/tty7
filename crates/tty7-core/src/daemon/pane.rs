@@ -175,6 +175,7 @@ fn build_spawn_config(
     cwd: Option<PathBuf>,
     shell: Option<ShellSpec>,
     workspace: Option<&str>,
+    run_once: Option<&str>,
 ) -> anyhow::Result<SpawnConfig> {
     let initial_cwd = initial_working_directory(cwd);
     let configured = choose_shell(shell, crate::core::config::shell_command());
@@ -193,7 +194,11 @@ fn build_spawn_config(
         args: c.args.clone(),
         args_are_tty7_defaults: c.args_are_tty7_defaults,
     });
-    let (cmd, integration_dir) = build_shell_command(configured, &initial_cwd, pane, workspace)?;
+    let (mut cmd, integration_dir) =
+        build_shell_command(configured, &initial_cwd, pane, workspace)?;
+    if let Some(line) = run_once {
+        super::run_once::apply(&mut cmd, line, shell.as_ref());
+    }
     Ok(SpawnConfig {
         cmd,
         initial_cwd,
@@ -1734,6 +1739,7 @@ impl DaemonPane {
         owner: Option<String>,
         workspace: Option<String>,
         restore: Option<Restore>,
+        run_once: Option<String>,
         allow_remote_clipboard_write: bool,
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
@@ -1747,7 +1753,7 @@ impl DaemonPane {
         crate::daemon::winproc::allow_ctrl_c_in_children();
 
         let pair = native_pty_system().openpty(pty_size)?;
-        let spawn = build_spawn_config(id, cwd, shell, workspace.as_deref())?;
+        let spawn = build_spawn_config(id, cwd, shell, workspace.as_deref(), run_once.as_deref())?;
 
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
@@ -4107,6 +4113,33 @@ mod tests {
         let _ = std::fs::remove_file(&file);
     }
 
+    /// What a pane records as its shell — what a split copies and the next
+    /// restore spawns — is the shell, never the command it ran once.
+    #[cfg(unix)]
+    #[test]
+    fn a_pane_that_runs_a_command_once_records_the_plain_shell() {
+        let zsh = ShellSpec {
+            program: "/bin/zsh".into(),
+            args: Vec::new(),
+            args_are_tty7_defaults: false,
+        };
+        let spawn = build_spawn_config(1, None, Some(zsh.clone()), None, Some("claude --resume x"))
+            .expect("spawn config");
+        assert_eq!(spawn.shell, Some(zsh));
+        assert_eq!(
+            spawn.cmd.get_env("TTY7_RUN_ONCE").and_then(|v| v.to_str()),
+            Some("claude --resume x")
+        );
+        assert!(
+            !spawn
+                .cmd
+                .get_argv()
+                .iter()
+                .any(|a| a.to_string_lossy().contains("claude")),
+            "the command is not in the shell's argv"
+        );
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn live_pane_reports_an_uninstrumented_shells_cwd() {
@@ -4122,6 +4155,7 @@ mod tests {
                 args: vec!["-c".into(), "cd /usr && exec cat".into()],
                 args_are_tty7_defaults: false,
             }),
+            None,
             None,
             None,
             None,

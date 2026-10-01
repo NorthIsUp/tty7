@@ -135,6 +135,23 @@ if [[ -o interactive ]] && [[ -z "$TTY7_SHELL_INTEGRATION" ]]; then
     unfunction __tty7_restore_zdotdir
   }
   add-zsh-hook precmd __tty7_restore_zdotdir
+
+  # A command the pane was spawned to run once (a resumed agent): accepted at
+  # the first prompt as if typed, after every precmd above has run, and out of
+  # the environment before it starts.
+  if [[ -n "$TTY7_RUN_ONCE" ]]; then
+    __tty7_run_once=$TTY7_RUN_ONCE
+    unset TTY7_RUN_ONCE
+    __tty7_run_once_line() {
+      add-zle-hook-widget -d line-init __tty7_run_once_line
+      BUFFER=$__tty7_run_once
+      unset __tty7_run_once
+      zle .accept-line
+    }
+    autoload -Uz add-zle-hook-widget
+    zle -N __tty7_run_once_line
+    add-zle-hook-widget line-init __tty7_run_once_line
+  fi
 fi
 # --- end tty7 shell integration ---
 "#;
@@ -183,11 +200,23 @@ if status is-interactive; and test -z "$TTY7_SHELL_INTEGRATION"
   # Runs on the fish_prompt *event*, which fires before fish calls the
   # fish_prompt *function* to render the prompt text — i.e. exactly where A
   # (prompt start) belongs.
+  # A command the pane was spawned to run once (a resumed agent), run before
+  # the first prompt and out of the environment before it starts.
+  if test -n "$TTY7_RUN_ONCE"
+    set -g __tty7_run_once $TTY7_RUN_ONCE
+    set -e TTY7_RUN_ONCE
+  end
+
   function __tty7_precmd --on-event fish_prompt
     set -l ret $status
     if set -q __tty7_cmd_active
       __tty7_osc "133;D;$ret"
       set -e __tty7_cmd_active
+    end
+    if set -q __tty7_run_once
+      set -l cmd $__tty7_run_once
+      set -e __tty7_run_once
+      eval $cmd
     end
     __tty7_report_cwd
     __tty7_report_edit_mode
@@ -298,8 +327,21 @@ if [[ $- == *i* ]] && [[ -z "$TTY7_SHELL_INTEGRATION" ]]; then
     return $ret
   }
 
+  # A command the pane was spawned to run once (a resumed agent), run before
+  # the first prompt and out of the environment before it starts.
+  if [[ -n "$TTY7_RUN_ONCE" ]]; then
+    __tty7_run_once=$TTY7_RUN_ONCE
+    unset TTY7_RUN_ONCE
+  fi
+
   __tty7_precmd() {
     local ret=$?
+    if [[ -n "${__tty7_run_once:-}" ]]; then
+      local cmd=$__tty7_run_once
+      unset __tty7_run_once
+      builtin history -s -- "$cmd"
+      eval "$cmd"
+    fi
     __tty7_report_cwd
     __tty7_report_edit_mode
     __tty7_osc "133;A"

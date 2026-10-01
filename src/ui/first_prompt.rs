@@ -1,7 +1,8 @@
 //! Typing a line into a new shell at its first prompt, so it is not echoed
 //! above everything the shell prints while it starts (a banner, `fastfetch`)
-//! and read only afterwards. Every typed launch and resume goes through
-//! [`type_at_first_prompt`]; how long it waits is [`prompt_patience`].
+//! and read only afterwards. Every typed launch, and a resume when
+//! `agent_resume_mode` is `typed`, goes through [`type_at_first_prompt`]; how
+//! long it waits is [`prompt_patience`].
 
 use std::time::Duration;
 
@@ -15,7 +16,7 @@ const PROMPT_POLL: Duration = Duration::from_millis(50);
 
 /// Whether `view`'s shell, and so its agent session, runs on this machine:
 /// not a remote workspace's pane, not SSH (native or typed), not WSL.
-pub(crate) fn on_this_machine(view: &TerminalView) -> bool {
+fn on_this_machine(view: &TerminalView) -> bool {
     view.pane_route().is_local() && view.ssh_spec().is_none() && view.remote_context().is_none()
 }
 
