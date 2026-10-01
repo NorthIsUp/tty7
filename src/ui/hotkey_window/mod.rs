@@ -155,6 +155,18 @@ pub(crate) fn workspace(cx: &App) -> Option<WorkspaceId> {
     }
 }
 
+/// Whether `window` is the hotkey window covering the screen, whose frame
+/// is not the one to remember for the next launch.
+pub(crate) fn covering(cx: &App, window: gpui::AnyWindowHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    return appkit::covering(cx, window);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (cx, window);
+        false
+    }
+}
+
 /// The switcher row menu's hotkey item for `row`: its label and the hotkey
 /// workspace picking it leaves.
 fn pick(hotkey: Option<WorkspaceId>, row: WorkspaceId) -> (L10nKey, Option<WorkspaceId>) {

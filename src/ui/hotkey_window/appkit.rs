@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use block2::RcBlock;
 use gpui::{AnyWindowHandle, App, AsyncApp, Global, Subscription, Window};
 use objc2::rc::Retained;
-use objc2::{AnyThread, MainThreadMarker};
+use objc2::{AnyThread, MainThreadMarker, Message as _};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationOptions, NSApplicationDidResignActiveNotification,
     NSApplicationPresentationOptions, NSEvent, NSNormalWindowLevel, NSRunningApplication, NSScreen,
@@ -88,6 +88,10 @@ struct HotkeyWindow {
     generation: u64,
     /// The presentation options are the hotkey window's (see [`presentation`]).
     presented: bool,
+    /// The frame [`set_frame`] last queued, until it lands.
+    // ponytail: one slot for every window; key it per window if a race
+    // between two windows' frame changes ever matters.
+    queued: Option<(AnyWindowHandle, NSRect)>,
 }
 
 impl Global for HotkeyWindow {}
@@ -174,18 +178,63 @@ pub(super) fn set_workspace(cx: &mut App, id: Option<WorkspaceId>) {
 fn release(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let hk = cx.global_mut::<HotkeyWindow>();
     lower(hk.stack.dismissed());
-    restore_saved(hk, handle, ns);
+    if let Some(frame) = restore_saved(hk, handle, ns) {
+        set_frame(cx, handle, ns, frame);
+    }
     unpresent(cx);
 }
 
-/// Puts back what a full screen summon changed on `handle`'s window.
-fn restore_saved(hk: &mut HotkeyWindow, handle: AnyWindowHandle, ns: &NSWindow) {
-    if let Some(ix) = hk.saved.iter().position(|s| s.window == handle) {
-        let s = hk.saved.remove(ix);
-        ns.setLevel(s.level);
-        ns.setCollectionBehavior(s.behavior);
-        ns.setFrame_display(s.frame, true);
-    }
+/// Puts back the level and behavior a full screen summon changed on
+/// `handle`'s window, and returns the frame it had before.
+fn restore_saved(hk: &mut HotkeyWindow, handle: AnyWindowHandle, ns: &NSWindow) -> Option<NSRect> {
+    let ix = hk.saved.iter().position(|s| s.window == handle)?;
+    let s = hk.saved.remove(ix);
+    ns.setLevel(s.level);
+    ns.setCollectionBehavior(s.behavior);
+    Some(s.frame)
+}
+
+/// Whether `handle` is the hotkey window with the full screen frame on.
+pub(super) fn covering(cx: &App, handle: AnyWindowHandle) -> bool {
+    cx.try_global::<HotkeyWindow>()
+        .is_some_and(|hk| hk.saved.iter().any(|s| s.window == handle))
+}
+
+/// Moves the window on the next main-thread turn, outside the App borrow:
+/// gpui's resize callback re-enters the App, and from inside it fails
+/// ("RefCell already borrowed"), leaving the viewport at the old size. The
+/// no-op check runs in the task, so of several queued moves the last wins.
+/// True when the window is not at `frame`, or not headed there.
+fn set_frame(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow, frame: NSRect) -> bool {
+    let hk = cx.global_mut::<HotkeyWindow>();
+    let moves = headed(hk.queued, handle, ns.frame()) != frame;
+    hk.queued = Some((handle, frame));
+    let ns = ns.retain();
+    cx.spawn(async move |cx| {
+        if ns.frame() != frame {
+            ns.setFrame_display(frame, true);
+        }
+        cx.update(|cx| {
+            let hk = cx.global_mut::<HotkeyWindow>();
+            if hk.queued == Some((handle, frame)) {
+                hk.queued = None;
+            }
+        });
+    })
+    .detach();
+    moves
+}
+
+/// Where `handle`'s window is headed: the frame last queued for it, which
+/// is not on screen yet, or the one it has.
+fn headed(
+    queued: Option<(AnyWindowHandle, NSRect)>,
+    handle: AnyWindowHandle,
+    on_screen: NSRect,
+) -> NSRect {
+    queued
+        .filter(|(h, _)| *h == handle)
+        .map_or(on_screen, |(_, f)| f)
 }
 
 /// Any tty7 window taking focus (Settings, a file picker, another
@@ -375,14 +424,19 @@ fn show(cx: &mut App, handle: AnyWindowHandle, ns: Retained<NSWindow>, fade_in: 
     let previous = NSWorkspace::sharedWorkspace()
         .frontmostApplication()
         .filter(|app| app.processIdentifier() != me.processIdentifier());
-    place(cx, handle, &ns);
+    let moves = place(cx, handle, &ns);
     let hk = cx.global_mut::<HotkeyWindow>();
     hk.previous = previous;
     lower(hk.stack.summoned(ns.level() > NSNormalWindowLevel));
     let ms = if fade_in { fade_ms(cx) } else { 0 };
-    if ms > 0 {
+    // Transparent until the fade below, which gpui's main-queue FIFO
+    // dispatch (gpui_macos dispatcher.rs) runs after `place`'s frame task,
+    // so the window never shows at its old size.
+    if ms > 0 || moves {
         ns.setAlphaValue(0.0);
     }
+    // Expected and harmless: with tty7 already active, gpui logs "RefCell
+    // already borrowed" for the frame change key status brings.
     ns.makeKeyAndOrderFront(None);
     follow_key(cx);
     // Only the key and main windows come forward, where NSApp's
@@ -476,24 +530,16 @@ async fn fade(cx: &AsyncApp, ns: &NSWindow, from: f64, to: f64, ms: u64, generat
 
 /// Fullscreen style: cover the screen the mouse is on below its menu bar, above other apps'
 /// windows but under system ones (see [`LEVEL`]), on whichever Space is
-/// current. Window style: undo that if it was done.
-fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
+/// current. Window style: undo that if it was done. True when the window
+/// moves.
+fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) -> bool {
     let fullscreen = cx.global::<Config>().fork.global_hotkey_fullscreen;
     let hk = cx.global_mut::<HotkeyWindow>();
     if !fullscreen {
-        restore_saved(hk, handle, ns);
-        return;
-    }
-    if !hk.saved.iter().any(|s| s.window == handle) {
-        hk.saved.push(Saved {
-            window: handle,
-            frame: ns.frame(),
-            level: ns.level(),
-            behavior: ns.collectionBehavior(),
-        });
+        return restore_saved(hk, handle, ns).is_some_and(|frame| set_frame(cx, handle, ns, frame));
     }
     let Some(mtm) = MainThreadMarker::new() else {
-        return;
+        return false;
     };
     let mouse = NSEvent::mouseLocation();
     let screens = NSScreen::screens(mtm);
@@ -507,7 +553,16 @@ fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
                 && mouse.y < f.origin.y + f.size.height
         })
         .or_else(|| NSScreen::mainScreen(mtm));
-    let Some(screen) = screen else { return };
+    let Some(screen) = screen else { return false };
+    if !hk.saved.iter().any(|s| s.window == handle) {
+        hk.saved.push(Saved {
+            window: handle,
+            // A release's restore may still be queued behind the cover.
+            frame: headed(hk.queued, handle, ns.frame()),
+            level: ns.level(),
+            behavior: ns.collectionBehavior(),
+        });
+    }
     ns.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::FullScreenAuxiliary,
@@ -517,7 +572,7 @@ fn place(cx: &mut App, handle: AnyWindowHandle, ns: &NSWindow) {
     let visible = screen.visibleFrame();
     (frame.origin.y, frame.size.height) =
         cover(frame.origin.y, visible.origin.y, visible.size.height);
-    ns.setFrame_display(frame, true);
+    set_frame(cx, handle, ns, frame)
 }
 
 /// Sets or puts back the presentation options as the key window says: on
@@ -627,4 +682,58 @@ fn resigned(cx: &mut App) {
         ns.setLevel(NSNormalWindowLevel);
     }
     lower(cx.global_mut::<HotkeyWindow>().stack.dismissed());
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{TestAppContext, VisualContext as _, px, size};
+
+    use super::*;
+    use crate::ui::app::test_window;
+
+    #[gpui::test]
+    fn a_covered_hotkey_window_keeps_the_bounds_it_had_before_the_cover(cx: &mut TestAppContext) {
+        let (app, vcx) = test_window::harness(cx);
+        let handle = vcx.window_handle();
+        let before = app.read_with(cx, |app, _| app.window_bounds);
+        cx.update(|cx| {
+            cx.set_global(HotkeyWindow {
+                saved: vec![Saved {
+                    window: handle,
+                    frame: NSRect::ZERO,
+                    level: 0,
+                    behavior: NSWindowCollectionBehavior::empty(),
+                }],
+                ..HotkeyWindow::default()
+            })
+        });
+        cx.simulate_window_resize(handle, size(px(3440.), px(1410.)));
+        cx.run_until_parked();
+        assert_eq!(app.read_with(cx, |app, _| app.window_bounds), before);
+
+        cx.update(|cx| cx.global_mut::<HotkeyWindow>().saved.clear());
+        cx.simulate_window_resize(handle, size(px(800.), px(600.)));
+        cx.run_until_parked();
+        assert_eq!(
+            app.read_with(cx, |app, _| app.window_bounds.size),
+            size(px(800.), px(600.)),
+            "uncovered, a resize is remembered"
+        );
+    }
+
+    #[gpui::test]
+    fn headed_is_the_frame_queued_for_that_window_else_the_one_on_screen(cx: &mut TestAppContext) {
+        let (_, vcx) = test_window::harness(cx);
+        let (hot, other) = (vcx.window_handle(), cx.add_empty_window().window_handle());
+        let rect = |w| {
+            NSRect::new(
+                objc2_foundation::NSPoint::ZERO,
+                objc2_foundation::NSSize::new(w, 900.),
+            )
+        };
+        let (cover, windowed) = (rect(3440.), rect(1440.));
+        assert_eq!(headed(Some((hot, windowed)), hot, cover), windowed);
+        assert_eq!(headed(Some((other, windowed)), hot, cover), cover);
+        assert_eq!(headed(None, hot, cover), cover);
+    }
 }

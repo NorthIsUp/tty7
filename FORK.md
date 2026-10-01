@@ -110,6 +110,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/main.rs` | `main`, arg scan and after `announce_detached_at_launch` | `agent_resume::wake_launch_window`: `--continue`, else `resume_agents_on_launch` |
 | `src/ui/app.rs` | `Tty7App` fields + `with_session_at` init | `continue_when_tabs_land` |
 | `src/main.rs` | `main`, after `keymap::init` | `hotkey_window::init` |
+| `src/ui/app.rs` | `with_session_at`'s `observe_window_bounds`; `window_bounds` made `pub(crate)` for its test | skip `hotkey_window::covering`, so the full screen frame never becomes the workspace's saved geometry |
 | `src/ui/settings/pages.rs` | `render_settings_appearance`, after the window section | `hotkey_window_settings` rows |
 | `src/ui/settings/pages.rs` | `render_settings_general`, Startup & Restore group | chain `resume_agents_setting` (Resume agents on restart) |
 | `src/ui/app.rs` | `quit_stop_sessions`, `restart_daemon` | body from `agent_resume::quit_stop_body` / `restart_body`, which say whether agents resume; `agent_resume::arm_restart_wake` before a confirmed restart |
