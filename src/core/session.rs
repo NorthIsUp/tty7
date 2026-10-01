@@ -112,8 +112,9 @@ impl WorkspaceStore {
     /// are still running, and silence about them is how they get forgotten
     /// (#597) — the caller is expected to say something.
     pub fn restore_one(cx: &mut gpui::App) -> Option<(WorkspaceId, usize)> {
+        let hotkey = crate::ui::hotkey_window::workspace(cx);
         let store = Self::try_store(cx)?;
-        let keep = store.views.workspace_to_restore()?;
+        let keep = crate::ui::hotkey_window::to_restore(&store.views, hotkey)?;
         let reattaching = store.views.get(keep).is_some_and(|view| !view.open);
         let mut detached = 0usize;
         for view in &mut store.views.views {
