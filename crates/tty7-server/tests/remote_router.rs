@@ -34,6 +34,8 @@ fn a_routed_connection_reaches_a_real_server() {
         &[
             "--stdio",
             "--serve",
+            "--config-dir",
+            &dir.path().join("config").to_string_lossy(),
             "--control-sock",
             &missing.to_string_lossy(),
         ],
@@ -122,10 +124,15 @@ fn bound_control_socket(runtime_dir: Option<&str>, home: &str) -> String {
     // Deliberately no --config-dir: the control socket is derived from the
     // config dir, and remote_control_socket derives the remote's from $HOME the
     // same way. Overriding it here would compare two different rules. HOME is
-    // already a temp dir, so this stays isolated.
+    // already a temp dir, so this stays isolated, and opting in past the dev
+    // build's refusal of the default dir is safe.
     let mut cmd = Command::new(EXE);
     cmd.arg("--daemon")
         .env("HOME", home)
+        .env("TTY7_DEV_USE_REAL_CONFIG", "1")
+        // Else `adopt_legacy_data_dir` could move a real legacy tree into the
+        // scratch HOME, to be deleted with it.
+        .env_remove("XDG_DATA_HOME")
         .env_remove("TTY7_CONFIG_DIR")
         .env_remove("TTY7_CONTROL_SOCK")
         .stdout(Stdio::null())

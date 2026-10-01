@@ -2435,6 +2435,121 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubShowFullText => "Показать полный текст",
         L10nKey::GitHubShowHiddenComments => "Показать ещё комментарии ({count})",
         L10nKey::GitHubShowAllReviewers => "Показать всех рецензентов ({count})",
+        // fork: keys the fork adds (docs/fork/features/)
+        L10nKey::QuitStopServerBodyAsleep => {
+            "tty7 закроется, сервер tty7 остановится, все процессы в оболочках завершатся. При следующем запуске вкладки и расположение вернутся в спящем виде: каждая запускается, когда вы её открываете, а агент продолжает свой разговор. Закрытие окна лишь сворачивает tty7 в трей, оболочки продолжают работать."
+        }
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "Чтобы установить хуки, запустите установленное приложение tty7; эта сборка запущена из {path}"
+        }
+        L10nKey::SwitcherSetHotkeyWorkspace => "Сделать рабочей областью горячей клавиши",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "Отвязать от горячей клавиши",
+        L10nKey::SwitcherHotkeyWorkspace => "Рабочая область горячей клавиши",
+        L10nKey::CmdSearchText => "Искать текст в файлах…",
+        L10nKey::SearchTabText => "Текст",
+        L10nKey::SearchPlaceholderText => "Искать в содержимом файлов…",
+        L10nKey::SearchTextTooShort => {
+            "Введите не меньше 3 символов, чтобы искать в содержимом файлов."
+        }
+        L10nKey::SearchTabHistory => "История",
+        L10nKey::SearchPlaceholderHistory => "Искать сказанное вами и вашими агентами…",
+        L10nKey::SearchHistoryTooShort => {
+            "Введите не меньше 3 символов, чтобы искать в разговорах агентов."
+        }
+        L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
+        L10nKey::SearchHistoryHits => "Совпадений: {count}",
+        L10nKey::CmdSearchAgents => "Искать вкладки и сеансы агентов…",
+        L10nKey::SearchTabAgents => "Агенты",
+        L10nKey::SearchPlaceholderAgents => "Искать открытые вкладки и сеансы агентов…",
+        L10nKey::CmdContinueAllAgents => "Продолжить всех агентов",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "возобновить каждую спящую вкладку агента с интервалом в несколько секунд и попросить продолжить"
+        }
+        L10nKey::NewTabPageTitle => "Новая вкладка",
+        L10nKey::NewTabPageTerminal => "Терминал",
+        L10nKey::NewTabPagePlaceholder => "Папка…",
+        L10nKey::NewTabPageHint => {
+            "Enter открывает · ←/→ или {first}–9 выбирают вид · Esc отменяет"
+        }
+        L10nKey::NewTabPageHintBackground => "⇧Enter открывает в фоне",
+        L10nKey::SearchHintBackground => "Открыть в фоне",
+        L10nKey::SettingsGroupOutline => "Контур группы",
+        L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",
+        L10nKey::SettingsGroupOutlineColor => "Цвет контура",
+        L10nKey::SettingsGroupOutlineColorDesc => {
+            "Цвет рамки из темы или собственный цвет каждой группы."
+        }
+        L10nKey::SettingsGroupBackground => "Фон группы",
+        L10nKey::SettingsGroupBackgroundDesc => "Цветная заливка за заголовком каждой группы.",
+        L10nKey::SettingsGroupBackgroundColor => "Цвет фона",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "Нейтральный цвет из темы или собственный цвет каждой группы."
+        }
+        L10nKey::SettingsGroupColorTheme => "Тема",
+        L10nKey::SettingsGroupColorHashed => "Цвет группы",
+        L10nKey::SettingsGroupBackgroundScope => "Фон закрывает",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "Только заголовок или заголовок вместе с вкладками одним блоком."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Заголовок",
+        L10nKey::SettingsGroupScopeGroup => "Всю группу",
+        L10nKey::SettingsGroupAnimations => "Анимировать сворачивание",
+        L10nKey::SettingsGroupAnimationsDesc => {
+            "Группы плавно раскрываются и закрываются, а не переключаются мгновенно."
+        }
+        L10nKey::SettingsHotkeyWindow => "Окно горячей клавиши",
+        L10nKey::SettingsHotkeyOn => "Глобальная горячая клавиша",
+        L10nKey::SettingsHotkeyOnDesc => "Показывать и скрывать tty7 из любого приложения.",
+        L10nKey::SettingsHotkeyKey => "Горячая клавиша",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "Нажмите, затем введите сочетание. Esc отменяет, Backspace отключает."
+        }
+        L10nKey::SettingsHotkeyFullscreen => "Во весь экран",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "Показывать tty7 на весь экран, где находится мышь, поверх других приложений."
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "Скрывать при потере фокуса",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => {
+            "Скрывать tty7 при переключении на другое приложение."
+        }
+        L10nKey::SettingsHotkeyFade => "Затухание",
+        L10nKey::SettingsHotkeyFadeDesc => "Сколько времени tty7 появляется и исчезает.",
+        L10nKey::SettingsResumeAgents => "Возобновлять агентов при перезапуске рабочей области",
+        L10nKey::SettingsResumeAgentsDesc => {
+            "При перезапуске tty7 возобновлять каждый открытый сеанс агента."
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "Агентов запускается одновременно",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "Сколько вкладок агентов пробуждение запускает разом; остальные ждут своей очереди."
+        }
+        L10nKey::SettingsAgentResumeMode => "Как возобновляются агенты",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "Запускать возобновление как программу вкладки или вводить его в оболочку. В оболочки, кроме sh, bash, zsh, dash, ksh и fish, оно всегда вводится."
+        }
+        L10nKey::SettingsAgentResumeProgram => "Запускать как вкладку",
+        L10nKey::SettingsAgentResumeTyped => "Вводить в оболочку",
+        L10nKey::SettingsContinueInterrupted => "Продолжать прерванных агентов",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "Отправлять сообщение о продолжении агенту, чей ход оборвался или чья фоновая работа не завершилась. Если выключено, агенты возобновляются молча."
+        }
+        L10nKey::SettingsContinuePrompt => "Сообщение о продолжении",
+        L10nKey::SettingsContinuePromptDesc => {
+            "Что отправляют прерванный агент и «Продолжить всех агентов»."
+        }
+        L10nKey::QuitStopServerBodyResume => {
+            "tty7 закроется, сервер tty7 остановится, все процессы в оболочках завершатся. При следующем запуске вкладки и расположение вернутся, и каждый агент сразу продолжит свой разговор; остальные вкладки запускаются, когда вы их открываете. Закрытие окна лишь сворачивает tty7 в трей, оболочки продолжают работать."
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "Все оболочки на этом компьютере завершатся. Вкладки и расположение сохранятся и восстановятся с новыми оболочками, а каждый агент продолжит свой разговор."
+        }
+        L10nKey::SidebarDeleteGroupTitle => "Удалить группу «{name}»?",
+        L10nKey::SidebarDeleteGroupBody => {
+            "Её название удалится вместе с ней. Вкладки останутся открытыми и вернутся в автоматические группы."
+        }
+        L10nKey::GitHubSession => "Сеанс",
+        L10nKey::GitHubAll => "Все",
+        L10nKey::GitHubNoSessionMentions => "Этот сеанс не упоминал ни задач, ни пул-реквестов",
+        L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
     })
 }
 
