@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::machine::TabId;
+
 /// The identity of a pinned group. A name cannot be one — two groups may share
 /// a name, and a rename must not orphan every tab filed under the old one —
 /// so tabs point at this instead.
@@ -188,6 +190,10 @@ pub struct WorkspaceGroups {
     pub auto_collapsed: Vec<AutoKey>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ungrouped_collapsed: bool,
+    /// Tabs pinned to the group they are in now, which automatic regrouping
+    /// leaves be (fork: `ui::group_follow`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<TabId>,
 }
 
 impl WorkspaceGroups {
@@ -258,18 +264,20 @@ pub fn pinned_folder_for(
     cwd: Option<&Path>,
     repo_home: Option<&Path>,
 ) -> Option<GroupId> {
-    let mut best: Option<(usize, GroupId)> = None;
+    // At equal depth the folder the cwd is actually in beats the one only its
+    // repo home names, so header order never decides.
+    let mut best: Option<((usize, bool), GroupId)> = None;
     for group in pinned {
         let Some(folder) = group.folder_path() else {
             continue;
         };
-        let inside = cwd.is_some_and(|c| c.starts_with(folder)) || repo_home == Some(folder);
-        if !inside {
+        let by_cwd = cwd.is_some_and(|c| c.starts_with(folder));
+        if !by_cwd && repo_home != Some(folder) {
             continue;
         }
-        let depth = folder.components().count();
-        if best.is_none_or(|(d, _)| depth > d) {
-            best = Some((depth, group.id));
+        let rank = (folder.components().count(), by_cwd);
+        if best.is_none_or(|(r, _)| rank > r) {
+            best = Some((rank, group.id));
         }
     }
     best.map(|(_, id)| id)
@@ -530,6 +538,24 @@ mod tests {
     fn a_label_group_never_pulls_a_tab_in() {
         let pinned = vec![PinnedGroup::label("work")];
         assert_eq!(pinned_folder_for(&pinned, Some(Path::new("/")), None), None);
+    }
+
+    /// A worktree under one pinned folder whose repo home is another, at the
+    /// same depth, is filed by where it sits, whatever the header order.
+    #[test]
+    fn an_equal_depth_tie_goes_to_the_folder_the_cwd_is_in() {
+        let mut pinned = folders(&["/w/tty7", "/w/clara"]);
+        let clara = pinned[1].id;
+        let (cwd, home) = (p("/w/clara/wt"), p("/w/tty7"));
+        assert_eq!(
+            pinned_folder_for(&pinned, Some(&cwd), Some(&home)),
+            Some(clara)
+        );
+        pinned.reverse();
+        assert_eq!(
+            pinned_folder_for(&pinned, Some(&cwd), Some(&home)),
+            Some(clara)
+        );
     }
 
     #[test]
