@@ -9,7 +9,7 @@
 //! (see [`model::SearchRun`]) makes sure only the answer to the last thing
 //! typed is ever drawn.
 
-mod model;
+pub(crate) mod model;
 
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -227,6 +227,7 @@ l10n_keys! {
     SearchSessionsEmptyHint,
     SearchSectionSessionsHere,
     SearchSectionSessionsRecent,
+    SearchSectionSessionsOpen,
     AppSessionNotResumable,
     AppSessionDirectoryGone,
     SearchSessionActions,
@@ -1877,13 +1878,10 @@ l10n_keys! {
     SearchHistoryRemote,
     SearchHistoryHits,
     CmdSearchAgents,
-    SearchTabAgents,
-    SearchPlaceholderAgents,
     NewTabPageTitle,
     NewTabPageTerminal,
     NewTabPagePlaceholder,
-    NewTabPageHint,
-    NewTabPageHintBackground,
+    NewTabPageDirsHeading,
     SearchHintBackground,
     SettingsGroupOutline,
     SettingsGroupOutlineDesc,
@@ -1932,6 +1930,9 @@ l10n_keys! {
     GitHubAll,
     GitHubNoSessionMentions,
     GitHubNoSessionMatches,
+    SettingsNewTabAgents,
+    SettingsNewTabAgentsDesc,
+    SettingsSearchNewTabAgentsKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.
