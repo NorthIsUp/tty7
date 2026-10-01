@@ -1786,8 +1786,10 @@ impl Tty7App {
         })
         .detach();
 
-        cx.observe_window_bounds(window, |this, window, _cx| {
-            this.window_bounds = window_bounds_to_remember(window);
+        cx.observe_window_bounds(window, |this, window, cx| {
+            if !crate::ui::hotkey_window::covering(cx, window.window_handle()) {
+                this.window_bounds = window_bounds_to_remember(window);
+            }
         })
         .detach();
 
