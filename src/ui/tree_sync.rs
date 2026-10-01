@@ -3317,6 +3317,7 @@ impl Tty7App {
                     self.window_workspace(cx),
                     Some(self.workspace),
                     self.font_size,
+                    self.whole_tab_grid.get(),
                     None,
                     Some(*pane),
                     None,
