@@ -1,4 +1,5 @@
 pub mod control;
+pub mod dev_config_guard;
 pub mod duplex;
 /// Upgrading the daemon in place, keeping the ptys and the shells on them.
 ///
@@ -10,6 +11,7 @@ pub mod handoff;
 pub mod history;
 pub mod install;
 pub mod mobile;
+pub(crate) mod nice;
 pub mod pane;
 pub mod pidfile;
 pub mod procinfo;
@@ -21,6 +23,7 @@ pub mod remote_link;
 #[cfg(target_os = "macos")]
 pub mod responsibility;
 pub mod router;
+pub(crate) mod run_once;
 pub mod scrollback;
 pub mod server;
 pub mod singleton;
