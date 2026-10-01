@@ -292,6 +292,7 @@ pub(crate) fn spawn_job(
             spawn.restore_pane,
             spawn.shell,
             spawn.owner,
+            spawn.grid,
             resume.and_then(|r| r.line()),
         )
         .map_err(|e| format!("{e:#}"))
@@ -391,6 +392,7 @@ pub(crate) fn dead_agent_spawn(
     restore: Option<u64>,
     alive: Option<&HashMap<u64, Option<String>>>,
     font_size: f32,
+    grid: Option<crate::ui::background_grid::Grid>,
     cx: &App,
 ) -> Option<PendingSpawn> {
     let SessionPane::Leaf {
@@ -425,6 +427,7 @@ pub(crate) fn dead_agent_spawn(
         agent_prompt: wake_prompt(cx),
         owner: Some(owner),
         font_size,
+        grid,
         ..Default::default()
     })
 }
@@ -1088,6 +1091,7 @@ mod tests {
     use crate::terminal::PaneWorkspace;
     use crate::terminal::view::{TerminalView, quiet_test_pane};
     use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::background_grid::Grid;
     use crate::ui::first_prompt::tests::report_prompt;
     use crate::ui::machine_mirror::MachineMirrors;
     use crate::ui::pending_pane::PendingSpawn;
@@ -1560,6 +1564,38 @@ mod tests {
         assert!(line.ends_with("'go `rm -rf ~` $HOME'"), "{line}");
     }
 
+    /// #77: a woken agent opens at the window's grid, not the placeholder.
+    #[gpui::test]
+    fn a_dead_agent_spawns_at_the_window_s_grid(cx: &mut gpui::TestAppContext) {
+        let leaf = SessionPane::Leaf {
+            cwd: None,
+            pane_id: Some(9),
+            shell: None,
+            ssh_spec: None,
+            agent: Some(CLIAgent::Claude),
+            agent_session_id: Some("0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11".into()),
+            agent_launch_argv: None,
+        };
+        let grid = Grid::for_test(200, 50);
+        let empty = Default::default();
+        cx.update(|cx| {
+            cx.set_global(Config::default());
+            let spawn = dead_agent_spawn(
+                &leaf,
+                None,
+                WorkspaceId::new(),
+                &None,
+                Some(9),
+                Some(&empty),
+                13.,
+                Some(grid),
+                cx,
+            )
+            .expect("a dead agent leaf respawns");
+            assert_eq!(spawn.grid, Some(grid));
+        });
+    }
+
     #[gpui::test]
     fn an_agent_with_no_session_restores_started_anew(cx: &mut gpui::TestAppContext) {
         let leaf = |agent, argv: &[&str]| SessionPane::Leaf {
@@ -1588,6 +1624,7 @@ mod tests {
                     Some(9),
                     Some(&empty),
                     13.,
+                    None,
                     cx,
                 )
                 .expect("an agent with no session respawns");

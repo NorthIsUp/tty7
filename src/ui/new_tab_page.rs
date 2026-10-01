@@ -400,7 +400,7 @@ impl NewTabPage {
 
     /// Deferred: a key or click reaches the page while it is being updated,
     /// and opening closes the palette that holds it.
-    fn open(&self, window: &mut Window, cx: &mut App) {
+    fn open(&self, background: bool, window: &mut Window, cx: &mut App) {
         // No row: nothing to open, and the page stays for another query.
         let Some(dir) = self.rows.get(self.selected).cloned() else {
             return;
@@ -409,7 +409,7 @@ impl NewTabPage {
         let app = self.app.clone();
         window.defer(cx, move |window, cx| {
             let _ = app.update(cx, |app, cx| {
-                app.open_from_new_tab_page(kind, dir, target, window, cx)
+                app.open_from_new_tab_page(kind, dir, target, background, window, cx)
             });
         });
     }
@@ -433,7 +433,7 @@ impl NewTabPage {
         let chord = mods.platform || mods.control || mods.alt;
         match key {
             "escape" => self.close(window, cx),
-            "enter" => self.open(window, cx),
+            "enter" => self.open(mods.shift, window, cx),
             "tab" if !chord => self.step_kind(!mods.shift),
             // With a query typed, the arrows are the caret's.
             "left" | "right" if !chord && self.query.read(cx).value().is_empty() => {
@@ -492,9 +492,9 @@ impl Render for NewTabPage {
             );
             div()
                 .id(("new-tab-dir", at))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                     this.selected = at;
-                    this.open(window, cx);
+                    this.open(ev.modifiers().shift, window, cx);
                 }))
                 .child(SearchRow {
                     id: ("new-tab-row", at).into(),
@@ -561,6 +561,10 @@ impl Render for NewTabPage {
             .child(search::footer_hint(
                 vec![key("↵")],
                 t(L10nKey::SwitcherHintOpen),
+            ))
+            .child(search::footer_hint(
+                vec![key("⇧"), key("↵")],
+                t(L10nKey::SearchHintBackground),
             ));
 
         v_flex()
@@ -737,15 +741,17 @@ impl Tty7App {
         kind: Kind,
         dir: PathBuf,
         target: Target,
+        background: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.close_search(window, cx);
         match target {
-            Target::Tab => match kind {
-                Kind::Terminal => self.new_tab_at(dir.clone(), window, cx),
-                Kind::Agent(agent) => self.launch_agent_in(agent, Some(dir.clone()), window, cx),
-            },
+            Target::Tab => self.in_background(background, |this| match kind {
+                Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
+                Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
+            }),
+            // No background split: a split lands in the tab already in front.
             Target::Split(axis) => match kind {
                 Kind::Terminal => {
                     let shell = Some(SpawnAs::Shell(None));
