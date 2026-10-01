@@ -185,6 +185,9 @@ pub fn take_over(
         cmd.arg("--config-dir").arg(dir);
     }
     cmd.arg(HANDOFF_FLAG).arg(blob_fd.to_string());
+    if crate::daemon::dev_config_guard::opted_in() {
+        cmd.env(crate::daemon::dev_config_guard::OPT_IN, "1");
+    }
     if let Some(seat) = seat_fd {
         cmd.arg(SEAT_FLAG).arg(seat.to_string());
     }

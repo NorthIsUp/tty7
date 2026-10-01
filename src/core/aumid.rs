@@ -161,16 +161,12 @@ fn decide() -> Result<Decision, String> {
 /// True when `exe` sits in a `cargo` build directory rather than an install.
 ///
 /// Two independent signals. The layout check is the offline half:
-/// `target[\<triple>]\{debug,release}\tty7-app.exe`. `CACHEDIR.TAG` is the
-/// half that does not care about names — cargo writes it into every build
-/// directory precisely to mark the tree as derived, so it also covers a
-/// renamed `CARGO_TARGET_DIR` and the `target\...\deps\` binaries the test
-/// harness runs from.
+/// `target[\<triple>]\{debug,release}\tty7-app.exe`. `dev_build::is_dev_build`
+/// is the half that does not care about names (`CACHEDIR.TAG`, or a `target`
+/// beside a `Cargo.toml`), so it also covers a renamed `CARGO_TARGET_DIR` and
+/// the `target\...\deps\` binaries the test harness runs from.
 fn is_build_output(exe: &Path) -> bool {
-    has_build_layout(exe)
-        || exe
-            .ancestors()
-            .any(|dir| dir.join("CACHEDIR.TAG").is_file())
+    has_build_layout(exe) || crate::core::dev_build::is_dev_build(exe)
 }
 
 fn has_build_layout(exe: &Path) -> bool {
@@ -400,8 +396,8 @@ mod tests {
     }
 
     /// The test harness itself runs out of `target\...\deps\`, whose parent is
-    /// neither `debug` nor `release` — so this is the `CACHEDIR.TAG` half of
-    /// `is_build_output` proving itself against a real cargo layout.
+    /// neither `debug` nor `release` — so this is the `dev_build::is_dev_build`
+    /// half of `is_build_output` proving itself against a real cargo layout.
     #[test]
     fn the_test_binary_counts_as_build_output() {
         let exe = std::env::current_exe().expect("current exe");

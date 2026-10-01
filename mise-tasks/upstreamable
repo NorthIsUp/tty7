@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#MISE description="Check each stack feature applies to upstream main on its own, given the fork base and the features it needs (docs/fork/patch-stack.md)"
+# upstreamable [--build] [UPSTREAM [TIP]] [-- SLUG...]
+#
+# Each feature in stack-order.tsv (fork-* excepted) is cherry-picked onto
+# UPSTREAM with fork-infra, fork-config, fork-docs and the features its third
+# column names (and theirs), and with --build checked: it must compile and
+# warn nothing that UPSTREAM or TIP does not already warn.
+set -euo pipefail
+build=; [ "${1:-}" = --build ] && { build=1; shift; }
+upstream=${1:-upstream/main} tip=${2:-HEAD}
+only=(); while [ $# -gt 0 ]; do [ "$1" = -- ] && { shift; only=("$@"); break; }; shift; done
+order=${UPSTREAMABLE_ORDER:-docs/fork/stack-order.tsv}
+base=$(git merge-base "$upstream" "$tip")
+
+declare -A commit
+for c in $(git rev-list --reverse "$base..$tip"); do
+  slug=$(git log -1 --format='%(trailers:key=Fork-Feature,valueonly)' "$c" | head -1)
+  [ -n "$slug" ] && commit[$slug]=$c
+done
+declare -A needs; slugs=()
+while IFS=$'\t' read -r slug _ deps; do
+  [[ -z $slug || $slug == \#* ]] && continue
+  slugs+=("$slug"); needs[$slug]=${deps//,/ }
+done < "$order"
+
+# The features SLUG needs, transitively, in stack order.
+closure() {
+  local want=" $1 " grew=1 s d
+  while [ -n "$grew" ]; do
+    grew=
+    for s in $want; do for d in ${needs[$s]:-}; do
+      [[ $want == *" $d "* ]] || { want+="$d "; grew=1; }
+    done; done
+  done
+  for s in "${slugs[@]}"; do
+    if [[ $s != "$1" && $want == *" $s "* ]]; then echo -n "$s "; fi
+  done
+}
+
+# Neighbouring appends to the shared lists and the i18n blocks are not a
+# dependency; a union merge stands in for whoever resolves them upstream.
+# Not .git/info/attributes: every worktree shares that.
+attrs=$(mktemp)
+printf '%s merge=union\n' FORK.md docs/fork/stack-order.tsv 'src/ui/i18n/*.rs' > "$attrs"
+
+# A feature's lines that sit next to a missing feature's conflict only because
+# the missing lines were their context. drop_foreign resolves exactly that:
+# ours is base minus some lines, and theirs still holds each of them unchanged,
+# so the answer is theirs without them. Anything else stays a conflict.
+drop_foreign() {
+  python3 - "$@" <<'PY'
+import sys
+left = 0
+for path in sys.argv[1:]:
+    lines = open(path).read().split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        if not lines[i].startswith("<<<<<<< "):
+            out.append(lines[i]); i += 1; continue
+        j, ours = i + 1, []
+        while not lines[j].startswith("||||||| "): ours.append(lines[j]); j += 1
+        j, base = j + 1, []
+        while lines[j] != "=======": base.append(lines[j]); j += 1
+        j, theirs = j + 1, []
+        while not lines[j].startswith(">>>>>>> "): theirs.append(lines[j]); j += 1
+        missing, k = [], 0
+        for b in base:
+            if k < len(ours) and ours[k] == b: k += 1
+            else: missing.append(b)
+        res = list(theirs) if k == len(ours) else None
+        for m in missing if res is not None else []:
+            if m in res: res.remove(m)
+            else: res = None; break
+        if res is None: out.extend(lines[i:j + 1]); left += 1
+        else: out.extend(res)
+        i = j + 1
+    open(path, "w").write("\n".join(out))
+sys.exit(1 if left else 0)
+PY
+}
+
+# UPSTREAMABLE_WT keeps one worktree, and its target/, between runs.
+if [ -n "${UPSTREAMABLE_WT:-}" ]; then
+  wt=$UPSTREAMABLE_WT
+  [ -e "$wt/.git" ] || git worktree add -q --detach "$wt" "$upstream"
+else
+  wt=$(mktemp -d)
+  git worktree add -q --detach "$wt" "$upstream"
+  trap 'git worktree remove --force "$wt"' EXIT
+fi
+g() { git -C "$wt" "$@"; }
+
+# Upstream main pins no Rust, so mise supplies stable.
+cargo_check() {
+  (cd "$wt" && env -u CARGO_BUILD_BUILD_DIR mise x rust@stable -- \
+    cargo check -q --workspace --all-targets --message-format short 2>&1)
+}
+warnings() { grep -E '^[^ ]+:[0-9]+:[0-9]+: warning' | sed -E 's/:[0-9]+:[0-9]+: /: /' | sort -u; }
+
+allowed=$(mktemp)
+if [ -n "$build" ]; then
+  for ref in "$upstream" "$tip"; do
+    g checkout -q --detach "$ref" && g reset -q --hard
+    cargo_check | warnings >> "$allowed" || true
+  done
+  sort -u -o "$allowed" "$allowed"
+fi
+
+fail=0
+for slug in "${slugs[@]}"; do
+  [[ $slug == fork-* ]] && continue
+  [ ${#only[@]} -eq 0 ] || [[ " ${only[*]} " == *" $slug "* ]] || continue
+  deps=$(closure "$slug")
+  g checkout -q --detach "$upstream" && g reset -q --hard
+  bad=
+  for d in fork-infra fork-config fork-docs $deps "$slug"; do
+    [ -n "${commit[$d]:-}" ] || { bad="no stack commit for $d"; break; }
+    g -c rerere.enabled=false -c core.attributesFile="$attrs" -c merge.conflictStyle=diff3 \
+      cherry-pick "${commit[$d]}" >/dev/null 2>&1 && continue
+    u=$(g diff --name-only --diff-filter=U)
+    if (cd "$wt" && drop_foreign $u); then
+      g add $u && GIT_EDITOR=true g cherry-pick --continue >/dev/null 2>&1 && continue
+    fi
+    bad="$d conflicts in $(g diff --name-only --diff-filter=U | tr '\n' ' ')"
+    g cherry-pick --abort >/dev/null 2>&1 || true
+    break
+  done
+  label="$slug${deps:+ (needs ${deps% })}"
+  if [ -n "$bad" ]; then
+    echo "❌ $label: $bad"; fail=1
+  elif [ -z "$build" ]; then
+    echo "✅ $label"
+  elif out=$(cargo_check); then
+    extra=$(warnings <<<"$out" | comm -23 - "$allowed")
+    if [ -z "$extra" ]; then echo "✅ $label (builds)"
+    else echo "❌ $label: new warnings"; sed 's/^/     /' <<<"$extra"; fail=1; fi
+  else
+    echo "❌ $label: does not build"; grep -E ': error' <<<"$out" | sort -u | head -8; fail=1
+  fi
+done
+exit $fail
