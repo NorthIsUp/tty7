@@ -103,6 +103,11 @@ pub(crate) struct Catalog {
     /// Asked with every query the Symbols tab is given; its answer comes
     /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
+    /// The tabs the window answers as they are typed in (`text::LiveTab`).
+    pub live: Vec<super::text::LiveTab>,
+    /// Agent session ids open in some pane, which the Agents tab lists as
+    /// their tab instead of as a session to resume.
+    pub open_agent_sessions: Vec<String>,
 }
 
 /// Something that answers a query later — a language server.
@@ -129,6 +134,8 @@ impl Catalog {
             locations: Vec::new(),
             project_symbols: Vec::new(),
             live_query: None,
+            live: Vec::new(),
+            open_agent_sessions: Vec::new(),
         }
     }
 
@@ -145,6 +152,14 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
+            SearchTab::Text | SearchTab::History => self.live_source(tab),
+            SearchTab::Agents => Some(Box::new(super::agents::Agents {
+                terminals: &self.terminals,
+                sessions: &self.sessions,
+                open: &self.open_agent_sessions,
+            })),
+            // The page draws its own rows (`new_tab_page`).
+            SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
     }
 
@@ -194,6 +209,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
+            .filter(|tab| !matches!(tab, SearchTab::Text | SearchTab::History))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing
@@ -313,7 +329,7 @@ fn untitled(hits: Vec<(i32, Item)>) -> Vec<Section> {
 }
 
 /// Consecutive rows that share a section label, under that label.
-fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Section> {
+pub(super) fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Section> {
     let mut out: Vec<Section> = Vec::new();
     for item in items {
         match out.last_mut() {
@@ -329,7 +345,7 @@ fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Section> {
 
 /// Every row that matches, best first. Stable, so rows that score alike keep
 /// the order the tab lists them in — most recently used, for most tabs.
-fn rank(items: &[Item], query: &str, bonus: impl Fn(&Item) -> i32) -> Vec<(i32, Item)> {
+pub(super) fn rank(items: &[Item], query: &str, bonus: impl Fn(&Item) -> i32) -> Vec<(i32, Item)> {
     let mut hits: Vec<(i32, Item)> = items
         .iter()
         .filter_map(|item| Some((item_score(query, item)? + bonus(item), item.clone())))
