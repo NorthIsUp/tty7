@@ -26,11 +26,16 @@ fold() {
 }
 
 lease=$(git rev-parse "$origin/$branch")
+# A start other than origin's tip must hold the same tree, or a PR merged since
+# it was cut would be pushed away.
+[ -z "${SYNC_FROM:-}" ] || git diff --quiet "$lease" "$SYNC_FROM" \
+  || { echo "sync-upstream: $SYNC_FROM's tree differs from $origin/$branch ($lease); bring the new commits over first" >&2; exit 1; }
 git switch -q --detach "${SYNC_FROM:-$lease}"
 fold "$(git merge-base HEAD "$upstream/main")"
 git "${rr[@]}" rebase -q --empty=drop "$upstream/main" \
   || { echo "sync-upstream: rebase stopped; keep upstream's side, re-add the hook (docs/fork/features/), git rebase --continue, rerun" >&2; exit 1; }
-[ -n "${SYNC_SKIP_TESTS:-}" ] || mise run test
+run_tests() { [ -n "${SYNC_SKIP_TESTS:-}" ] || eval "${SYNC_TEST_CMD:-mise run test}"; }
+run_tests
 
 if [ -n "${SYNC_SKIP_PUSH:-}" ]; then
   echo "ready: git push --force-with-lease=$branch:$lease $origin HEAD:$branch"
@@ -44,11 +49,13 @@ for _ in 1 2 3; do
   fi
   git fetch -q "$origin" "$branch"
   new=$(git rev-parse "$origin/$branch")
+  [ "$new" != "$lease" ] || { echo "sync-upstream: push failed, and not on the lease ($branch is unchanged)" >&2; exit 1; }
   git merge-base --is-ancestor "$lease" "$new" \
     || { echo "sync-upstream: $branch was rewritten by someone else; rerun" >&2; exit 1; }
   git "${rr[@]}" cherry-pick "$lease..$new" \
     || { echo "sync-upstream: a commit merged mid-sync conflicts; resolve, git cherry-pick --continue, rerun" >&2; exit 1; }
   fold "$(git merge-base HEAD "$upstream/main")"
+  run_tests
   lease=$new
 done
 echo "sync-upstream: $branch kept moving; wait for a quiet minute and rerun" >&2

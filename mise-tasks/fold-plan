@@ -16,6 +16,7 @@ import sys
 
 STACK_SUBJECT = re.compile(r"^fork\(([a-z0-9-]+)\): ")
 CONVENTIONAL = re.compile(r"^[a-z]+(\([^)]*\))?!?: ")
+FORK_FEATURE = re.compile(r"^Fork-Feature:[ \t]*([a-z0-9-]+)[ \t]*$", re.M)
 
 
 def git(*args: str) -> str:
@@ -48,9 +49,11 @@ def main(base: str, tip: str, order_path: str, map_path: str | None) -> None:
     untagged: list[str] = []
     for sha in git("rev-list", "--reverse", f"{base}..{tip}").split():
         subject = git("log", "-1", "--format=%s", sha).rstrip("\n")
-        trailer = git("log", "-1", "--format=%(trailers:key=Fork-Feature,valueonly,separator=%x2C)", sha)
+        # The whole body, not git's trailer block: a PR body's footer after the
+        # line would hide it from %(trailers).
+        tagged = FORK_FEATURE.search(git("log", "-1", "--format=%B", sha))
         stack = STACK_SUBJECT.match(subject)
-        slug = mapped(sha) or (stack and stack.group(1)) or trailer.split(",")[0].strip() or None
+        slug = mapped(sha) or (stack and stack.group(1)) or (tagged and tagged.group(1)) or None
         if slug:
             groups.setdefault(slug, []).append((sha, subject))
         else:

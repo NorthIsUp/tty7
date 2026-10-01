@@ -773,7 +773,7 @@ Print and wait:
 ! git push origin origin/main-niu:refs/heads/backup/main-niu-pre-stack && git push --force-with-lease=main-niu:<lease sha from Step 4> origin HEAD:main-niu
 ```
 
-If the lease fails because a PR merged meanwhile, rerun Step 4 without `SYNC_SKIP_PUSH`, keeping the same `SYNC_FROM` and `SYNC_MAP`. The sync refolds the new commit and retries the push itself.
+If the lease fails because a PR merged meanwhile, bring that PR onto `build/stack` first: `git fetch origin main-niu && git switch build/stack && git cherry-pick <old lease>..origin/main-niu`. Its squash commit carries a `Fork-Feature:` line, so it needs no map entry. Then rerun Step 4. Sync refuses a `SYNC_FROM` whose tree differs from `origin/main-niu`, so a PR can't be pushed away.
 
 - [ ] **Step 6: Verify on GitHub, then clean up**
 

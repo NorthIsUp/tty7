@@ -53,6 +53,14 @@ fold "$order" "$PWD/map.tsv"
 want=$'fork(x): don\'t $break "it"\nfeat: two'
 [ "$(subjects)" = "$want" ] || fail "build mode subjects: $(subjects)"
 
+# a Fork-Feature line with a footer after it (the PR template plus Generated-with) still tags the commit
+repo
+printf 'a\tA feature\n' > order.tsv; order=$PWD/order.tsv
+commit a.txt 1 "fork(a): A feature" "Fork-Feature: a"
+commit a.txt 2 "fix: from a PR" $'<!-- what changed -->\nFork-Feature: a' "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+fold "$order"
+[ "$(subjects)" = "fork(a): A feature" ] || fail "body trailer: $(subjects)"
+
 # merge: refused
 repo
 printf 'a\tA\n' > order.tsv
