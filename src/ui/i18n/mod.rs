@@ -1942,6 +1942,8 @@ l10n_keys! {
     SettingsNewTabAgents,
     SettingsNewTabAgentsDesc,
     SettingsSearchNewTabAgentsKeywords,
+    GitHubSortRecent,
+    GitHubSortNumber,
 }
 
 /// The source control strings that are translated but not yet displayed.
