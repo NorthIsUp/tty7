@@ -29,6 +29,8 @@ pub struct PendingSpawn {
     pub agent_prompt: Option<String>,
     pub owner: Option<crate::core::session::WorkspaceId>,
     pub font_size: f32,
+    /// Fork: the grid to spawn at (see `background_grid`).
+    pub grid: Option<crate::ui::background_grid::Grid>,
     /// Fork: how this pane's agent resume is delivered, decided once at its
     /// first spawn (see `agent_resume::spawn_job`).
     pub resume: Option<crate::ui::agent_resume::PaneResume>,
