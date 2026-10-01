@@ -1903,6 +1903,18 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentWakeConcurrencyDesc => {
             "唤醒时同时启动多少个 agent 标签页，其余的排队等待。"
         }
+        L10nKey::SettingsAgentResumeMode => "agent 的恢复方式",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "以标签页程序运行恢复命令，或输入到 shell 中。sh、bash、zsh、dash、ksh、fish 以外的 shell 始终采用输入方式。"
+        }
+        L10nKey::SettingsAgentResumeProgram => "作为标签页运行",
+        L10nKey::SettingsAgentResumeTyped => "输入到 shell",
+        L10nKey::SettingsContinueInterrupted => "继续被中断的 agent",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "当 agent 的回合被中断或后台任务未完成时，发送继续消息。关闭时，agent 恢复后不发送任何消息。"
+        }
+        L10nKey::SettingsContinuePrompt => "继续消息",
+        L10nKey::SettingsContinuePromptDesc => "被中断的 agent 以及“继续所有 Agent”发送的内容。",
         L10nKey::QuitStopServerBodyResume => {
             "这会退出 tty7 并停止 tty7 server，shell 里正在跑的东西都会被终止。标签页和布局会保留，下次启动时每个 agent 会立即接着原来的对话继续；其他标签页打开哪个才启动哪个。（只关窗口的话应用收进托盘，shell 继续跑。）"
         }

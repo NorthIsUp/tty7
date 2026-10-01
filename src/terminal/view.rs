@@ -1484,6 +1484,7 @@ impl TerminalView {
         shell: Option<ShellSpec>,
         owner: Option<crate::core::session::WorkspaceId>,
         grid: Option<crate::ui::background_grid::Grid>,
+        run_once: Option<String>,
     ) -> anyhow::Result<ShellParts> {
         let route = crate::terminal::PaneRoute::for_workspace(workspace.as_ref());
         let (size, cell_w, cell_h) = crate::ui::background_grid::spawn_size(grid);
@@ -1535,6 +1536,7 @@ impl TerminalView {
                         crate::ui::i18n::t(crate::ui::i18n::L10nKey::PaneRestoredScreenBanner)
                             .to_string(),
                     ),
+                    run_once,
                 });
                 let (terminal, id) = RemoteTerminal::spawn_on(
                     &route,

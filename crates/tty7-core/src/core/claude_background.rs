@@ -81,7 +81,11 @@ pub enum ResumePlan {
     /// It is running in the background as this job: `claude --resume` would
     /// be refused, so attach instead.
     Attach(String),
+    /// Its last turn ended: resume it with nothing to say.
     Resume,
+    /// Its last turn was cut off mid-way (a reboot, a crash): resume it and
+    /// tell it to carry on.
+    Interrupted,
     /// Claude saved no transcript for it (it never took a turn), so a resume
     /// would stop at "No conversation found": start it fresh under its id.
     Fresh,
@@ -111,8 +115,11 @@ pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> Res
         };
         let path = project.path().join(&file);
         if path.is_file() {
-            return match exited(&path) {
-                true => ResumePlan::Closed,
+            if exited(&path) {
+                return ResumePlan::Closed;
+            }
+            return match read_tail(&path).is_some_and(|t| interrupted(&t)) {
+                true => ResumePlan::Interrupted,
                 false => ResumePlan::Resume,
             };
         }
@@ -208,6 +215,189 @@ pub fn note_command(record: &mut PaneRecord, command: Option<&str>) {
         .collect();
     if CLIAgent::detect_from_argv(&argv).is_none() {
         record.last_session = None;
+    }
+}
+
+/// How much of a transcript's end [`interrupted`] reads: enough to hold a
+/// long turn's background launches, not the whole of a long session.
+const TAIL: u64 = 1024 * 1024;
+
+/// The last [`TAIL`] bytes of `path`, from the first whole line in them.
+fn read_tail(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(TAIL);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    Some(match start {
+        0 => text,
+        _ => text.split_once('\n').map(|(_, rest)| rest.to_string())?,
+    })
+}
+
+/// Where a transcript's last turn stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Last {
+    /// The user's message, or a tool result, with nothing after it.
+    Unanswered,
+    /// The model stopped mid-turn: a tool call, its token cap, a pause, or no
+    /// stop reason at all (the process died while it streamed).
+    Open,
+    /// The turn ended, or Claude itself wrote the last word (an API error, the
+    /// usage limit).
+    Ended,
+    /// The user stopped it (Esc).
+    Stopped,
+}
+
+/// User entries that are not the user talking: slash commands and their
+/// output, `!` shell lines, notices, hooks, other agents.
+const WRAPPERS: &[&str] = &[
+    "<command-",
+    "<local-command",
+    "<bash-",
+    "<task-notification>",
+    "<ide_",
+    "<teammate-message",
+    "<system-reminder>",
+    "<user-prompt-submit-hook>",
+];
+
+/// Whether a Claude transcript's last turn was cut off, so a resume should
+/// carry it on: the user's message or a tool result nothing answered, a model
+/// reply that never ended its turn, or a turn that ended waiting on background
+/// work (a background agent or shell) that never reported back. An ended
+/// turn, the user's Esc, Claude's own error or limit message, and anything
+/// unreadable are not.
+pub fn interrupted(tail: &str) -> bool {
+    let mut last = None;
+    // This turn's background launches, by tool use id, until their result
+    // names the task; then each one not yet reported back, as (tool use id,
+    // task id).
+    let mut launched: Vec<(String, bool)> = Vec::new();
+    let mut pending: Vec<(String, Option<String>)> = Vec::new();
+    for line in tail.lines() {
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if entry["isSidechain"] == true {
+            continue;
+        }
+        let kind = entry["type"].as_str();
+        // A task is reported back by whatever names it later: its notice, a
+        // queued command or queue operation carrying it, a TaskOutput read.
+        if matches!(kind, Some("user" | "attachment" | "queue-operation")) {
+            pending.retain(|(id, task)| {
+                !(line.contains(&format!("<tool-use-id>{id}"))
+                    || task.as_deref().is_some_and(|t| line.contains(t)))
+            });
+        }
+        if entry["isMeta"] == true {
+            continue;
+        }
+        let message = &entry["message"];
+        match kind {
+            Some("assistant") => {
+                let blocks = message["content"].as_array().into_iter().flatten();
+                launched.extend(
+                    blocks
+                        .filter(|b| b["type"] == "tool_use")
+                        .filter_map(|b| Some((b["id"].as_str()?.to_string(), launch(b)?))),
+                );
+                let synthetic =
+                    message["model"] == "<synthetic>" || entry["isApiErrorMessage"] == true;
+                last = Some(match message["stop_reason"].as_str() {
+                    _ if synthetic => Last::Ended,
+                    None | Some("tool_use" | "max_tokens" | "pause_turn") => Last::Open,
+                    Some(_) => Last::Ended,
+                });
+            }
+            Some("user") if entry["isCompactSummary"] != true => {
+                let content = &message["content"];
+                let results: Vec<&serde_json::Value> = content
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|b| b["type"] == "tool_result")
+                    .collect();
+                if !results.is_empty() {
+                    for result in results {
+                        let Some(id) = result["tool_use_id"].as_str() else {
+                            continue;
+                        };
+                        if let Some(at) = launched.iter().position(|(l, _)| l == id) {
+                            let (_, agent) = launched.remove(at);
+                            let text = result["content"].to_string();
+                            // An agent runs in the background only when its
+                            // own result says it was launched there: one run
+                            // in the foreground answers here, and a teammate
+                            // is spawned and talks back on its own.
+                            if !agent || text.contains("Async agent launched") {
+                                pending.push((id.to_string(), task_id(&text)));
+                            }
+                        }
+                    }
+                    last = Some(Last::Unanswered);
+                    continue;
+                }
+                let text = text_of(content);
+                let trimmed = text.trim_start();
+                if text.contains("[Request interrupted by user") {
+                    last = Some(Last::Stopped);
+                } else if !trimmed.is_empty() && !WRAPPERS.iter().any(|w| trimmed.starts_with(w)) {
+                    last = Some(Last::Unanswered);
+                    launched.clear();
+                    pending.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+    match last {
+        Some(Last::Unanswered | Last::Open) => true,
+        Some(Last::Ended) => !pending.is_empty(),
+        Some(Last::Stopped) | None => false,
+    }
+}
+
+/// Whether a tool call may start work in the background, and if so whether
+/// it is an agent: a shell command asked to run there, or any agent, whose
+/// result then says where it ran.
+fn launch(block: &serde_json::Value) -> Option<bool> {
+    let flag = &block["input"]["run_in_background"];
+    match block["name"].as_str()? {
+        "Bash" => (*flag == true || *flag == "true").then_some(false),
+        "Agent" | "Task" => Some(true),
+        _ => None,
+    }
+}
+
+/// The task id a background launch's result gives it, which what reports it
+/// back names.
+fn task_id(text: &str) -> Option<String> {
+    ["agentId: ", "ID: "].iter().find_map(|key| {
+        let rest = &text[text.find(key)? + key.len()..];
+        let id: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        (!id.is_empty()).then_some(id)
+    })
+}
+
+/// A message's text: the string, or its text blocks joined.
+fn text_of(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
     }
 }
 
@@ -359,6 +549,164 @@ mod tests {
         assert_eq!(job_for_session(Path::new("/nonexistent/tty7"), ID), None);
     }
 
+    const USER_LAST: &str = r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}
+{"type":"user","message":{"role":"user","content":"now fix the build"}}
+"#;
+
+    fn turn(lines: &[&str]) -> bool {
+        interrupted(&lines.join("\n"))
+    }
+
+    const PROMPT: &str = r#"{"type":"user","message":{"role":"user","content":"fix the build"}}"#;
+    const ENDED: &str = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}"#;
+
+    #[test]
+    fn a_turn_cut_off_is_interrupted() {
+        assert!(turn(&[ENDED, PROMPT]), "the user's message, unanswered");
+        let call = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#;
+        assert!(turn(&[PROMPT, call]), "a tool call nothing ran");
+        let result = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#;
+        assert!(
+            turn(&[PROMPT, call, result]),
+            "a tool result nothing answered"
+        );
+        for reason in ["null", r#""max_tokens""#, r#""pause_turn""#] {
+            let reply = format!(
+                r#"{{"type":"assistant","message":{{"model":"claude-opus-5-5","stop_reason":{reason},"content":[{{"type":"text","text":"Let me"}}]}}}}"#
+            );
+            assert!(turn(&[PROMPT, &reply]), "stopped on {reason}");
+        }
+        let thinking = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":null,"content":[{"type":"thinking","thinking":"hm"}]}}"#;
+        assert!(turn(&[PROMPT, thinking]), "only thinking so far");
+    }
+
+    #[test]
+    fn an_ended_stopped_or_claude_written_turn_is_not() {
+        assert!(!turn(&[PROMPT, ENDED]));
+        let refusal = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"refusal","content":[]}}"#;
+        assert!(!turn(&[PROMPT, refusal]), "a refusal ends the turn");
+        let esc = r#"{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#;
+        assert!(!turn(&[PROMPT, esc]), "Esc is the user's own stop");
+        let limit = r#"{"type":"assistant","message":{"model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"You've hit your usage limit"}]}}"#;
+        assert!(!turn(&[PROMPT, limit]), "Claude's own limit message");
+        let api_error = r#"{"type":"assistant","isApiErrorMessage":true,"message":{"model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"API Error: 529"}]}}"#;
+        assert!(!turn(&[PROMPT, api_error]), "an API error");
+        let no_reply = r#"{"type":"assistant","message":{"model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"No response requested."}]}}"#;
+        assert!(!turn(&[PROMPT, no_reply]));
+        assert!(!turn(&[]), "nothing readable is not a reason to continue");
+        assert!(!turn(&["{broken", "not json"]));
+    }
+
+    #[test]
+    fn what_is_not_the_user_talking_does_not_reopen_a_turn() {
+        for wrapper in [
+            r#"{"type":"user","message":{"content":"<command-name>/exit</command-name>"}}"#,
+            r#"{"type":"user","message":{"content":"<local-command-stdout>Bye!</local-command-stdout>"}}"#,
+            r#"{"type":"user","message":{"content":"<bash-input>ls</bash-input>"}}"#,
+            r#"{"type":"user","message":{"content":"<bash-stdout>a</bash-stdout><bash-stderr></bash-stderr>"}}"#,
+            r#"{"type":"user","message":{"content":"<task-notification>\n<task-id>x</task-id>\n<status>completed</status>\n</task-notification>"}}"#,
+            r#"{"type":"user","message":{"content":[{"type":"text","text":"<ide_opened_file>a.rs</ide_opened_file>"}]}}"#,
+            r#"{"type":"user","message":{"content":"<teammate-message from=\"x\">hi</teammate-message>"}}"#,
+            r#"{"type":"user","message":{"content":"<system-reminder>x</system-reminder>"}}"#,
+            r#"{"type":"user","isMeta":true,"message":{"content":"Caveat: x"}}"#,
+            r#"{"type":"user","isCompactSummary":true,"message":{"content":"This session is being continued"}}"#,
+            r#"{"type":"user","isSidechain":true,"message":{"content":"a subagent's own prompt"}}"#,
+            r#"{"type":"assistant","isSidechain":true,"message":{"model":"claude-opus-5-5","stop_reason":null,"content":[]}}"#,
+            r#"{"type":"system","subtype":"turn_duration"}"#,
+        ] {
+            assert!(!turn(&[PROMPT, ENDED, wrapper]), "{wrapper}");
+        }
+    }
+
+    #[test]
+    fn a_truncated_last_line_is_read_past() {
+        let cut = r#"{"type":"user","message":{"content":"half a li"#;
+        assert!(!turn(&[PROMPT, ENDED, cut]));
+        assert!(turn(&[ENDED, PROMPT, cut]));
+    }
+
+    /// The end of a real session (pixkidz, trimmed): a background build was
+    /// started, the turn ended waiting on it, and the app went down before it
+    /// reported back.
+    const BACKGROUND_IN_FLIGHT: &[&str] = &[
+        r#"{"type":"user","message":{"role":"user","content":"is the TestFlight link live?"}}"#,
+        r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_01Bg","name":"Bash","input":{"command":"gh run watch","run_in_background":true}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"tool_use_id":"toolu_01Bg","type":"tool_result","content":"Command running in background with ID: bywb5zm89. Output is being written to: /private/tmp/claude-501/x/tasks/bywb5zm89.output. You will be notified when it completes."}]}}"#,
+        r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"The TestFlight link works now, so you can send the invite."}]}}"#,
+    ];
+
+    #[test]
+    fn a_turn_that_ended_waiting_on_background_work_is_interrupted() {
+        assert!(turn(BACKGROUND_IN_FLIGHT), "the build never reported back");
+
+        let agent = [
+            PROMPT,
+            r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_02Ag","name":"Agent","input":{"prompt":"x","subagent_type":"general-purpose"}}]}}"#,
+            r#"{"type":"user","message":{"content":[{"tool_use_id":"toolu_02Ag","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully.\nagentId: a0cc7ecfd6ae0327f (internal ID)"}]}]}}"#,
+            ENDED,
+        ];
+        assert!(turn(&agent), "a background agent still out");
+
+        let mut grep = agent;
+        grep[1] = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_02Ag","name":"Bash","input":{"command":"grep -r background"}}]}}"#;
+        assert!(
+            !turn(&grep),
+            "a result that only mentions one launches nothing"
+        );
+        let mut foreground = agent;
+        foreground[2] = r#"{"type":"user","message":{"content":[{"tool_use_id":"toolu_02Ag","type":"tool_result","content":[{"type":"text","text":"Done: 3 files fixed."}]}]}}"#;
+        assert!(!turn(&foreground), "an agent that answered in place");
+        let mut teammate = agent;
+        teammate[2] = r#"{"type":"user","message":{"content":[{"tool_use_id":"toolu_02Ag","type":"tool_result","content":[{"type":"text","text":"Spawned successfully.\nagent_id: ci@session-1"}]}]}}"#;
+        assert!(!turn(&teammate), "a teammate talks back on its own");
+
+        for named in [
+            r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification><task-id>a0cc7ecfd6ae0327f</task-id>"}}"#,
+            r#"{"type":"queue-operation","operation":"enqueue","content":"a0cc7ecfd6ae0327f done"}"#,
+            r#"{"type":"user","message":{"content":[{"tool_use_id":"toolu_03","type":"tool_result","content":"task a0cc7ecfd6ae0327f: completed"}]}}"#,
+        ] {
+            assert!(!turn(&[&agent[..], &[named, ENDED]].concat()), "{named}");
+        }
+        let said = r#"{"type":"assistant","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"a0cc7ecfd6ae0327f is still running"}]}}"#;
+        assert!(
+            turn(&[&agent[..], &[said]].concat()),
+            "the model naming it is no report"
+        );
+
+        let reported = r#"{"type":"user","message":{"content":"<task-notification>\n<task-id>a0cc7ecfd6ae0327f</task-id>\n<status>completed</status>\n</task-notification>"}}"#;
+        assert!(
+            !turn(&[&agent[..], &[reported, ENDED]].concat()),
+            "it reported back"
+        );
+        let by_tool_use = r#"{"type":"user","message":{"content":"<task-notification>\n<task-id>bywb5zm89</task-id>\n<tool-use-id>toolu_01Bg</tool-use-id>\n<status>killed</status>\n</task-notification>"}}"#;
+        assert!(!turn(
+            &[BACKGROUND_IN_FLIGHT, &[by_tool_use, ENDED]].concat()
+        ));
+
+        let moved_on = [ENDED, PROMPT, ENDED];
+        assert!(
+            !turn(&[BACKGROUND_IN_FLIGHT, &moved_on].concat()),
+            "the user moved on to another turn"
+        );
+        let esc = r#"{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#;
+        assert!(
+            !turn(&[BACKGROUND_IN_FLIGHT, &[esc]].concat()),
+            "the user stopped it"
+        );
+    }
+
+    #[test]
+    fn a_tail_starts_at_a_whole_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.jsonl");
+        let filler = format!("{{\"pad\":\"{}\"}}\n", "x".repeat(TAIL as usize));
+        std::fs::write(&path, format!("{filler}{USER_LAST}")).unwrap();
+        let tail = read_tail(&path).unwrap();
+        assert!(tail.len() as u64 <= TAIL);
+        assert!(tail.starts_with('{'), "the cut line is dropped");
+        assert!(interrupted(&tail));
+    }
+
     #[test]
     fn a_session_attaches_resumes_or_starts_fresh() {
         let root = tempfile::tempdir().unwrap();
@@ -375,6 +723,8 @@ mod tests {
 
         std::fs::write(project.join(format!("{ID}.jsonl")), "{}").unwrap();
         assert_eq!(plan(ID), ResumePlan::Resume);
+        std::fs::write(project.join(format!("{ID}.jsonl")), USER_LAST).unwrap();
+        assert_eq!(plan(ID), ResumePlan::Interrupted);
 
         let sessions = root.path().join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
@@ -434,10 +784,14 @@ mod tests {
         assert_eq!(plan("quit"), ResumePlan::Closed);
         assert_eq!(
             plan("crashed"),
-            ResumePlan::Resume,
-            "a crash or kill resumes"
+            ResumePlan::Interrupted,
+            "a crash or kill mid-reply resumes, as cut off"
         );
-        assert_eq!(plan("exited-then-resumed"), ResumePlan::Resume);
+        assert_eq!(
+            plan("exited-then-resumed"),
+            ResumePlan::Interrupted,
+            "a message after the exit, unanswered"
+        );
     }
 
     #[test]

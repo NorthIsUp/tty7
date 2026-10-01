@@ -16,15 +16,22 @@ pub struct ForkConfig {
     /// Restore a tab whose panes all died (reboot, Quit and Stop) asleep, so
     /// it starts — and resumes its agent — when first opened, not at launch.
     pub restore_asleep: bool,
-    /// What Continue All Agents tells each agent it resumes. Empty resumes
-    /// them without a word.
+    /// What Continue All Agents, and with `continue_interrupted_agents` a
+    /// resume of a cut-off turn, tells the agent. Empty says nothing.
     pub continue_prompt: String,
     /// How many tabs a wake starts at once, so they do not all cold-start and
     /// hit the API together; `None` is a quarter of the cores. 1 to 20.
     pub agent_wake_concurrency: Option<u8>,
-    /// Wake every agent tab restore put to sleep at launch, with no prompt;
-    /// tabs the user hibernated and shell-only tabs stay asleep.
+    /// Wake every agent tab restore put to sleep at launch; tabs the user
+    /// hibernated and shell-only tabs stay asleep.
     pub resume_agents_on_launch: bool,
+    /// How a restored agent pane resumes its session.
+    #[serde(deserialize_with = "de_lenient")]
+    pub agent_resume_mode: AgentResumeMode,
+    /// Tell a resumed agent `continue_prompt` when its transcript shows the
+    /// turn was cut off or left background work unfinished; off resumes every
+    /// agent without a word.
+    pub continue_interrupted_agents: bool,
     /// New Tab opens the new tab page — pick an agent or a terminal and a
     /// directory — instead of a shell in the current tab's directory.
     pub new_tab_page: bool,
@@ -72,7 +79,9 @@ impl Default for ForkConfig {
             restore_asleep: true,
             continue_prompt: "continue".into(),
             agent_wake_concurrency: None,
-            resume_agents_on_launch: true,
+            resume_agents_on_launch: false,
+            agent_resume_mode: AgentResumeMode::Typed,
+            continue_interrupted_agents: false,
             new_tab_page: true,
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
             dir_frecency: HashMap::new(),
@@ -104,6 +113,18 @@ pub enum GroupColorSource {
     Hashed,
 }
 
+/// How a restored agent pane resumes its session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentResumeMode {
+    /// The resume line is typed at the new shell's first prompt.
+    #[default]
+    Typed,
+    /// The new shell runs it itself, once, as the tab's program. Only for
+    /// sh, bash, zsh, dash, ksh and fish; any other shell is typed into.
+    Program,
+}
+
 /// How much of a sidebar group its fill and outline cover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -125,7 +146,9 @@ mod tests {
         "restore_asleep": false,
         "continue_prompt": "go on",
         "agent_wake_concurrency": 3,
-        "resume_agents_on_launch": false,
+        "resume_agents_on_launch": true,
+        "agent_resume_mode": "program",
+        "continue_interrupted_agents": true,
         "new_tab_page": false,
         "dir_roots": ["~/work"],
         "dir_frecency": {"/Users/me/src/x": {"count": 2, "last_used": 9}},
@@ -149,6 +172,9 @@ mod tests {
         let old: serde_json::Value = serde_json::from_str(OLD_FILE).unwrap();
         let cfg: Config = serde_json::from_str(OLD_FILE).unwrap();
         assert!(!cfg.fork.restore_asleep);
+        assert!(cfg.fork.resume_agents_on_launch);
+        assert_eq!(cfg.fork.agent_resume_mode, super::AgentResumeMode::Program);
+        assert!(cfg.fork.continue_interrupted_agents);
         assert_eq!(cfg.fork.continue_prompt, "go on");
         assert_eq!(cfg.fork.dir_frecency["/Users/me/src/x"].count, 2);
         assert_eq!(cfg.fork.nice, 0);
@@ -219,6 +245,17 @@ mod tests {
         assert!(saved.get("github_panel_default_list").is_none());
         assert!(saved.get("github_panel_session_filter").is_none());
         assert!(saved.get("continue_stagger_ms").is_none());
+    }
+
+    /// Upstream's behaviour until the user opts in.
+    #[test]
+    fn the_resume_settings_default_to_upstream_behaviour() {
+        let cfg = super::ForkConfig::default();
+        assert!(!cfg.resume_agents_on_launch);
+        assert_eq!(cfg.agent_resume_mode, super::AgentResumeMode::Typed);
+        assert!(!cfg.continue_interrupted_agents);
+        assert_eq!(cfg.continue_prompt, "continue");
+        assert_eq!(cfg.agent_wake_concurrency, None);
     }
 
     #[test]

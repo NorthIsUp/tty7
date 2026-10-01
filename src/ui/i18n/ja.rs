@@ -2117,6 +2117,20 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentWakeConcurrencyDesc => {
             "一度に起動するエージェントタブの数。残りは順番を待ちます。"
         }
+        L10nKey::SettingsAgentResumeMode => "エージェントの再開方法",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "再開コマンドをタブのプログラムとして実行するか、シェルに入力します。sh、bash、zsh、dash、ksh、fish 以外のシェルでは常に入力されます。"
+        }
+        L10nKey::SettingsAgentResumeProgram => "タブとして実行",
+        L10nKey::SettingsAgentResumeTyped => "シェルに入力",
+        L10nKey::SettingsContinueInterrupted => "中断されたエージェントを続行",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "ターンが中断された、またはバックグラウンド作業が終わっていないエージェントに続行メッセージを送ります。オフでは何も送らずに再開します。"
+        }
+        L10nKey::SettingsContinuePrompt => "続行メッセージ",
+        L10nKey::SettingsContinuePromptDesc => {
+            "中断されたエージェントと「すべてのエージェントを続行」が送る内容。"
+        }
         L10nKey::QuitStopServerBodyResume => {
             "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に戻り、各エージェントはすぐに元の会話を再開します。ほかのタブは開いたときに起動します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
         }
