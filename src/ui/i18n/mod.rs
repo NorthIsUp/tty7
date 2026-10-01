@@ -1911,6 +1911,8 @@ l10n_keys! {
     GitHubAll,
     GitHubNoSessionMentions,
     GitHubNoSessionMatches,
+    GitHubSortRecent,
+    GitHubSortNumber,
 }
 
 /// The source control strings that are translated but not yet displayed.

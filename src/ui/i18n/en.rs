@@ -2438,6 +2438,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "This session hasn't mentioned an issue or pull request"
         }
         L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
+        L10nKey::GitHubSortRecent => "Recent",
+        L10nKey::GitHubSortNumber => "Number",
     }
 }
 

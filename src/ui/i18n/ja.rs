@@ -2503,6 +2503,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "すべて",
         L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
         L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "番号",
     })
 }
 

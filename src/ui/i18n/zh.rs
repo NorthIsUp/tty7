@@ -2267,6 +2267,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "全部",
         L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
         L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "编号",
     })
 }
 
