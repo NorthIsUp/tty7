@@ -456,6 +456,9 @@ pub struct Config {
     pub hidden_agent_sessions: BTreeSet<String>,
     #[serde(default = "default_true")]
     pub restore_agent_sessions: bool,
+    /// The fork's settings (`fork_config`), at the top level of the file.
+    #[serde(flatten)]
+    pub fork: super::fork_config::ForkConfig,
     /// Give each pane its own shell history instead of one file every pane
     /// appends to and reads back.
     ///
@@ -874,6 +877,7 @@ impl Default for Config {
             worktree_setup_trust: HashMap::new(),
             hidden_agent_sessions: BTreeSet::new(),
             restore_agent_sessions: true,
+            fork: Default::default(),
             per_pane_history: false,
             quarantined: false,
             servers_unreadable: false,
