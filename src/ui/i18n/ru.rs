@@ -2478,7 +2478,9 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
-        L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "Тонкий контур вокруг каждой группы: заголовка и её вкладок."
+        }
         L10nKey::SettingsGroupOutlineColor => "Цвет контура",
         L10nKey::SettingsGroupOutlineColorDesc => {
             "Цвет рамки из темы или собственный цвет каждой группы."
