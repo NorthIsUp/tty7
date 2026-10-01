@@ -88,6 +88,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsMachineLocalDesc => "钩子按机器安装。远程机器在连接期间会出现在这里。",
         L10nKey::SettingsMachineRemoteDesc => "通过当前与 {name} 的连接安装。",
         L10nKey::SettingsAgentsInstalledSummary => "已安装 {count} / {total}",
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "请运行已安装的 tty7 应用来安装钩子；当前构建运行于 {path}"
+        }
         L10nKey::SettingsNoAgentsInstalled => "这台机器上还没有安装 Agent 钩子。",
         L10nKey::SettingsNoAgentsMatch => "没有与“{query}”匹配的 Agent",
         L10nKey::SettingsMoreAgents => "还有 {count} 个可用 Agent",

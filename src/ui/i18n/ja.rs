@@ -110,6 +110,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsMachineRemoteDesc => "{name} への接続を通じてインストールします。",
         L10nKey::SettingsAgentsInstalledSummary => "{total} 件中 {count} 件インストール済み",
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "フックをインストールするには、インストール済みの tty7 アプリを実行してください。このビルドの場所: {path}"
+        }
         L10nKey::SettingsNoAgentsInstalled => "このマシンにはまだエージェントフックがありません。",
         L10nKey::SettingsNoAgentsMatch => "「{query}」に一致するエージェントはありません",
         L10nKey::SettingsMoreAgents => "ほかに {count} 件のエージェント",

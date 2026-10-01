@@ -64,6 +64,7 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/ui/hotkey_window/` | the global hotkey (`global_hotkey`, ⌥Space), macOS only: `mod.rs` the platform-free rules (toggle, the lift stack, restore, the switcher row's item and badge, the Workspaces menu label); `carbon.rs` the chord table and `RegisterEventHotKey`; `appkit.rs` the one dedicated hotkey window (its workspace saved in `hotkey-window`) shown / focused / ordered out with a fade, full screen (the screen below its menu bar, floating level under Force Quit, the Dock moved aside by presentation options while it is the key window and covered, and only what it set put back), windows activated over it lifted above it, hide on focus loss; `settings.rs` its Settings rows |
 | `docs/window/hotkey-window.mdx` | user docs for the hotkey window |
 | `src/terminal/color_scheme.rs` | DEC mode 2031: `CSI ? 997 ; 1\|2 n` to a pane whose program switched it on when the theme's background changes, and the `CSI ? 996 n` answer (Claude Code's `theme: auto` re-reads OSC 11 only on a 997) |
+| `crates/tty7-core/src/core/dev_build.rs` | `is_dev_build` / `running_dev_build`: a binary under a dir holding `CACHEDIR.TAG`, or under a `target` beside a `Cargo.toml` (as launched or canonicalized), is a build and never links the CLI onto PATH or writes agent hooks; offered upstream as `upstream/dev-build-no-install` |
 
 ## Hooks in upstream files
 
@@ -80,6 +81,8 @@ releases. The signing secrets come from `! mise run set-release-secrets`.
 | `src/terminal/element.rs` | `mod osc8_underline`, `RenderCell::osc8_dots`, end of `snapshot_cell`, `flag_hovered_link`; test `test_colors` made `pub(super)` | `osc8_underline::mark` / `unmark` |
 | `Cargo.toml` | `[profile.fast]` | the day-to-day build: deps at opt 3, the app crate at opt 1, no LTO |
 | `src/core/update.rs` | `REPO`, `RELEASES_URL`, `NIGHTLY_RELEASE_URL` | `update_repo!()`, so checks and links read the fork's releases |
+| `src/core/cli_install.rs` (`install_inner`), `src/core/aumid.rs` (`is_build_output`), `crates/tty7-core/src/core/agent_hooks.rs` (`install_hooks`, `uninstall_hooks`: `refuse_a_dev_build`; `refresh_hooks_at_launch`) | the build check | ORs `dev_build::is_dev_build` into upstream's `in_a_build_tree` / `has_build_layout`, refuses a build's hook write into the user's own home (a scratch home is allowed), and skips the launch refresh on a build, so a build never rewrites `/opt/homebrew/bin/tty7` or `~/.claude/settings.json` |
+| `src/ui/settings/agents.rs`, `src/ui/i18n/{mod,en,zh,ja}.rs` | the hook Install button, the agent hooks group; `SettingsAgentHooksDevBuild` | on a build, the local Install button is disabled, Reinstall and Uninstall are hidden, and a note names the build's path |
 | `src/core/update.rs` | `spawn_check`, `spawn_check_inner` | `fork_update::watch`; a local install skips the GitHub check |
 | `src/core/mod.rs` | module list | `pub mod fork_update` |
 | `src/bin/tty7-updater.rs` | `install_inner`, `extract_archive` → `unpacked_app` (+ test) | find the unpacked `.app` rather than name `tty7.app`, since the fork's is `tty7-niu.app` |
