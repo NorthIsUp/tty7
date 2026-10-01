@@ -147,38 +147,16 @@ pub(crate) fn fork_line(
     agent.fork_command(session_id, Some(&argv))
 }
 
-/// How long a new shell is given to reach its first prompt before a queued
-/// command is typed anyway.
-const PROMPT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-const PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
-
 /// Type `command` into the shell `slot` holds — now if it is up, or the
 /// moment it lands if it is still connecting.
 ///
 /// A shell that is up is not yet at its prompt: typed straight in, the line
 /// was echoed by the tty above everything the shell prints while it starts (a
 /// banner, `fastfetch`) and read only afterwards. It waits for the shell's
-/// first prompt instead — up to [`PROMPT_WAIT`], for a shell with no
-/// integration to say when that is.
+/// first prompt instead ([`crate::ui::first_prompt::type_at_first_prompt`]).
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => {
-            let view = view.downgrade();
-            cx.spawn(async move |cx| {
-                let deadline = std::time::Instant::now() + PROMPT_WAIT;
-                loop {
-                    let ready = view
-                        .read_with(cx, |view, _| view.terminal.at_prompt())
-                        .unwrap_or(true);
-                    if ready || std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                    cx.background_executor().timer(PROMPT_POLL).await;
-                }
-                let _ = view.read_with(cx, |view, _| view.run_command_line(&command));
-            })
-            .detach();
-        }
+        PaneSlot::Ready(view) => crate::ui::first_prompt::type_at_first_prompt(view, command, cx),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
@@ -214,7 +192,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let command = agent.launch_command(&cx.global::<Config>().agent_launch);
         let slot = match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
@@ -222,12 +199,32 @@ impl Tty7App {
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                self.new_tab_slot(cwd, None, window, cx)
+                return self.launch_agent_in(agent, cwd, window, cx);
             }
             SpawnWhere::Split => {
                 self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
             }
         };
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    /// Open a new tab in `cwd` for `agent` and start it there.
+    pub(crate) fn launch_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.new_tab_slot(cwd, None, window, cx);
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+        let command = crate::ui::agent_resume::with_minted_session(
+            agent,
+            agent.launch_command(&cx.global::<Config>().agent_launch),
+        );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
         // goes nowhere rather than into whatever pane was focused before.

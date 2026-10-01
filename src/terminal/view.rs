@@ -1660,6 +1660,7 @@ impl TerminalView {
         restore_pane: Option<u64>,
         shell: Option<ShellSpec>,
         owner: Option<crate::core::session::WorkspaceId>,
+        run_once: Option<String>,
     ) -> anyhow::Result<ShellParts> {
         let route = crate::terminal::PaneRoute::for_workspace(workspace.as_ref());
         let attached = match restore_pane {
@@ -1710,6 +1711,7 @@ impl TerminalView {
                         crate::ui::i18n::t(crate::ui::i18n::L10nKey::PaneRestoredScreenBanner)
                             .to_string(),
                     ),
+                    run_once,
                 });
                 let (terminal, id) = RemoteTerminal::spawn_on(
                     &route,
@@ -1794,7 +1796,7 @@ impl TerminalView {
         view
     }
 
-    fn with_terminal(
+    pub(super) fn with_terminal(
         terminal: RemoteTerminal,
         pane_id: u64,
         window: &mut Window,
