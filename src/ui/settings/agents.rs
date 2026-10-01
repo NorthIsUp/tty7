@@ -2,6 +2,7 @@
 //! sidebar, per machine, and the `tty7` command on PATH.
 
 use crate::core::agent_hooks::{HookAgent, HooksState};
+use tty7_core::core::fork_config::{SplitDir, SplitHarness};
 
 use super::kit::{self, BtnKind, Tk, fs};
 use super::shell::MenuEntry;
@@ -37,12 +38,148 @@ fn cli_agent(agent: HookAgent) -> crate::core::cli_agent::CLIAgent {
     }
 }
 
+/// The tab bar's agent disc: the brand field, the mark on it, and a hairline
+/// where the field is the page.
+fn agent_disc(mark: crate::core::cli_agent::CLIAgent, tk: Tk) -> Div {
+    div()
+        .size(px(20.))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(rgb(mark.accent_rgb()))
+        .when(presets::needs_edge(mark.accent_rgb(), tk.page), |d| {
+            d.shadow(vec![kit::ring(tk.k15, 0.5, false)])
+        })
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            gpui::svg()
+                .path(mark.icon_path())
+                .size(px(11.))
+                .text_color(rgb(mark.icon_rgb())),
+        )
+}
+
 impl Tty7App {
     pub(crate) fn render_settings_agents(&self, cx: &mut Context<Self>) -> AnyElement {
         Self::settings_page([
             self.render_agent_hooks_group(cx),
+            self.render_new_tab_agents_rows(cx),
             self.render_command_line_rows(cx),
         ])
+    }
+
+    /// A switch per agent on `PATH`: the ones the New Tab page offers.
+    fn render_new_tab_agents_rows(&self, cx: &mut Context<Self>) -> AnyElement {
+        let cfg = cx.global::<Config>();
+        let hidden = &cfg.fork.new_tab_hidden_agents;
+        let agents = crate::ui::agent_launch::installed_on(
+            &std::env::var_os("PATH").unwrap_or_default(),
+            &cfg.agent_launch,
+        );
+        let tk = Tk::of(cx);
+        // `Switch::label` is only the screen-reader name, so each switch
+        // draws its agent beside it.
+        let switches = agents.into_iter().map(|agent| {
+            h_flex()
+                .gap(px(6.))
+                .items_center()
+                .debug_selector(move || format!("new-tab-agent-{}", agent.slug()))
+                .child(agent_disc(agent, tk))
+                .child(
+                    div()
+                        .text_size(fs(12.5))
+                        .text_color(tk.fg)
+                        .child(agent.display_name()),
+                )
+                .child(
+                    kit::switch(("new-tab-agent", agent as usize))
+                        .small()
+                        .label(agent.display_name())
+                        .checked(!hidden.contains(agent.slug()))
+                        .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                            let on = *on;
+                            this.update_config(cx, |c| {
+                                let hidden = &mut c.fork.new_tab_hidden_agents;
+                                match on {
+                                    true => hidden.remove(agent.slug()),
+                                    false => hidden.insert(agent.slug().to_string()),
+                                };
+                            })
+                        })),
+                )
+        });
+        // The control column never shrinks, so the cap is what makes it wrap.
+        let control = h_flex()
+            .flex_wrap()
+            .max_w(px(360.))
+            .gap_x(px(16.))
+            .gap_y(px(8.))
+            .children(switches)
+            .into_any_element();
+        let fork = &cx.global::<Config>().fork;
+        let (harness, dir) = (fork.split_harness, fork.split_dir);
+        let harnesses = [
+            SplitHarness::Terminal,
+            SplitHarness::Same,
+            SplitHarness::Choose,
+        ];
+        let harness_choice = self.settings_choice(
+            "split-harness",
+            &[
+                t(L10nKey::SettingsSplitTerminal),
+                t(L10nKey::SettingsSplitSame),
+                t(L10nKey::SettingsSplitChoose),
+            ],
+            harnesses.iter().position(|h| *h == harness).unwrap_or(2),
+            cx,
+            move |this, ix, _, cx| {
+                let harness = harnesses.get(ix).copied().unwrap_or_default();
+                this.update_config(cx, |c| c.fork.split_harness = harness)
+            },
+        );
+        let dirs = [SplitDir::Same, SplitDir::Choose];
+        let dir_choice = self.settings_choice(
+            "split-dir",
+            &[
+                t(L10nKey::SettingsSplitSame),
+                t(L10nKey::SettingsSplitChoose),
+            ],
+            dirs.iter().position(|d| *d == dir).unwrap_or(1),
+            cx,
+            move |this, ix, _, cx| {
+                let dir = dirs.get(ix).copied().unwrap_or_default();
+                this.update_config(cx, |c| c.fork.split_dir = dir)
+            },
+        );
+        self.settings_group(
+            None,
+            None,
+            [
+                self.settings_row(
+                    t(L10nKey::SettingsNewTabAgents),
+                    t(L10nKey::SettingsNewTabAgentsDesc),
+                    control,
+                    cx,
+                )
+                .into_any_element(),
+                self.settings_row(
+                    t(L10nKey::SettingsSplitHarness),
+                    t(L10nKey::SettingsSplitHarnessDesc),
+                    harness_choice,
+                    cx,
+                )
+                .into_any_element(),
+                self.settings_row(
+                    t(L10nKey::SettingsSplitDir),
+                    t(L10nKey::SettingsSplitDirDesc),
+                    dir_choice,
+                    cx,
+                )
+                .into_any_element(),
+            ],
+            cx,
+        )
     }
 
     pub(crate) fn render_command_line_rows(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -509,27 +646,7 @@ impl Tty7App {
                     .py(px(8.))
                     .gap(px(12.))
                     .items_center()
-                    .child(
-                        // The tab bar's agent disc: the brand field, the mark
-                        // on it, and a hairline where the field is the page.
-                        div()
-                            .size(px(20.))
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .bg(rgb(mark.accent_rgb()))
-                            .when(presets::needs_edge(mark.accent_rgb(), tk.page), |d| {
-                                d.shadow(vec![kit::ring(tk.k15, 0.5, false)])
-                            })
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                gpui::svg()
-                                    .path(mark.icon_path())
-                                    .size(px(11.))
-                                    .text_color(rgb(mark.icon_rgb())),
-                            ),
-                    )
+                    .child(agent_disc(mark, tk))
                     .child(
                         v_flex()
                             .flex_1()
