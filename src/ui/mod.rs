@@ -2,6 +2,8 @@ pub mod agent_launch;
 pub mod agent_resume;
 pub mod app;
 pub mod assets;
+pub(crate) mod background_grid;
+pub mod background_tab;
 pub mod code_editor;
 pub mod dialog;
 pub mod diff_list;
