@@ -135,6 +135,23 @@ if [[ -o interactive ]] && [[ -z "$TTY7_SHELL_INTEGRATION" ]]; then
     unfunction __tty7_restore_zdotdir
   }
   add-zsh-hook precmd __tty7_restore_zdotdir
+
+  # A command the pane was spawned to run once (a resumed agent): accepted at
+  # the first prompt as if typed, after every precmd above has run, and out of
+  # the environment before it starts.
+  if [[ -n "$TTY7_RUN_ONCE" ]]; then
+    __tty7_run_once=$TTY7_RUN_ONCE
+    unset TTY7_RUN_ONCE
+    __tty7_run_once_line() {
+      add-zle-hook-widget -d line-init __tty7_run_once_line
+      BUFFER=$__tty7_run_once
+      unset __tty7_run_once
+      zle .accept-line
+    }
+    autoload -Uz add-zle-hook-widget
+    zle -N __tty7_run_once_line
+    add-zle-hook-widget line-init __tty7_run_once_line
+  fi
 fi
 # --- end tty7 shell integration ---
 "#;
@@ -183,11 +200,23 @@ if status is-interactive; and test -z "$TTY7_SHELL_INTEGRATION"
   # Runs on the fish_prompt *event*, which fires before fish calls the
   # fish_prompt *function* to render the prompt text — i.e. exactly where A
   # (prompt start) belongs.
+  # A command the pane was spawned to run once (a resumed agent), run before
+  # the first prompt and out of the environment before it starts.
+  if test -n "$TTY7_RUN_ONCE"
+    set -g __tty7_run_once $TTY7_RUN_ONCE
+    set -e TTY7_RUN_ONCE
+  end
+
   function __tty7_precmd --on-event fish_prompt
     set -l ret $status
     if set -q __tty7_cmd_active
       __tty7_osc "133;D;$ret"
       set -e __tty7_cmd_active
+    end
+    if set -q __tty7_run_once
+      set -l cmd $__tty7_run_once
+      set -e __tty7_run_once
+      eval $cmd
     end
     __tty7_report_cwd
     __tty7_report_edit_mode
@@ -298,8 +327,21 @@ if [[ $- == *i* ]] && [[ -z "$TTY7_SHELL_INTEGRATION" ]]; then
     return $ret
   }
 
+  # A command the pane was spawned to run once (a resumed agent), run before
+  # the first prompt and out of the environment before it starts.
+  if [[ -n "$TTY7_RUN_ONCE" ]]; then
+    __tty7_run_once=$TTY7_RUN_ONCE
+    unset TTY7_RUN_ONCE
+  fi
+
   __tty7_precmd() {
     local ret=$?
+    if [[ -n "${__tty7_run_once:-}" ]]; then
+      local cmd=$__tty7_run_once
+      unset __tty7_run_once
+      builtin history -s -- "$cmd"
+      eval "$cmd"
+    fi
     __tty7_report_cwd
     __tty7_report_edit_mode
     __tty7_osc "133;A"
@@ -745,7 +787,7 @@ fn real_user_zdotdir() -> Option<String> {
         .filter(|z| !z.is_empty() && !is_our_zdotdir(z))
 }
 
-enum ShellKind {
+pub(crate) enum ShellKind {
     Zsh,
     Bash,
     Fish,
@@ -773,6 +815,16 @@ fn shell_kind(program: Option<&str>) -> Option<ShellKind> {
         "wsl" => Some(ShellKind::Wsl),
         _ => None,
     }
+}
+
+/// The shell [`setup`] injects integration into for `program` (`None`: the
+/// login shell), or `None` when it injects none: the user's own arguments
+/// come first, and WSL has integration only on Windows.
+pub(crate) fn integrated_kind(program: Option<&str>, has_custom_args: bool) -> Option<ShellKind> {
+    if has_custom_args {
+        return None;
+    }
+    shell_kind(program).filter(|k| cfg!(windows) || !matches!(k, ShellKind::Wsl))
 }
 
 pub(crate) fn wsl_distro(args: &[String]) -> Option<String> {
@@ -1247,10 +1299,7 @@ pub fn setup(program: Option<&str>, args: &[String], has_custom_args: bool) -> O
     // files run. Arguments tty7's own detection supplied (Git Bash's `-i -l`,
     // a WSL row's `--distribution`) are not user-authored and never land here;
     // `daemon::pane::has_custom_args` is where that line is drawn.
-    if has_custom_args {
-        return None;
-    }
-    let mut injection = match shell_kind(program)? {
+    let mut injection = match integrated_kind(program, has_custom_args)? {
         ShellKind::Zsh => setup_zsh(),
         ShellKind::Fish => setup_fish(),
         ShellKind::Bash => setup_bash(),
