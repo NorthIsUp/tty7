@@ -41,7 +41,9 @@ A tab in a pinned group never leaves it on its own. There are two kinds:
   folder and comes back. Hover the header for the folder's path; click its ◆
   to unpin it, and its tabs go back to auto groups.
 - A **label group** is just a name, for tabs that belong together for a reason
-  no directory shows. Tabs go in and out of it by hand.
+  no directory shows. Tabs go in and out of it by hand. Clicking its ◆
+  deletes the group, after asking; its tabs stay open and go back to auto
+  groups.
 
 Ways to pin:
 
@@ -64,6 +66,39 @@ every window onto it — and the next launch — shows the same thing.
 **Settings → General → Auto grouping** turns auto groups off. The tabs you
 have not pinned then sit in one flat list below your pinned groups, which show
 either way.
+
+### Group colours
+
+Each group header starts with a coloured dot. Each group's hue is the golden
+angle (137.5°) round the colour wheel from the group above it, so neighbours are
+never close and the first seventeen are all at least 10° apart. Lightness and
+saturation are fixed per light or dark theme, so every hue is equally readable.
+Ungrouped is grey. The colour follows the group's place in the sidebar, so
+reordering groups, or closing one above it, changes it. To pin one, set it by
+name in `config.json`:
+
+```json
+"group_colors": { "tty7": "#e0b072" }
+```
+
+A value that is not `#rrggbb` is ignored, and logged once.
+
+The header itself sits on a faint wash of that colour, and can carry an
+outline too. **Settings → General → Tabs** has both, or set them in
+`config.json`: `group_background` (on by default) and `group_outline` (off),
+each with a `_color` of `"hashed"` (the group's colour) or `"theme"` (a
+neutral from the theme). Set `group_background_scope` to `"group"` and the wash
+and outline cover the header and its tabs as one block instead; a folded group
+is just its header either way.
+
+Folding a group slides its tabs open or shut and turns the chevron with them.
+Turn that off with `animations: false` (or **Animate folding** in Settings).
+
+The branch beside a repo group's name is the repo's default branch
+(`origin/HEAD`, else `init.defaultBranch`), not whichever branch a tab has
+checked out — a group's tabs are often worktrees on different branches.
+`origin/HEAD` is set when the repo is cloned and git never refreshes it, so if
+the remote's default has changed since, run `git remote set-head origin --auto`.
 
 ## What a row tells you
 
