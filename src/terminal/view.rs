@@ -866,7 +866,7 @@ impl TerminalView {
         }
         let agent = self.terminal.foreground_agent().map(|a| a.display_name());
         if dropped {
-            self.notify_pane(agent, &t(L10nKey::ProgramNotesDropped), cx);
+            self.notify_pane(agent, t(L10nKey::ProgramNotesDropped), cx);
         }
         for (title, body) in notes {
             match title {

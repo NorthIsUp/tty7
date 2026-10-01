@@ -131,7 +131,9 @@ pub type Note = (Option<String>, String);
 pub fn parse_notification(payload: &[u8]) -> Option<Note> {
     if let Some(rest) = payload.strip_prefix(b"9;") {
         let first = rest.split(|&b| b == b';').next().unwrap_or(rest);
-        if first.len() == 1 && first[0].is_ascii_digit() {
+        // ConEmu's subcommands, 9;1 through 9;12: progress, cwd, prompt marks.
+        if (first.len() == 1 && first[0].is_ascii_digit()) || matches!(first, b"10" | b"11" | b"12")
+        {
             return None;
         }
         let body = String::from_utf8_lossy(rest).into_owned();
@@ -199,6 +201,16 @@ impl Notifications {
                 Some(("e", v)) => b64 = v == "1",
                 _ => {}
             }
+        }
+        // A close, a liveness or capability query: commands about
+        // notifications, not parts of one, so they neither show nor finish one.
+        if matches!(part, "close" | "alive" | "?") {
+            return None;
+        }
+        // Chunks without an id are each their own notification; one never
+        // continues another.
+        if id.is_empty() {
+            self.kitty.retain(|p| !p.id.is_empty());
         }
         let text = match b64 {
             true => base64::engine::general_purpose::STANDARD
@@ -707,6 +719,25 @@ mod tests {
     fn kitty_control_payloads_show_nothing() {
         assert_eq!(notes(&[b"99;i=1:p=close;"]), vec![]);
         assert_eq!(notes(&[b"99;i=1:p=?;"]), vec![]);
+    }
+
+    #[test]
+    fn kitty_control_payloads_leave_an_unfinished_note_alone() {
+        for control in [&b"99;i=1:p=close;"[..], b"99;i=1:p=alive;", b"99;i=1:p=?;"] {
+            assert_eq!(notes(&[b"99;i=1:d=0;Half", control]), vec![], "{control:?}");
+        }
+        assert_eq!(
+            notes(&[b"99;i=1:d=0;Hel", b"99;i=1:p=close;", b"99;i=1;lo"]),
+            vec![(None, "Hello".into())]
+        );
+    }
+
+    #[test]
+    fn kitty_chunks_without_an_id_never_join() {
+        assert_eq!(
+            notes(&[b"99;d=0;stale", b"99;p=body;fresh"]),
+            vec![(None, "fresh".into())]
+        );
     }
 
     #[test]

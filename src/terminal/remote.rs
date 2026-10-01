@@ -7254,6 +7254,9 @@ mod osc_tests {
     fn conemu_osc9_subcommands_are_not_notifications() {
         assert_eq!(scan(&[b"\x1b]9;4;1;50\x07"]), vec![]);
         assert_eq!(scan(&[b"\x1b]9;9;/home/u\x07"]), vec![]);
+        assert_eq!(scan(&[b"\x1b]9;12\x07"]), vec![], "a prompt mark");
+        assert_eq!(scan(&[b"\x1b]9;11;a comment\x07"]), vec![]);
+        assert_eq!(scan(&[b"\x1b]9;42\x07"]), vec![(None, "42".to_string())]);
     }
 
     #[test]
