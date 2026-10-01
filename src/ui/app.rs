@@ -10415,6 +10415,8 @@ fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
         }
         Pane::Leaf(PaneSlot::Ready(view)) => {
             let view = view.read(cx);
+            let (agent, agent_session_id, agent_launch_argv) =
+                crate::ui::agent_resume::sleeping_agent(view, cx);
             SessionPane::Leaf {
                 // A native SSH leaf keeps the far shell's directory, so a
                 // sleeping SSH tab wakes where it was: the redial that wakes it
@@ -10433,9 +10435,9 @@ fn pane_to_session(pane: &Pane, cx: &App) -> SessionPane {
                 // reads, so the gap here costs nothing it can see.
                 shell: view.shell_spec(),
                 ssh_spec: view.ssh_spec(),
-                agent: view.agent(),
-                agent_session_id: view.agent_session().and_then(|s| s.session_id),
-                agent_launch_argv: view.agent_session().and_then(|s| s.launch_argv),
+                agent,
+                agent_session_id,
+                agent_launch_argv,
             }
         }
         Pane::Split {

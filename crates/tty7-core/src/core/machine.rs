@@ -412,6 +412,10 @@ pub struct PaneRecord {
     pub ssh_spec: Option<Box<NativeSshSpec>>,
     #[serde(default)]
     pub agent: Option<AgentFacts>,
+    /// Fork: the last session an agent reported here, kept after it leaves
+    /// (`claude_background::note_session`).
+    #[serde(default)]
+    pub last_session: Option<AgentFacts>,
     /// What the pane is actually running, resolved: the spawn's override if it
     /// had one, otherwise the shell the config named at the time.
     ///
@@ -434,6 +438,7 @@ impl PaneRecord {
             osc_title: None,
             ssh_spec: None,
             agent: None,
+            last_session: None,
             shell: None,
             live: false,
         }
@@ -491,6 +496,7 @@ impl PaneSeed {
             osc_title: None,
             ssh_spec: self.ssh_spec.map(|s| Box::new(s.without_secrets())),
             agent: self.agent,
+            last_session: None,
             shell: self.shell,
             live,
         }
@@ -1580,6 +1586,7 @@ fn register_pane(m: &mut Machine, seed: PaneSeed, live: bool) -> io::Result<()> 
         if record.shell.is_none() {
             record.shell = kept.shell;
         }
+        record.last_session = kept.last_session;
         return Ok(());
     }
     if m.panes.len() >= MAX_PANES {
