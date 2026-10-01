@@ -1,0 +1,13 @@
+fork-infra	the fork's tasks, packaging, CI and sync
+fork-config	ForkConfig and the config the fork's features read
+fork-docs	the fork's specs, plans and feature pages
+agent-resume	agents come back after a reboot
+new-tab-page	New Tab opens a picker for what to open and where
+background-tabs	⇧ opens a tab in the background
+search-tabs	Search Everywhere's Text, History and Agents tabs
+sidebar-groups	group colours, headers, fill and fold
+pane-nice	pane shells start at the configured nice
+github-session	the GitHub panel's Session tab and This session filter
+osc8-underline	OSC 8 links rest under a faint dotted underline
+hotkey-window	a global hotkey window
+program-notes	program notifications follow the per-pane rule
