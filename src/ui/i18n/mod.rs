@@ -142,6 +142,7 @@ l10n_keys! {
     SettingsMachineLocalDesc,
     SettingsMachineRemoteDesc,
     SettingsAgentsInstalledSummary,
+    SettingsAgentHooksDevBuild,
     SettingsNoAgentsInstalled,
     SettingsNoAgentsMatch,
     SettingsMoreAgents,
