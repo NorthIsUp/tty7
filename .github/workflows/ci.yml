@@ -331,9 +331,7 @@ jobs:
   # green, for the branch-protection reason spelled out above.
   server-macos:
     needs: changes
-    # Skipped on PRs: free accounts get ~5 macOS runners at once, and these two
-    # jobs made each PR hold three. A server-only break surfaces on main-niu.
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    if: needs.changes.outputs.code == 'true'
     name: tty7-server macOS (${{ matrix.target }})
     runs-on: macos-latest
     timeout-minutes: 45
