@@ -2291,6 +2291,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
         }
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "编号",
     })
 }
 

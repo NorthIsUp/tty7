@@ -2462,6 +2462,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "agents new tab page offer hide claude codex pi"
         }
+        L10nKey::GitHubSortRecent => "Recent",
+        L10nKey::GitHubSortNumber => "Number",
     }
 }
 
