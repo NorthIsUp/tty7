@@ -1345,6 +1345,7 @@ l10n_keys! {
     SidebarMoveToGroup,
     SidebarNewGroup,
     SidebarRemoveFromGroup,
+    SidebarPinToCurrentGroup,
     SidebarNewGroupName,
     SidebarRenameGroup,
     SidebarPinGroup,
