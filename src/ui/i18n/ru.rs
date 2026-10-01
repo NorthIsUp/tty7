@@ -194,6 +194,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchSectionSessionsHere => "В {dir}",
         L10nKey::SearchSectionSessionsRecent => "Недавние",
+        L10nKey::SearchSectionSessionsOpen => "Открыты во вкладке",
         L10nKey::AppSessionNotResumable => "{name} не поддерживает продолжение сеанса по ID.",
         L10nKey::AppSessionDirectoryGone => "Папка сеанса больше не существует: {path}",
         L10nKey::SearchSessionActions => "Выберите действие с этим сеансом…",
@@ -2458,9 +2459,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
         L10nKey::SearchHistoryHits => "Совпадений: {count}",
-        L10nKey::CmdSearchAgents => "Искать вкладки и сеансы агентов…",
-        L10nKey::SearchTabAgents => "Агенты",
-        L10nKey::SearchPlaceholderAgents => "Искать открытые вкладки и сеансы агентов…",
+        L10nKey::CmdSearchAgents => "Искать сеансы агентов…",
         L10nKey::CmdContinueAllAgents => "Продолжить всех агентов",
         L10nKey::CmdContinueAllAgentsSubtitle => {
             "возобновить каждую спящую вкладку агента с интервалом в несколько секунд и попросить продолжить"
