@@ -103,6 +103,8 @@ pub(crate) struct Catalog {
     /// Asked with every query the Symbols tab is given; its answer comes
     /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
+    /// The tabs the window answers as they are typed in (`text::LiveTab`).
+    pub live: Vec<super::text::LiveTab>,
 }
 
 /// Something that answers a query later — a language server.
@@ -129,6 +131,7 @@ impl Catalog {
             locations: Vec::new(),
             project_symbols: Vec::new(),
             live_query: None,
+            live: Vec::new(),
         }
     }
 
@@ -145,6 +148,9 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
+            SearchTab::Text | SearchTab::History => self.live_source(tab),
+            // The page draws its own rows (`new_tab_page`).
+            SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
     }
 
@@ -194,6 +200,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
+            .filter(|tab| !matches!(tab, SearchTab::Text | SearchTab::History))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing
@@ -453,9 +460,12 @@ impl Source for Sessions<'_> {
     /// The last few sessions that ran where you are, and nothing from
     /// elsewhere: a session from another project is not what an empty query
     /// in this one is reaching for.
+    /// Those open in a tab lead the list but not the All tab, which has
+    /// their tab already.
     fn highlights(&self, _cx: &App) -> Vec<Item> {
         self.items[..self.here.min(self.items.len())]
             .iter()
+            .filter(|item| matches!(item.kind, CommandKind::ResumeSession { .. }))
             .take(SESSIONS_HERE_ON_ALL)
             .cloned()
             .collect()

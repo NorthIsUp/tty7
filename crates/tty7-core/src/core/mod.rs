@@ -8,10 +8,13 @@ pub mod config;
 pub mod crash;
 pub mod dev_build;
 pub mod fork_config;
+pub mod fork_host;
 pub mod git;
 pub mod github;
 pub mod gitignore;
 pub mod group_key;
+pub mod history_cache;
+pub mod history_search;
 #[allow(dead_code)]
 pub mod keychain;
 pub mod kitty_graphics;
