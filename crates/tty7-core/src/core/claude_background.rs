@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
+use crate::core::agent_history::{ends, records, str_field};
 use crate::core::cli_agent::{AgentSessionState, CLIAgent};
+use crate::core::machine::{AgentFacts, PaneRecord};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +85,8 @@ pub enum ResumePlan {
     /// Claude saved no transcript for it (it never took a turn), so a resume
     /// would stop at "No conversation found": start it fresh under its id.
     Fresh,
+    /// The user ended it with `/exit` or `/quit`: a wake leaves it closed.
+    Closed,
 }
 
 /// [`ResumePlan`] for `agent`'s `session_id`, with Claude's files under
@@ -105,11 +109,106 @@ pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> Res
         let Ok(project) = project else {
             return ResumePlan::Resume;
         };
-        if project.path().join(&file).is_file() {
-            return ResumePlan::Resume;
+        let path = project.path().join(&file);
+        if path.is_file() {
+            return match exited(&path) {
+                true => ResumePlan::Closed,
+                false => ResumePlan::Resume,
+            };
         }
     }
     ResumePlan::Fresh
+}
+
+/// Whether the transcript at `path` ends with the user's own `/exit` or
+/// `/quit`. A crash, kill or reboot writes no such turn.
+fn exited(path: &Path) -> bool {
+    let len = path.metadata().map_or(0, |m| m.len());
+    let Ok((head, tail)) = ends(path, len) else {
+        return false;
+    };
+    let text = if tail.is_empty() { head } else { tail };
+    records(&text)
+        .rev()
+        .filter(|r| str_field(r, "type") == Some("user"))
+        .filter_map(|r| r.pointer("/message/content")?.as_str().map(str::to_string))
+        .find(|c| !c.starts_with("<local-command-"))
+        .is_some_and(|c| c.contains("<command-name>/exit") || c.contains("<command-name>/quit"))
+}
+
+/// After `record.agent` takes an observation: a session the agent reported
+/// becomes the pane's `last_session`. Nothing else replaces it, so an agent
+/// with no session (`claude --version`) or one gone (a crash) keeps it;
+/// `closed` ([`closed_on_leaving`]) lets it go.
+pub fn note_session(record: &mut PaneRecord, closed: bool) {
+    if closed {
+        record.last_session = None;
+    }
+    if let Some(seen) = record.agent.as_ref().filter(|a| a.session_id.is_some()) {
+        record.last_session = Some(AgentFacts {
+            status: None,
+            ..seen.clone()
+        });
+    }
+}
+
+/// Whether the agent that just left (`before`, now `after`) was a Claude
+/// session the user `/exit`ed. Read by the daemon, on the host that has the
+/// transcript, so the record says so before any wake looks.
+pub fn closed_on_leaving(before: Option<&AgentFacts>, after: Option<&AgentFacts>) -> bool {
+    closed_on_leaving_in(local_claude_root().as_deref(), before, after)
+}
+
+fn closed_on_leaving_in(
+    claude_root: Option<&Path>,
+    before: Option<&AgentFacts>,
+    after: Option<&AgentFacts>,
+) -> bool {
+    let (Some(root), Some(left), None) = (claude_root, before, after) else {
+        return false;
+    };
+    left.agent == CLIAgent::Claude
+        && left.session_id.as_deref().is_some_and(|id| {
+            let file = format!("{id}.jsonl");
+            std::fs::read_dir(root.join("projects"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|p| p.path().join(&file))
+                .find(|p| p.is_file())
+                .is_some_and(|p| exited(&p))
+        })
+}
+
+/// `agent` with the `last` session filled in where a fresh agent of the same
+/// kind has not reported one yet, or `last` when no agent is there.
+pub fn with_last_session(
+    agent: Option<AgentFacts>,
+    last: Option<&AgentFacts>,
+) -> Option<AgentFacts> {
+    match (agent, last) {
+        (None, last) => last.cloned(),
+        (Some(a), Some(l)) if a.session_id.is_none() && a.agent == l.agent => Some(AgentFacts {
+            session_id: l.session_id.clone(),
+            launch_argv: a.launch_argv.or_else(|| l.launch_argv.clone()),
+            ..a
+        }),
+        (a, _) => a,
+    }
+}
+
+/// The shell started `command` with no agent in front: the user is using
+/// the shell, so `last_session` is let go — unless the command is an
+/// agent's own (`claude --version`, `codex --help`).
+pub fn note_command(record: &mut PaneRecord, command: Option<&str>) {
+    let argv: Vec<String> = command
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    if CLIAgent::detect_from_argv(&argv).is_none() {
+        record.last_session = None;
+    }
 }
 
 /// The fork's per-pane daemon state, one field on upstream's `PaneState` so a
@@ -300,6 +399,147 @@ mod tests {
         let dir = root.join("jobs").join(job);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("state.json"), body).unwrap();
+    }
+
+    #[test]
+    fn a_users_own_exit_is_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("projects/-work");
+        std::fs::create_dir_all(&project).unwrap();
+        let user = |content: &str| {
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": content}})
+                .to_string()
+        };
+        let write = |id: &str, lines: &[String]| {
+            std::fs::write(project.join(format!("{id}.jsonl")), lines.join("\n") + "\n").unwrap();
+        };
+        let exit = "<command-name>/exit</command-name>\n  <command-message>exit</command-message>";
+        write(
+            "exited",
+            &[
+                user("fix the tests"),
+                user(exit),
+                user("<local-command-stdout>Goodbye!</local-command-stdout>"),
+                r#"{"type":"last-prompt","leafUuid":"x"}"#.into(),
+            ],
+        );
+        write("quit", &[user("<command-name>/quit</command-name>")]);
+        write(
+            "crashed",
+            &[user("fix the tests"), r#"{"type":"assistant"}"#.into()],
+        );
+        write("exited-then-resumed", &[user(exit), user("keep going")]);
+        let plan = |id: &str| resume_plan(root.path(), CLIAgent::Claude, id);
+        assert_eq!(plan("exited"), ResumePlan::Closed);
+        assert_eq!(plan("quit"), ResumePlan::Closed);
+        assert_eq!(
+            plan("crashed"),
+            ResumePlan::Resume,
+            "a crash or kill resumes"
+        );
+        assert_eq!(plan("exited-then-resumed"), ResumePlan::Resume);
+    }
+
+    #[test]
+    fn an_agent_leaving_after_exit_closes_its_session_and_a_crash_keeps_it() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("projects/-work");
+        std::fs::create_dir_all(&project).unwrap();
+        let user = |c: &str| {
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": c}})
+                .to_string()
+        };
+        std::fs::write(
+            project.join("exited.jsonl"),
+            [user("hi"), user("<command-name>/exit</command-name>")].join("\n"),
+        )
+        .unwrap();
+        std::fs::write(project.join("crashed.jsonl"), user("hi")).unwrap();
+        let claude = |id: &str| AgentFacts {
+            agent: CLIAgent::Claude,
+            session_id: Some(id.to_string()),
+            launch_argv: None,
+            status: None,
+        };
+        let left = |id: &str| closed_on_leaving_in(Some(root.path()), Some(&claude(id)), None);
+        assert!(left("exited"));
+        assert!(!left("crashed"));
+        assert!(
+            !closed_on_leaving_in(
+                Some(root.path()),
+                Some(&claude("exited")),
+                Some(&claude("exited"))
+            ),
+            "still running: nothing left"
+        );
+
+        let mut p = PaneRecord::new(1);
+        p.last_session = Some(claude("exited"));
+        note_session(&mut p, left("crashed"));
+        assert!(p.last_session.is_some(), "a crash keeps it");
+        note_session(&mut p, left("exited"));
+        assert!(p.last_session.is_none(), "an /exit lets it go");
+    }
+
+    #[test]
+    fn a_fresh_agent_keeps_the_last_session_id_per_field() {
+        let facts = |agent, id: Option<&str>| AgentFacts {
+            agent,
+            session_id: id.map(str::to_string),
+            launch_argv: None,
+            status: None,
+        };
+        let last = facts(CLIAgent::Claude, Some("old"));
+        let id = |a| with_last_session(a, Some(&last)).and_then(|f| f.session_id);
+        assert_eq!(id(None).as_deref(), Some("old"));
+        assert_eq!(
+            id(Some(facts(CLIAgent::Claude, None))).as_deref(),
+            Some("old")
+        );
+        assert_eq!(
+            id(Some(facts(CLIAgent::Claude, Some("new")))).as_deref(),
+            Some("new")
+        );
+        assert_eq!(
+            id(Some(facts(CLIAgent::Codex, None))),
+            None,
+            "not another agent's"
+        );
+    }
+
+    #[test]
+    fn only_a_reported_session_replaces_the_last_one_and_a_shell_command_clears_it() {
+        let facts = |id: Option<&str>| AgentFacts {
+            agent: CLIAgent::Claude,
+            session_id: id.map(str::to_string),
+            launch_argv: None,
+            status: Some(crate::core::cli_agent::AgentStatus::Working),
+        };
+        let mut p = PaneRecord::new(1);
+        p.agent = Some(facts(Some("a")));
+        note_session(&mut p, false);
+        assert_eq!(
+            p.last_session,
+            Some(AgentFacts {
+                status: None,
+                ..facts(Some("a"))
+            })
+        );
+        p.agent = Some(facts(None));
+        note_session(&mut p, false);
+        p.agent = None;
+        note_session(&mut p, false);
+        assert_eq!(
+            p.last_session.as_ref().unwrap().session_id.as_deref(),
+            Some("a")
+        );
+        note_command(&mut p, Some("codex --help"));
+        assert!(p.last_session.is_some());
+        note_command(&mut p, None);
+        assert!(
+            p.last_session.is_none(),
+            "a command it can't name is the shell's"
+        );
     }
 
     #[test]

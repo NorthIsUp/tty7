@@ -2062,7 +2062,11 @@ fn session_pane_from_node(node: &PaneNode, panes: &[PaneRecord]) -> SessionPane 
                 Some(r) => (
                     r.cwd.clone().map(std::path::PathBuf::from),
                     r.ssh_spec.clone(),
-                    r.agent.clone(),
+                    // Fork: the session the agent left behind.
+                    tty7_core::core::claude_background::with_last_session(
+                        r.agent.clone(),
+                        r.last_session.as_ref(),
+                    ),
                     r.shell.clone(),
                 ),
                 None => (None, None, None, None),
@@ -5763,6 +5767,7 @@ mod tests {
                     launch_argv: Some(vec!["claude".into()]),
                     status: None,
                 }),
+                last_session: None,
                 ..PaneRecord::new(2)
             },
         ];

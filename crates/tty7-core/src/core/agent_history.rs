@@ -886,7 +886,7 @@ pub(crate) fn codex_not_the_users(meta: &Value) -> bool {
 /// The file's first [`HEAD_BYTES`] and last [`TAIL_BYTES`], as text. The two
 /// overlap on a short file, which is harmless: the head is read for the first
 /// of things and the tail for the last.
-fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
+pub(crate) fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
     let mut file = File::open(path)?;
     let mut head = Vec::new();
     (&mut file).take(HEAD_BYTES).read_to_end(&mut head)?;
@@ -903,12 +903,12 @@ fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
 
 /// Complete JSON records in `text`. A cut at either end leaves a partial
 /// line, which does not parse and is skipped.
-fn records(text: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
+pub(crate) fn records(text: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
     text.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key)?
         .as_str()
         .map(str::trim)

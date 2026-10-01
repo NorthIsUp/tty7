@@ -2362,6 +2362,12 @@ impl DaemonPane {
                             // it; spent after the hop below — see the function.
                             let saw_prompt_mark =
                                 signals.shell.iter().any(|s| s.mark_at_prompt);
+                            // Fork: the command a shell started this read, if any.
+                            let ran = signals
+                                .shell
+                                .iter()
+                                .rfind(|s| s.active && !s.mark_at_prompt)
+                                .map(|s| s.command.clone());
                             let mut st = state.lock().unwrap();
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);
@@ -2386,11 +2392,23 @@ impl DaemonPane {
                             let pane = st.id;
                             let alive = st.alive;
                             let facts_after = may_change_facts.then(|| observed_facts(&st));
+                            let agent_gone = st.agent.is_none();
                             drop(st);
+                            if let Some(ran) = ran.filter(|_| agent_gone)
+                                && !shutting_down.load(Ordering::SeqCst)
+                            {
+                                crate::core::machine::observe_pane(pane, |p| {
+                                    crate::core::claude_background::note_command(p, ran.as_deref())
+                                });
+                            }
                             if !shutting_down.load(Ordering::SeqCst)
                                 && let (Some(before), Some(after)) = (facts_before, facts_after)
                                 && facts_changed(&before, &after)
                             {
+                                let closed = crate::core::claude_background::closed_on_leaving(
+                                    before.agent.as_ref(),
+                                    after.agent.as_ref(),
+                                );
                                 crate::core::machine::observe_pane(pane, |p| {
                                     if after.cwd.is_some() {
                                         p.cwd = after.cwd;
@@ -2399,6 +2417,7 @@ impl DaemonPane {
                                     // by a reset, so it is assigned either way.
                                     p.osc_title = after.osc_title;
                                     p.agent = after.agent;
+                                    crate::core::claude_background::note_session(p, closed);
                                     if after.shell.is_some() {
                                         p.shell = after.shell;
                                     }
@@ -5903,6 +5922,83 @@ mod tests {
         assert!(
             store.pane(PANE).unwrap().agent.is_none(),
             "an agent that left a pane still in use is a fact, and clears"
+        );
+
+        withdraw_observations();
+    }
+
+    /// Fork: `last_session` outlives the agent through a crash and an agent's
+    /// own sessionless command, and goes once the user runs a shell command.
+    #[test]
+    fn a_panes_last_session_survives_a_crash_until_the_shell_is_used() {
+        use crate::core::cli_agent::{AgentSessionState, CLIAgent};
+        use crate::core::machine::{
+            MACHINE_FILE, MachineStore, OBSERVE_SLOT, PaneSeed, publish_observations,
+            withdraw_observations,
+        };
+
+        const PANE: u64 = 79;
+        let _slot = OBSERVE_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = MachineStore::open(dir.path().join(MACHINE_FILE));
+        let ws = store.workspace_create(None, None, None).unwrap();
+        store
+            .tab_create(ws.id, None, PaneSeed::bare(PANE), None, None)
+            .unwrap();
+        publish_observations(&store);
+
+        let run = |had: bool, claude: bool, output: &[u8]| {
+            let mut state = test_state(true);
+            state.id = PANE;
+            if had {
+                state.agent = Some(CLIAgent::Claude);
+                state.agent_session = Some(AgentSessionState {
+                    session_id: Some("sess-1".to_string()),
+                    ..Default::default()
+                });
+            }
+            DaemonPane::spawn_reader(
+                Arc::new(Mutex::new(state)),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(OutputGate::new()),
+                Box::new(std::io::Cursor::new(output.to_vec())),
+                null_writer(),
+                || false,
+                ForegroundProbes {
+                    group: Box::new(|| None),
+                    remote: Box::new(|| None),
+                    agent: Box::new(move || {
+                        Some(claude.then(|| (CLIAgent::Claude, vec!["claude".to_string()])))
+                    }),
+                    cwd: Box::new(|| None),
+                },
+                Arc::new(DeathReporter::new(|| {})),
+            )
+            .join()
+            .unwrap();
+            let record = store.pane(PANE).unwrap();
+            (
+                record.agent.is_some(),
+                record.last_session.and_then(|s| s.session_id),
+            )
+        };
+        let kept = Some("sess-1".to_string());
+
+        assert_eq!(run(true, true, b"\x1b]2;working\x07"), (true, kept.clone()));
+        assert_eq!(
+            run(true, false, b"\x1b]133;D;0\x07\x1b]133;A\x07"),
+            (false, kept.clone()),
+            "Claude killed before its shell: upstream's agent clears, the session stays"
+        );
+        assert_eq!(
+            run(false, false, b"\x1b]133;C;claude --version\x07"),
+            (false, kept.clone()),
+            "an agent's own sessionless command keeps it"
+        );
+        assert_eq!(
+            run(false, false, b"\x1b]133;C;ls\x07"),
+            (false, None),
+            "a shell command means the shell is in use"
         );
 
         withdraw_observations();

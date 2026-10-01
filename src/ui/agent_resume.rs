@@ -17,9 +17,9 @@ use crate::ui::first_prompt::{on_this_machine, type_at_first_prompt};
 use crate::ui::host_ops::HostOps;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::windows::WindowRegistry;
-use tty7_core::core::claude_background::ResumePlan;
+use tty7_core::core::claude_background::{self, ResumePlan};
 use tty7_core::core::cli_agent::CLIAgent;
-use tty7_core::core::machine::TabId;
+use tty7_core::core::machine::{AgentFacts, TabId};
 use tty7_core::host::HostId;
 
 /// An agent session a restored pane reopens once its shell is up.
@@ -45,6 +45,7 @@ impl Resume {
                 .start_command(&self.session_id, argv)
                 .or_else(|| self.resumed(argv)),
             ResumePlan::Resume => self.resumed(argv),
+            ResumePlan::Closed => None,
         }
     }
 
@@ -515,6 +516,28 @@ impl Tty7App {
     }
 }
 
+/// What a leaf put to sleep records of `view`'s agent: its own, with the
+/// session its mirrored tree record kept after an agent left filled in.
+pub(crate) fn sleeping_agent(
+    view: &crate::terminal::view::TerminalView,
+    cx: &App,
+) -> (Option<CLIAgent>, Option<String>, Option<Vec<String>>) {
+    let session = view.agent_session();
+    let live = view.agent().map(|agent| AgentFacts {
+        agent,
+        session_id: session.as_ref().and_then(|s| s.session_id.clone()),
+        launch_argv: session.and_then(|s| s.launch_argv),
+        status: None,
+    });
+    let last = crate::ui::machine_mirror::MachineMirrors::machine(cx, view.host_id())
+        .and_then(|m| m.panes.iter().find(|p| p.id == view.pane_id))
+        .and_then(|p| p.last_session.as_ref());
+    match claude_background::with_last_session(live, last) {
+        Some(f) => (Some(f.agent), f.session_id, f.launch_argv),
+        None => (None, None, None),
+    }
+}
+
 pub(crate) fn layout_has_agent_session(pane: &SessionPane) -> bool {
     match pane {
         SessionPane::Leaf {
@@ -569,6 +592,45 @@ mod tests {
             agent_session_id: session.map(Into::into),
             agent_launch_argv: None,
         }
+    }
+
+    #[gpui::test]
+    fn a_pane_put_to_sleep_keeps_the_session_its_agent_left(cx: &mut gpui::TestAppContext) {
+        use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord};
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        let mut vcx = cx.add_empty_window().clone();
+        let (view, _daemon) = vcx.update(|window, cx| quiet_test_pane(41, window, cx));
+        let read = |vcx: &mut gpui::VisualTestContext| {
+            vcx.update(|_, cx| super::sleeping_agent(view.read(cx), cx))
+        };
+        assert_eq!(read(&mut vcx), (None, None, None));
+        vcx.update(|_, cx| {
+            let mut record = PaneRecord::new(41);
+            record.last_session = Some(AgentFacts {
+                agent: CLIAgent::Claude,
+                session_id: Some("s-left".into()),
+                launch_argv: None,
+                status: None,
+            });
+            let host = view.read(cx).host_id();
+            crate::ui::machine_mirror::MachineMirrors::install(
+                cx,
+                host,
+                Machine {
+                    panes: vec![record],
+                    ..Default::default()
+                },
+            );
+        });
+        assert_eq!(
+            read(&mut vcx),
+            (Some(CLIAgent::Claude), Some("s-left".into()), None)
+        );
     }
 
     #[gpui::test]
