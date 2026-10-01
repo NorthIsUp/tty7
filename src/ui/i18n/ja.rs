@@ -2589,6 +2589,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "ターミナル",
         L10nKey::SettingsSplitSame => "ペインと同じ",
         L10nKey::SettingsSplitChoose => "選ぶ",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "番号",
     })
 }
 

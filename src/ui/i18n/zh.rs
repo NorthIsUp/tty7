@@ -2343,6 +2343,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "终端",
         L10nKey::SettingsSplitSame => "与窗格相同",
         L10nKey::SettingsSplitChoose => "选择",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "编号",
     })
 }
 

@@ -1971,6 +1971,8 @@ l10n_keys! {
     SettingsSplitTerminal,
     SettingsSplitSame,
     SettingsSplitChoose,
+    GitHubSortRecent,
+    GitHubSortNumber,
 }
 
 /// The source control strings that are translated but not yet displayed.
