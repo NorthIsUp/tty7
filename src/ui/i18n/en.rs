@@ -98,6 +98,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsMachineRemoteDesc => "Installing over the active connection to {name}.",
         L10nKey::SettingsAgentsInstalledSummary => "{count} of {total} installed",
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "Run the installed tty7 app to install hooks; this build runs from {path}"
+        }
         L10nKey::SettingsNoAgentsInstalled => "No agent hooks installed on this machine yet.",
         L10nKey::SettingsNoAgentsMatch => "No agents match “{query}”",
         L10nKey::SettingsMoreAgents => "{count} more agents available",
