@@ -2571,6 +2571,23 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "Все",
         L10nKey::GitHubNoSessionMentions => "Этот сеанс не упоминал ни задач, ни пул-реквестов",
         L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
+        L10nKey::SettingsAgentLaunchesAs => "Запуск: {command}",
+        L10nKey::SettingsAgentModel => "Модель",
+        L10nKey::SettingsAgentModelDesc => {
+            "Передаётся как {flag}. Пусто — решает собственная настройка агента."
+        }
+        L10nKey::SettingsAgentPermission => "Разрешения",
+        L10nKey::SettingsAgentSandbox => "Песочница",
+        L10nKey::SettingsAgentDefault => "По умолчанию",
+        L10nKey::SettingsAgentExtraArgs => "Параметры CLI",
+        L10nKey::SettingsAgentExtraArgsDesc => {
+            "По одной строке аргументов, после параметров выше, в разборе оболочки: --add-dir ~/src"
+        }
+        L10nKey::SettingsAgentAddArg => "+ Добавить параметр CLI",
+        L10nKey::SettingsAgentRemoveArg => "Удалить параметр",
+        L10nKey::SettingsAgentLaunchOptions => "Параметры запуска…",
+        L10nKey::SettingsAgentSummaryModel => "модель: {model}",
+        L10nKey::SettingsAgentSummaryExtras => "+{count} параметров",
     })
 }
 
@@ -2606,6 +2623,11 @@ pub fn translate_variant_ru(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMoreAgents, "few") => "Доступны ещё {count} агента",
         (L10nKey::SettingsMoreAgents, "many") => "Доступно ещё {count} агентов",
         (L10nKey::SettingsMoreAgents, "other") => "Доступно ещё {count} агентов",
+        (L10nKey::SettingsAgentSummaryExtras, "zero") => "Нет параметров",
+        (L10nKey::SettingsAgentSummaryExtras, "one") => "+{count} параметр",
+        (L10nKey::SettingsAgentSummaryExtras, "few") => "+{count} параметра",
+        (L10nKey::SettingsAgentSummaryExtras, "many") => "+{count} параметров",
+        (L10nKey::SettingsAgentSummaryExtras, "other") => "+{count} параметров",
         (L10nKey::SettingsAliasesLinked, "zero") => "Псевдонимы ещё не связаны.",
         (L10nKey::SettingsAliasesLinked, "one") => "Связан {count} псевдоним.",
         (L10nKey::SettingsAliasesLinked, "few") => "Связано {count} псевдонима.",

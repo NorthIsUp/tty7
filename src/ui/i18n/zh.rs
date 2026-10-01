@@ -2299,6 +2299,21 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "全部",
         L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
         L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
+        L10nKey::SettingsAgentLaunchesAs => "启动命令：{command}",
+        L10nKey::SettingsAgentModel => "模型",
+        L10nKey::SettingsAgentModelDesc => "以 {flag} 传入。留空则由 agent 自己的配置决定。",
+        L10nKey::SettingsAgentPermission => "权限",
+        L10nKey::SettingsAgentSandbox => "沙箱",
+        L10nKey::SettingsAgentDefault => "默认",
+        L10nKey::SettingsAgentExtraArgs => "CLI 选项",
+        L10nKey::SettingsAgentExtraArgsDesc => {
+            "每行一组参数，按 shell 的规则解析，放在上面的选项之后：--add-dir ~/src"
+        }
+        L10nKey::SettingsAgentAddArg => "+ 添加 CLI 选项",
+        L10nKey::SettingsAgentRemoveArg => "删除选项",
+        L10nKey::SettingsAgentLaunchOptions => "启动选项…",
+        L10nKey::SettingsAgentSummaryModel => "模型：{model}",
+        L10nKey::SettingsAgentSummaryExtras => "+{count} 个选项",
     })
 }
 
@@ -2322,6 +2337,9 @@ pub fn translate_variant_zh(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMoreAgents, "zero") => "没有更多 Agent",
         (L10nKey::SettingsMoreAgents, "one") => "还有 1 个可用 Agent",
         (L10nKey::SettingsMoreAgents, "other") => "还有 {count} 个可用 Agent",
+        (L10nKey::SettingsAgentSummaryExtras, "one") => "+1 个选项",
+        (L10nKey::SettingsAgentSummaryExtras, "zero") => "没有选项",
+        (L10nKey::SettingsAgentSummaryExtras, "other") => "+{count} 个选项",
         (L10nKey::SettingsDeleteProfileCascade, "one") => {
             "有 1 个已保存的远程工作区条目指向 {endpoint}，将随配置一并从本机清除；\
              远端机器上的会话不受影响，新建配置连上同一台机器后即可在工作区列表找回。"

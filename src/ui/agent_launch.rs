@@ -22,6 +22,7 @@ use gpui_component::WindowExt as _;
 
 use crate::core::cli_agent::{CLIAgent, launch_program, program_on_path};
 use crate::core::config::{Config, ProfileUsage, unix_now};
+use crate::core::fork_config::AgentLaunchSettings;
 use crate::core::session::WorkspaceStore;
 use crate::ui::app::{SpawnAs, SpawnWhere, Tty7App, join_shell_args};
 use crate::ui::i18n::{L10nKey, t_fmt};
@@ -113,24 +114,45 @@ pub(crate) fn launch_line_to_save(agent: CLIAgent, argv: &[String]) -> Option<St
         .map(|argv| join_shell_args(&argv))
 }
 
-/// Make `line` the command `agent` is launched with from now on.
+/// Make `line` the command `agent` is launched with from now on: its
+/// Settings → Agents controls when it is the binary and plain flags, else its
+/// `agent_launch` line. Either way it replaces the agent's settings, since the
+/// run it was saved from already carried their flags.
 pub(crate) fn remember_launch_line(cfg: &mut Config, agent: CLIAgent, line: String) {
     // One entry per agent, whatever case an existing key was written in.
     cfg.agent_launch
         .retain(|slug, _| CLIAgent::from_slug(slug) != Some(agent));
-    cfg.agent_launch.insert(agent.slug().to_string(), line);
+    cfg.fork
+        .agent_settings
+        .retain(|slug, _| CLIAgent::from_slug(slug) != Some(agent));
+    match AgentLaunchSettings::from_launch_line(agent, &line) {
+        Some(settings) => {
+            cfg.fork
+                .agent_settings
+                .insert(agent.slug().to_string(), settings);
+        }
+        None => {
+            cfg.agent_launch.insert(agent.slug().to_string(), line);
+        }
+    }
+}
+
+/// `launch` as argv for a resume or fork to replay; a quote that never
+/// closes falls back to whitespace, which the replay then refuses whole.
+fn launch_argv(launch: &str) -> Vec<String> {
+    crate::ui::app::split_shell_args(launch)
+        .unwrap_or_else(|_| launch.split_whitespace().map(str::to_string).collect())
 }
 
 /// The line that resumes `agent`'s session `session_id`, carrying the flags
-/// `agent_launch` gives the agent: a session started with
-/// `--dangerously-skip-permissions` comes back with it.
+/// `overrides` ([`Config::launch_lines`]) gives the agent: a session started
+/// with `--dangerously-skip-permissions` comes back with it.
 pub(crate) fn resume_line(
     agent: CLIAgent,
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.resume_command(session_id, Some(&argv))
 }
 
@@ -142,15 +164,9 @@ pub(crate) fn fork_line(
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.fork_command(session_id, Some(&argv))
 }
-
-/// How long a new shell is given to reach its first prompt before a queued
-/// command is typed anyway.
-const PROMPT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-const PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Type `command` into the shell `slot` holds — now if it is up, or the
 /// moment it lands if it is still connecting.
@@ -158,27 +174,10 @@ const PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 /// A shell that is up is not yet at its prompt: typed straight in, the line
 /// was echoed by the tty above everything the shell prints while it starts (a
 /// banner, `fastfetch`) and read only afterwards. It waits for the shell's
-/// first prompt instead — up to [`PROMPT_WAIT`], for a shell with no
-/// integration to say when that is.
+/// first prompt instead ([`crate::ui::first_prompt::type_at_first_prompt`]).
 pub(crate) fn run_when_ready(slot: &PaneSlot, command: String, cx: &mut App) {
     match slot {
-        PaneSlot::Ready(view) => {
-            let view = view.downgrade();
-            cx.spawn(async move |cx| {
-                let deadline = std::time::Instant::now() + PROMPT_WAIT;
-                loop {
-                    let ready = view
-                        .read_with(cx, |view, _| view.terminal.at_prompt())
-                        .unwrap_or(true);
-                    if ready || std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                    cx.background_executor().timer(PROMPT_POLL).await;
-                }
-                let _ = view.read_with(cx, |view, _| view.run_command_line(&command));
-            })
-            .detach();
-        }
+        PaneSlot::Ready(view) => crate::ui::first_prompt::type_at_first_prompt(view, command, cx),
         PaneSlot::Connecting(pending) => {
             pending.update(cx, |pending, _| pending.spawn.run_on_land = Some(command));
         }
@@ -214,7 +213,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let command = agent.launch_command(&cx.global::<Config>().agent_launch);
         let slot = match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
@@ -222,12 +220,32 @@ impl Tty7App {
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                self.new_tab_slot(cwd, None, window, cx)
+                return self.launch_agent_in(agent, cwd, window, cx);
             }
             SpawnWhere::Split => {
                 self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
             }
         };
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    /// Open a new tab in `cwd` for `agent` and start it there.
+    pub(crate) fn launch_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.new_tab_slot(cwd, None, window, cx);
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+        let command = crate::ui::agent_resume::with_minted_session(
+            agent,
+            agent.launch_command(&cx.global::<Config>().launch_lines()),
+        );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
         // goes nowhere rather than into whatever pane was focused before.
@@ -263,7 +281,7 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let launch = &cx.global::<Config>().agent_launch;
+        let launch = &cx.global::<Config>().launch_lines();
         let command = match fork {
             true => fork_line(agent, session_id, launch),
             false => resume_line(agent, session_id, launch),
@@ -500,17 +518,28 @@ mod tests {
         .unwrap();
         remember_launch_line(&mut cfg, CLIAgent::Claude, line);
 
+        // The binary and plain flags land in Settings → Agents' controls.
         let json: serde_json::Value = serde_json::to_value(&cfg.0).unwrap();
         assert_eq!(
             json["agent_launch"],
-            serde_json::json!({
-                "claude": "claude --dangerously-skip-permissions",
-                "codex": "codex --model o3",
-            })
+            serde_json::json!({"codex": "codex --model o3"})
         );
         assert_eq!(
-            CLIAgent::Claude.launch_command(&cfg.agent_launch),
+            json["agent_settings"],
+            serde_json::json!({"claude": {"extra_args": ["--dangerously-skip-permissions"]}})
+        );
+        assert_eq!(
+            CLIAgent::Claude.launch_command(&cfg.launch_lines()),
             "claude --dangerously-skip-permissions"
+        );
+
+        // A wrapper stays a launch line, and replaces the settings the run
+        // it came from already carried.
+        remember_launch_line(&mut cfg, CLIAgent::Claude, "cc --fast".to_string());
+        assert!(cfg.fork.agent_settings.is_empty());
+        assert_eq!(
+            CLIAgent::Claude.launch_command(&cfg.launch_lines()),
+            "cc --fast"
         );
     }
 

@@ -1,5 +1,6 @@
 pub mod agent_history;
 pub mod agent_hooks;
+pub mod claude_background;
 pub mod cli_agent;
 pub mod clipboard;
 pub mod codename;
@@ -14,6 +15,7 @@ pub mod group_key;
 #[allow(dead_code)]
 pub mod keychain;
 pub mod kitty_graphics;
+pub mod last_session;
 pub mod logfile;
 pub mod machine;
 pub mod osc;
