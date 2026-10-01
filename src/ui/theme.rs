@@ -182,6 +182,7 @@ fn window_menu_items(cx: &App) -> Vec<MenuItem> {
         let Some(action) = slot_action(i) else { break };
         let name = crate::ui::machine_mirror::display_name(cx, workspace)
             .unwrap_or_else(|| t(L10nKey::WindowUntitled).to_string());
+        let name = crate::ui::hotkey_window::menu_label(cx, *id, name);
         let label = if *open {
             name
         } else {

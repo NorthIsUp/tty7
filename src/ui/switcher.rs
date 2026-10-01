@@ -2593,7 +2593,8 @@ impl Tty7App {
                                     .text_size(gpui::rems(11. / 16.))
                                     .text_color(muted)
                                     .child((slot + 1).to_string())
-                            })),
+                            }))
+                            .children(crate::ui::hotkey_window::row_badge(cx, row.id)),
                     )
                     .child(
                         h_flex()
@@ -2654,8 +2655,8 @@ impl Tty7App {
                                 .xsmall(),
                         )
                         .tooltip(t(L10nKey::TabTooltipMore))
-                        .dropdown_menu(move |menu, _window, _cx| {
-                            row_menu(menu, &menu_ref, &menu_host, app.clone())
+                        .dropdown_menu(move |menu, _window, cx| {
+                            row_menu(menu, &menu_ref, &menu_host, app.clone(), cx)
                         }),
                     ),
             )
@@ -2687,8 +2688,8 @@ impl Tty7App {
                 )
                 .into_any_element(),
             false => line
-                .context_menu(move |menu, _window, _cx| {
-                    row_menu(menu, &ctx_ref, &ctx_host, app2.clone())
+                .context_menu(move |menu, _window, cx| {
+                    row_menu(menu, &ctx_ref, &ctx_host, app2.clone(), cx)
                 })
                 .into_any_element(),
         }
@@ -3343,6 +3344,7 @@ fn row_menu(
     row: &RowRef,
     host: &GroupRef,
     app: gpui::WeakEntity<Tty7App>,
+    cx: &gpui::App,
 ) -> gpui_component::menu::PopupMenu {
     let (a1, a2, a3, a4) = (app.clone(), app.clone(), app.clone(), app.clone());
     let (id, adopt) = (row.id, row.adopt.is_some());
@@ -3391,6 +3393,7 @@ fn row_menu(
                 ),
             ),
     };
+    let menu = crate::ui::hotkey_window::menu_item(menu, id, !adopt, app.clone(), cx);
     host_menu(menu, host, app)
 }
 
