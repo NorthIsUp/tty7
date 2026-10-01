@@ -14,6 +14,7 @@ use alacritty_terminal::event::EventListener as _;
 use tty7_core::core::term_modes::TerminalModes;
 
 use super::{DaemonMsg, EventProxy, OscNotifyScanner, RemoteTerminal};
+use crate::terminal::TermSize;
 use crate::terminal::color_scheme;
 
 /// A desktop note: its title, if the program gave one, and its body.
@@ -156,6 +157,13 @@ impl RemoteTerminal {
 
     pub(in crate::terminal) fn color_scheme_updates(&self) -> bool {
         self.fork.scheme_updates.load(Ordering::Relaxed)
+    }
+
+    /// The grid and device-pixel cell this pane last asked for, once a
+    /// layout has sized it; `None` while it still runs at its spawn size.
+    pub(crate) fn laid_out_grid(&self) -> Option<(TermSize, u16, u16)> {
+        let (w, h) = self.synced_cell;
+        self.synced_size.then_some((self.size, w, h))
     }
 }
 
