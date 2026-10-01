@@ -18,6 +18,7 @@ use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::new_tab_page::NewTabPage;
 
 /// What the list is showing: one of the tabs, or a list a row opens — the
 /// theme picker one of the Actions rows opens, or what can be done with a
@@ -227,6 +228,9 @@ impl ListDelegate for SearchDelegate {
         {
             live(query, cx);
         }
+        if let Scope::Tab(tab) = self.scope {
+            self.catalog.ask_live(tab, query, cx);
+        }
         self.refresh(cx);
         // Through `set_selected_index`, not by hand: the row index may not have
         // moved, but the row under it has, and the theme picker previews the
@@ -291,6 +295,10 @@ impl ListDelegate for SearchDelegate {
             Scope::Tab(SearchTab::Symbols) if self.catalog.symbols.is_empty() => {
                 headline = t(L10nKey::SearchSymbolsNone);
                 t(L10nKey::SearchSymbolsNoneHint)
+            }
+            Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
+            Scope::Tab(SearchTab::History) => {
+                super::history_text::empty_hint(&self.catalog, &self.query)
             }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
@@ -450,6 +458,8 @@ pub struct SearchView {
     /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
     /// less what cannot answer), set by whoever opened an editor tab.
     editor_tabs: Vec<SearchTab>,
+    /// The New Tab tab's page, drawn in place of the list.
+    new_tab: Option<Entity<NewTabPage>>,
     _sub: Subscription,
 }
 
@@ -485,13 +495,35 @@ impl SearchView {
             symbol_moved: false,
             heading: None,
             editor_tabs: Vec::new(),
+            new_tab: None,
             _sub,
         }
     }
 
+    pub(crate) fn set_new_tab(
+        &mut self,
+        page: Entity<NewTabPage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        NewTabPage::focus(&page, window, cx);
+        self.new_tab = Some(page);
+        cx.notify();
+    }
+
+    /// The page, while the New Tab tab is showing.
+    pub(crate) fn new_tab_page(&self) -> Option<Entity<NewTabPage>> {
+        self.new_tab
+            .clone()
+            .filter(|_| self.tab == SearchTab::NewTab)
+    }
+
     /// Puts the keyboard back in the search field (`palette`).
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-        self.list.update(cx, |state, cx| state.focus(window, cx));
+        match self.new_tab_page() {
+            Some(page) => NewTabPage::focus(&page, window, cx),
+            None => self.list.update(cx, |state, cx| state.focus(window, cx)),
+        }
     }
 
     /// Whether a row's list is showing rather than a tab.
@@ -558,6 +590,8 @@ impl SearchView {
             }
             // `set_query` searches only when the text changed; the tab did.
             state.delegate_mut().refresh(cx);
+            let delegate = state.delegate();
+            delegate.catalog.ask_live(tab, &delegate.query, cx);
             let first = state.delegate().first_row();
             state.set_selected_index(first, window, cx);
             state.scroll_to_item(IndexPath::default(), ScrollStrategy::Top, window, cx);
@@ -689,7 +723,7 @@ impl SearchView {
     /// Changes part of the catalog under an open list. The highlight stays on
     /// the row it was on when that row is still there, so a list that fills in
     /// under the cursor does not move what Return runs.
-    fn update_catalog(
+    pub(super) fn update_catalog(
         &mut self,
         change: impl FnOnce(&mut Catalog),
         window: &mut Window,
@@ -1016,6 +1050,20 @@ impl SearchView {
                 t(L10nKey::SwitcherHintNavigate),
             ))
             .child(hint(vec![keycap("↵", cx)], t(L10nKey::SwitcherHintOpen)))
+            .when(self.selected_opens_tab(cx), |row| {
+                row.child(hint(
+                    vec![keycap("⇧", cx), keycap("↵", cx)],
+                    t(L10nKey::SearchHintBackground),
+                ))
+            })
+    }
+
+    fn selected_opens_tab(&self, cx: &App) -> bool {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .is_some_and(|item| crate::ui::background_tab::opens_tab(&item.kind))
     }
 }
 
@@ -1056,7 +1104,7 @@ const ROW_RADIUS: f32 = 7.;
 /// The card's breathing room from the window's bottom edge, and its width.
 /// Its corner and its footer are `ui::dialog`'s, the switcher's numbers.
 const CARD_MARGIN: f32 = 24.;
-const CARD_MAX_W: f32 = 620.;
+pub(crate) const CARD_MAX_W: f32 = 620.;
 
 /// The search row gpui-component's `List` draws above the rows: a 32px field
 /// with 6px above and below and a 1px rule.
@@ -1192,6 +1240,10 @@ impl Render for SearchView {
                 )
             })
             .child(self.render_footer(cx));
+        let card = match self.new_tab_page() {
+            Some(page) => page.into_any_element(),
+            None => card.into_any_element(),
+        };
 
         div()
             .absolute()
