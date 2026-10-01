@@ -644,7 +644,7 @@ fn restart_wakes(in_place: bool, cfg: &Config) -> bool {
 pub(crate) fn quit_stop_body(cx: &App) -> L10nKey {
     match cx.global::<Config>().fork.resume_agents_on_launch {
         true => L10nKey::QuitStopServerBodyResume,
-        false => L10nKey::QuitStopServerBody,
+        false => L10nKey::QuitStopServerBodyAsleep,
     }
 }
 

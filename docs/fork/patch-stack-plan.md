@@ -617,10 +617,12 @@ Expected: `ci.yml disabled_manually`, `niu-ci.yml active`, `nightly.yml disabled
 #MISE description="Each i18n file differs from upstream only by one added block"
 set -euo pipefail
 git fetch -q upstream main
+# The fork's base, not upstream's tip: upstream keys added since the last sync are not the fork's.
+base=$(git merge-base HEAD upstream/main)
 bad=0
 for f in src/ui/i18n/mod.rs src/ui/i18n/en.rs src/ui/i18n/ja.rs src/ui/i18n/zh.rs; do
-  hunks=$(git diff -U0 upstream/main -- "$f" | grep -c '^@@' || true)
-  removed=$(git diff -U0 upstream/main -- "$f" | grep -c '^-[^-]' || true)
+  hunks=$(git diff -U0 "$base" -- "$f" | grep -c '^@@' || true)
+  removed=$(git diff -U0 "$base" -- "$f" | grep -c '^-[^-]' || true)
   if [ "$removed" -ne 0 ] || [ "$hunks" -gt 2 ]; then
     echo "$f: $hunks hunks, $removed upstream lines changed or moved"; bad=1
   fi

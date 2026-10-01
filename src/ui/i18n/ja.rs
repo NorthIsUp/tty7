@@ -110,9 +110,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsMachineRemoteDesc => "{name} への接続を通じてインストールします。",
         L10nKey::SettingsAgentsInstalledSummary => "{total} 件中 {count} 件インストール済み",
-        L10nKey::SettingsAgentHooksDevBuild => {
-            "フックをインストールするには、インストール済みの tty7 アプリを実行してください。このビルドの場所: {path}"
-        }
         L10nKey::SettingsNoAgentsInstalled => "このマシンにはまだエージェントフックがありません。",
         L10nKey::SettingsNoAgentsMatch => "「{query}」に一致するエージェントはありません",
         L10nKey::SettingsMoreAgents => "ほかに {count} 件のエージェント",
@@ -266,7 +263,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::Close => "閉じる",
         L10nKey::QuitStopServerTitle => "tty7 を終了して tty7 server を停止しますか？",
         L10nKey::QuitStopServerBody => {
-            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時にスリープ状態で戻り、開いたタブから起動します。エージェントは元の会話を再開します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
+            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に新しいシェルで開きます。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
         }
         L10nKey::QuitAndStop => "終了して停止",
         L10nKey::CloseSshConnectionTitle => "この SSH 接続を閉じますか？",
@@ -1443,7 +1440,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelNoChangesHint => "ワーキングツリーはクリーンです",
         L10nKey::PanelSessionSubtitle => "セッション",
         L10nKey::PanelProcessesSubtitle => "プロセス",
-        L10nKey::PanelProcessesTotal => "合計",
         L10nKey::PanelPortsSubtitle => "ポート",
         L10nKey::PanelLatency => "遅延",
         L10nKey::PanelPortsUnsupported => "リモートの tty7-server が古く、ポートを列挙できません。",
@@ -1751,9 +1747,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "踏み台ホストは引き継がれません — 保存済みホストの踏み台は別の保存済みホストである必要があります"
         }
         L10nKey::SwitcherOpenInNewWindow => "新しいウィンドウで開く",
-        L10nKey::SwitcherSetHotkeyWorkspace => "ホットキーワークスペースに設定",
-        L10nKey::SwitcherUnsetHotkeyWorkspace => "ホットキーワークスペースを解除",
-        L10nKey::SwitcherHotkeyWorkspace => "ホットキーワークスペース",
         L10nKey::SwitcherRename => "名前を変更…",
         L10nKey::SwitcherPickAWorkspace => "ワークスペースを選ぶとタブが表示されます",
         L10nKey::SwitcherNoTabs => "このワークスペースにタブはありません",
@@ -1853,26 +1846,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdForkSessionSubtitle => "このエージェントのセッションを新しいタブにフォーク",
         L10nKey::CmdMarkTabAsUnread => "タブを未読としてマーク",
         L10nKey::CmdHibernateTab => "タブを休止",
-        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
-        L10nKey::SearchTabText => "テキスト",
-        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
-        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
-        L10nKey::SearchTabHistory => "履歴",
-        L10nKey::SearchPlaceholderHistory => "あなたとエージェントの会話を検索…",
-        L10nKey::SearchHistoryTooShort => {
-            "エージェントの会話を検索するには 3 文字以上入力してください。"
-        }
-        L10nKey::SearchHistoryRemote => {
-            "エージェントの履歴はこのコンピューター上でのみ検索できます。"
-        }
-        L10nKey::SearchHistoryHits => "{count} 件",
-        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
-        L10nKey::SearchTabAgents => "エージェント",
-        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
-        L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
-        L10nKey::CmdContinueAllAgentsSubtitle => {
-            "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
-        }
         L10nKey::CmdHibernateTabSubtitle => "プロセスを停止してメモリを解放。選択すると復帰",
         L10nKey::CmdClosePaneTab => "ペイン / タブを閉じる",
         L10nKey::CmdCloseWindow => "ウィンドウを閉じる",
@@ -2067,80 +2040,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppNoAgentOnPath => "このマシンの PATH にコーディングエージェントが見つかりません",
         L10nKey::AppNoAgentSeenHere => {
             "このワークスペースではまだコーディングエージェントが実行されていません — 一度手動で起動すると、ここに表示されます"
-        }
-        L10nKey::NewTabPageTitle => "新しいタブ",
-        L10nKey::NewTabPageTerminal => "ターミナル",
-        L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
-        L10nKey::NewTabPageHint => {
-            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
-        }
-        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
-        L10nKey::SearchHintBackground => "バックグラウンドで開く",
-        L10nKey::SettingsGroupOutline => "グループの枠線",
-        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
-        L10nKey::SettingsGroupOutlineColor => "枠線の色",
-        L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
-        L10nKey::SettingsGroupBackground => "グループの背景",
-        L10nKey::SettingsGroupBackgroundDesc => "各グループ見出しの背後に淡い塗りを敷きます。",
-        L10nKey::SettingsGroupBackgroundColor => "背景の色",
-        L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
-        L10nKey::SettingsGroupColorTheme => "テーマ",
-        L10nKey::SettingsGroupColorHashed => "グループの色",
-        L10nKey::SettingsGroupBackgroundScope => "背景の範囲",
-        L10nKey::SettingsGroupBackgroundScopeDesc => {
-            "見出しのみ、または見出しとタブをひとまとまりに。"
-        }
-        L10nKey::SettingsGroupScopeHeader => "見出し",
-        L10nKey::SettingsGroupScopeGroup => "グループ全体",
-        L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
-        L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
-        L10nKey::SettingsHotkeyWindow => "ホットキーウィンドウ",
-        L10nKey::SettingsHotkeyOn => "グローバルホットキー",
-        L10nKey::SettingsHotkeyOnDesc => "どのアプリからでも tty7 を表示・非表示にします。",
-        L10nKey::SettingsHotkeyKey => "ホットキー",
-        L10nKey::SettingsHotkeyKeyDesc => {
-            "クリックしてキーを押します。Esc で取り消し、Backspace でオフ。"
-        }
-        L10nKey::SettingsHotkeyFullscreen => "フルスクリーン",
-        L10nKey::SettingsHotkeyFullscreenDesc => {
-            "マウスのある画面全体に、他のアプリより前面に tty7 を表示します。"
-        }
-        L10nKey::SettingsHotkeyHideOnBlur => "フォーカスを失ったら隠す",
-        L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
-        L10nKey::SettingsHotkeyFade => "フェード",
-        L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
-        L10nKey::SettingsResumeAgents => "ワークスペース再起動時にエージェントを再開",
-        L10nKey::SettingsResumeAgentsDesc => {
-            "tty7 の再起動時に、開いていたすべてのエージェントセッションを再開します。"
-        }
-        L10nKey::SettingsAgentWakeConcurrency => "同時に起動するエージェント数",
-        L10nKey::SettingsAgentWakeConcurrencyDesc => {
-            "一度に起動するエージェントタブの数。残りは順番を待ちます。"
-        }
-        L10nKey::SettingsAgentResumeMode => "エージェントの再開方法",
-        L10nKey::SettingsAgentResumeModeDesc => {
-            "再開コマンドをタブのプログラムとして実行するか、シェルに入力します。sh、bash、zsh、dash、ksh、fish 以外のシェルでは常に入力されます。"
-        }
-        L10nKey::SettingsAgentResumeProgram => "タブとして実行",
-        L10nKey::SettingsAgentResumeTyped => "シェルに入力",
-        L10nKey::SettingsContinueInterrupted => "中断されたエージェントを続行",
-        L10nKey::SettingsContinueInterruptedDesc => {
-            "ターンが中断された、またはバックグラウンド作業が終わっていないエージェントに続行メッセージを送ります。オフでは何も送らずに再開します。"
-        }
-        L10nKey::SettingsContinuePrompt => "続行メッセージ",
-        L10nKey::SettingsContinuePromptDesc => {
-            "中断されたエージェントと「すべてのエージェントを続行」が送る内容。"
-        }
-        L10nKey::QuitStopServerBodyResume => {
-            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に戻り、各エージェントはすぐに元の会話を再開します。ほかのタブは開いたときに起動します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
-        }
-        L10nKey::AppRestartServerBodyResume => {
-            "このコンピュータ上のすべてのシェルを終了します。タブとレイアウトは保持され、新しいシェルで開き直し、各エージェントは元の会話を再開します。"
-        }
-        L10nKey::ProgramNotesDropped => "このペインのほかの通知は表示されませんでした",
-        L10nKey::SidebarDeleteGroupTitle => "グループ「{name}」を削除しますか？",
-        L10nKey::SidebarDeleteGroupBody => {
-            "グループ名も消えます。タブは開いたまま、自動のグループに戻ります。"
         }
         L10nKey::AppAgentLaunchSaved => "{name} は今後このコマンドで起動します: {command}",
         L10nKey::AppAgentLaunchArgsUnknown => "{name} は起動時の引数を報告していません",
@@ -2373,7 +2272,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarUngroupedGroup => "未分類",
         L10nKey::SidebarMoveToGroup => "グループへ移動",
         L10nKey::SidebarNewGroup => "新規グループ…",
-        L10nKey::SidebarRemoveFromGroup => "グループから外す",
         L10nKey::SidebarNewGroupName => "新規グループ",
         L10nKey::SidebarRenameGroup => "グループ名を変更",
         L10nKey::SidebarPinGroup => "グループを固定",
@@ -2440,10 +2338,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNoDescription => "説明はありません。",
         L10nKey::GitHubFilterByLabel => "このラベルのみ表示",
         L10nKey::GitHubClearLabel => "ラベルの絞り込みを解除",
-        L10nKey::GitHubSession => "セッション",
-        L10nKey::GitHubAll => "すべて",
-        L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
-        L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
         L10nKey::GitHubImage => "画像",
         L10nKey::GitHubComments => "{count} 件のコメント",
         L10nKey::GitHubCommits => "{count} 件のコミット",
@@ -2476,6 +2370,116 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubShowFullText => "全文を表示",
         L10nKey::GitHubShowHiddenComments => "ほか {count} 件のコメントを表示",
         L10nKey::GitHubShowAllReviewers => "{count} 人のレビュアーをすべて表示",
+        // fork: keys the fork adds (docs/fork/features/)
+        L10nKey::QuitStopServerBodyAsleep => {
+            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時にスリープ状態で戻り、開いたタブから起動します。エージェントは元の会話を再開します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
+        }
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "フックをインストールするには、インストール済みの tty7 アプリを実行してください。このビルドの場所: {path}"
+        }
+        L10nKey::PanelProcessesTotal => "合計",
+        L10nKey::SwitcherSetHotkeyWorkspace => "ホットキーワークスペースに設定",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "ホットキーワークスペースを解除",
+        L10nKey::SwitcherHotkeyWorkspace => "ホットキーワークスペース",
+        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
+        L10nKey::SearchTabText => "テキスト",
+        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
+        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
+        L10nKey::SearchTabHistory => "履歴",
+        L10nKey::SearchPlaceholderHistory => "あなたとエージェントの会話を検索…",
+        L10nKey::SearchHistoryTooShort => {
+            "エージェントの会話を検索するには 3 文字以上入力してください。"
+        }
+        L10nKey::SearchHistoryRemote => {
+            "エージェントの履歴はこのコンピューター上でのみ検索できます。"
+        }
+        L10nKey::SearchHistoryHits => "{count} 件",
+        L10nKey::CmdSearchAgents => "タブとエージェントのセッションを検索…",
+        L10nKey::SearchTabAgents => "エージェント",
+        L10nKey::SearchPlaceholderAgents => "開いているタブとエージェントのセッションを検索…",
+        L10nKey::CmdContinueAllAgents => "すべてのエージェントを続行",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "スリープ中のエージェントタブを数秒おきに再開し、それぞれに続行を指示"
+        }
+        L10nKey::NewTabPageTitle => "新しいタブ",
+        L10nKey::NewTabPageTerminal => "ターミナル",
+        L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
+        L10nKey::NewTabPageHint => {
+            "Enter で開く · ←/→ または {first}–9 で種類を選択 · Esc でキャンセル"
+        }
+        L10nKey::NewTabPageHintBackground => "⇧Enter でバックグラウンドで開く",
+        L10nKey::SearchHintBackground => "バックグラウンドで開く",
+        L10nKey::SettingsGroupOutline => "グループの枠線",
+        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineColor => "枠線の色",
+        L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
+        L10nKey::SettingsGroupBackground => "グループの背景",
+        L10nKey::SettingsGroupBackgroundDesc => "各グループ見出しの背後に淡い塗りを敷きます。",
+        L10nKey::SettingsGroupBackgroundColor => "背景の色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
+        L10nKey::SettingsGroupColorTheme => "テーマ",
+        L10nKey::SettingsGroupColorHashed => "グループの色",
+        L10nKey::SettingsGroupBackgroundScope => "背景の範囲",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "見出しのみ、または見出しとタブをひとまとまりに。"
+        }
+        L10nKey::SettingsGroupScopeHeader => "見出し",
+        L10nKey::SettingsGroupScopeGroup => "グループ全体",
+        L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
+        L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
+        L10nKey::SettingsHotkeyWindow => "ホットキーウィンドウ",
+        L10nKey::SettingsHotkeyOn => "グローバルホットキー",
+        L10nKey::SettingsHotkeyOnDesc => "どのアプリからでも tty7 を表示・非表示にします。",
+        L10nKey::SettingsHotkeyKey => "ホットキー",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "クリックしてキーを押します。Esc で取り消し、Backspace でオフ。"
+        }
+        L10nKey::SettingsHotkeyFullscreen => "フルスクリーン",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "マウスのある画面全体に、他のアプリより前面に tty7 を表示します。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "フォーカスを失ったら隠す",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
+        L10nKey::SettingsHotkeyFade => "フェード",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
+        L10nKey::SettingsResumeAgents => "ワークスペース再起動時にエージェントを再開",
+        L10nKey::SettingsResumeAgentsDesc => {
+            "tty7 の再起動時に、開いていたすべてのエージェントセッションを再開します。"
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "同時に起動するエージェント数",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "一度に起動するエージェントタブの数。残りは順番を待ちます。"
+        }
+        L10nKey::SettingsAgentResumeMode => "エージェントの再開方法",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "再開コマンドをタブのプログラムとして実行するか、シェルに入力します。sh、bash、zsh、dash、ksh、fish 以外のシェルでは常に入力されます。"
+        }
+        L10nKey::SettingsAgentResumeProgram => "タブとして実行",
+        L10nKey::SettingsAgentResumeTyped => "シェルに入力",
+        L10nKey::SettingsContinueInterrupted => "中断されたエージェントを続行",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "ターンが中断された、またはバックグラウンド作業が終わっていないエージェントに続行メッセージを送ります。オフでは何も送らずに再開します。"
+        }
+        L10nKey::SettingsContinuePrompt => "続行メッセージ",
+        L10nKey::SettingsContinuePromptDesc => {
+            "中断されたエージェントと「すべてのエージェントを続行」が送る内容。"
+        }
+        L10nKey::QuitStopServerBodyResume => {
+            "tty7 を終了して tty7 server を停止します。シェルで実行中のものはすべて終了します。タブとレイアウトは次回起動時に戻り、各エージェントはすぐに元の会話を再開します。ほかのタブは開いたときに起動します。（ウィンドウを閉じるだけならトレイに退避し、シェルは動き続けます）"
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "このコンピュータ上のすべてのシェルを終了します。タブとレイアウトは保持され、新しいシェルで開き直し、各エージェントは元の会話を再開します。"
+        }
+        L10nKey::ProgramNotesDropped => "このペインのほかの通知は表示されませんでした",
+        L10nKey::SidebarDeleteGroupTitle => "グループ「{name}」を削除しますか？",
+        L10nKey::SidebarDeleteGroupBody => {
+            "グループ名も消えます。タブは開いたまま、自動のグループに戻ります。"
+        }
+        L10nKey::SidebarRemoveFromGroup => "グループから外す",
+        L10nKey::GitHubSession => "セッション",
+        L10nKey::GitHubAll => "すべて",
+        L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
+        L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
     })
 }
 
