@@ -1,10 +1,55 @@
 #!/usr/bin/env bash
-#MISE description="Mirror upstream into the fork's main, then rebase the current branch (main-niu) onto it; FORK.md lists the hooks a conflict touches"
+#MISE description="Fold main-niu into one commit per feature, rebase it onto upstream, test, and push with a lease (docs/fork/patch-stack.md)"
 set -euo pipefail
-git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/l0ng-ai/tty7.git
-git fetch upstream main
-gh repo sync NorthIsUp/tty7 --branch main --source l0ng-ai/tty7
-# rerere replays a conflict resolved once before, so a repeat sync stops only on new ones.
-git -c rerere.enabled=true -c rerere.autoupdate=true rebase upstream/main \
-  || { echo "conflict: resolve using the FORK.md hook table, then git rebase --continue"; exit 1; }
-echo "rebased; publish with: git push --force-with-lease origin HEAD"
+here="$(cd "$(dirname "$0")" && pwd)"
+origin=${SYNC_ORIGIN:-origin} upstream=${SYNC_UPSTREAM:-upstream} branch=${SYNC_BRANCH:-main-niu}
+rr=(-c rerere.enabled=true -c rerere.autoupdate=true)
+
+git diff --quiet && git diff --cached --quiet \
+  || { echo "sync-upstream: commit or set aside your changes first" >&2; exit 1; }
+git remote get-url "$upstream" >/dev/null 2>&1 || git remote add "$upstream" https://github.com/l0ng-ai/tty7.git
+git fetch -q "$upstream" main
+git fetch -q "$origin" "$branch"
+[ -n "${SYNC_SKIP_MIRROR:-}" ] || gh repo sync NorthIsUp/tty7 --branch main --source l0ng-ai/tty7
+
+# Fold BASE..HEAD into one commit per feature. Folding only regroups commits,
+# so a tree that differs afterwards means a conflict was resolved wrongly.
+fold() {
+  local base=$1 before plan
+  before=$(git rev-parse HEAD)
+  plan=$(mktemp)
+  "$here/fold-plan" "$base" HEAD docs/fork/stack-order.tsv ${SYNC_MAP:+"$SYNC_MAP"} > "$plan"
+  git "${rr[@]}" -c sequence.editor="cp $plan" rebase -q -i "$base" \
+    || { echo "sync-upstream: fold stopped on a conflict; resolve, git rebase --continue, rerun" >&2; exit 1; }
+  git diff --quiet "$before" HEAD \
+    || { echo "sync-upstream: the fold changed the tree (compare $before with HEAD)" >&2; exit 1; }
+}
+
+lease=$(git rev-parse "$origin/$branch")
+git switch -q --detach "${SYNC_FROM:-$lease}"
+fold "$(git merge-base HEAD "$upstream/main")"
+git "${rr[@]}" rebase -q --empty=drop "$upstream/main" \
+  || { echo "sync-upstream: rebase stopped; keep upstream's side, re-add the hook (docs/fork/features/), git rebase --continue, rerun" >&2; exit 1; }
+[ -n "${SYNC_SKIP_TESTS:-}" ] || mise run test
+
+if [ -n "${SYNC_SKIP_PUSH:-}" ]; then
+  echo "ready: git push --force-with-lease=$branch:$lease $origin HEAD:$branch"
+  exit 0
+fi
+for _ in 1 2 3; do
+  [ -z "${SYNC_BEFORE_PUSH:-}" ] || eval "$SYNC_BEFORE_PUSH"
+  if git push -q --force-with-lease="$branch:$lease" "$origin" "HEAD:$branch"; then
+    echo "pushed $branch. Branches cut from the old tip: git rebase --onto $origin/$branch $lease"
+    exit 0
+  fi
+  git fetch -q "$origin" "$branch"
+  new=$(git rev-parse "$origin/$branch")
+  git merge-base --is-ancestor "$lease" "$new" \
+    || { echo "sync-upstream: $branch was rewritten by someone else; rerun" >&2; exit 1; }
+  git "${rr[@]}" cherry-pick "$lease..$new" \
+    || { echo "sync-upstream: a commit merged mid-sync conflicts; resolve, git cherry-pick --continue, rerun" >&2; exit 1; }
+  fold "$(git merge-base HEAD "$upstream/main")"
+  lease=$new
+done
+echo "sync-upstream: $branch kept moving; wait for a quiet minute and rerun" >&2
+exit 1

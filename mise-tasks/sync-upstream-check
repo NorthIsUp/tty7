@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#MISE description="Self-check for sync-upstream against throwaway origin and upstream repos"
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+export SYNC_SKIP_MIRROR=1 SYNC_SKIP_TESTS=1 GIT_CONFIG_NOSYSTEM=1
+ident() { git config user.email t@t; git config user.name t; git config commit.gpgsign false; }
+
+setup() { # $root/{upstream,origin}.git, a work clone at $root/work
+  root=$(mktemp -d)
+  git init -q --bare -b main "$root/upstream.git"
+  git clone -q "$root/upstream.git" "$root/seed"; (cd "$root/seed" && ident \
+    && echo base > base.txt && git add -A && git commit -qm base && git push -q origin main)
+  git clone -q --bare "$root/upstream.git" "$root/origin.git"
+  git clone -q "$root/origin.git" "$root/work"; cd "$root/work"; ident
+  git remote add upstream "$root/upstream.git"
+  git switch -qc main-niu
+  mkdir -p docs/fork; printf 'a\tA feature\n' > docs/fork/stack-order.tsv
+  echo a > a.txt; git add -A; git commit -qm "fork(a): A feature" -m "Fork-Feature: a"
+  echo a2 >> a.txt; git commit -qam "fix(a): tweak" -m "Fork-Feature: a"
+  git push -q origin main-niu
+  (cd "$root/seed" && echo u > u.txt && git add -A && git commit -qm "upstream: u" && git push -q origin main)
+}
+tip_subjects() { git -C "$root/origin.git" log --format=%s main-niu; }
+
+# happy path: tail folded, rebased onto upstream, pushed
+setup
+"$here/sync-upstream" >/dev/null
+[ "$(tip_subjects)" = $'fork(a): A feature\nupstream: u\nbase' ] || fail "happy: $(tip_subjects)"
+
+# a stack commit upstream already has is dropped
+setup
+(cd "$root/seed" && git fetch -q "$root/origin.git" main-niu && git cherry-pick FETCH_HEAD~1 FETCH_HEAD >/dev/null \
+  && git reset -q --soft HEAD~2 && git commit -qm "upstream: took a" && git push -q origin main)
+"$here/sync-upstream" >/dev/null
+[ "$(tip_subjects | head -1)" = "upstream: took a" ] || fail "drop: $(tip_subjects)"
+
+# a PR merges mid-sync: the lease fails once, the new commit is refolded
+setup
+race="$root/race.sh"; cat > "$race" <<EOF
+[ -e "$root/raced" ] && exit 0; touch "$root/raced"
+git clone -q "$root/origin.git" "$root/pr" -b main-niu; cd "$root/pr"
+git config user.email t@t; git config user.name t; git config commit.gpgsign false
+echo pr >> a.txt; git commit -qam "fix(a): from a PR" -m "Fork-Feature: a"; git push -q origin main-niu
+EOF
+SYNC_BEFORE_PUSH="bash $race" "$here/sync-upstream" >/dev/null
+[ "$(tip_subjects)" = $'fork(a): A feature\nupstream: u\nbase' ] || fail "race: $(tip_subjects)"
+git -C "$root/origin.git" show main-niu:a.txt | grep -qx pr || fail "race: the PR's change is missing"
+
+# a dirty worktree is refused before anything changes
+setup
+echo dirt >> a.txt
+before=$(git -C "$root/origin.git" rev-parse main-niu)
+if "$here/sync-upstream" >/dev/null 2>&1; then fail "dirty: sync ran"; fi
+[ "$(git -C "$root/origin.git" rev-parse main-niu)" = "$before" ] || fail "dirty: origin changed"
+
+# SYNC_FROM: a local rewrite with the same tree starts the sync; origin is still the lease
+setup
+git switch -qc local; git reset -q --soft HEAD~2; git commit -qm "untagged rewrite" -m "Fork-Feature: a"
+SYNC_FROM=local "$here/sync-upstream" >/dev/null
+[ "$(tip_subjects)" = $'fork(a): A feature\nupstream: u\nbase' ] || fail "from: $(tip_subjects)"
+
+echo "sync-upstream-check: ok"

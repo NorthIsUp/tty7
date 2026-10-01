@@ -271,7 +271,7 @@ setup
 
 # a stack commit upstream already has is dropped
 setup
-(cd "$root/seed" && git fetch -q "$root/origin.git" main-niu && git cherry-pick -q FETCH_HEAD~1 FETCH_HEAD \
+(cd "$root/seed" && git fetch -q "$root/origin.git" main-niu && git cherry-pick FETCH_HEAD~1 FETCH_HEAD >/dev/null \
   && git reset -q --soft HEAD~2 && git commit -qm "upstream: took a" && git push -q origin main)
 "$here/sync-upstream" >/dev/null
 [ "$(tip_subjects | head -1)" = "upstream: took a" ] || fail "drop: $(tip_subjects)"
