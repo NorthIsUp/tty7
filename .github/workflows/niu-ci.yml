@@ -1,13 +1,12 @@
-name: CI
+name: CI (niu)
 
-# Compile + test on every push/PR. The Windows and Linux jobs are the
-# compile-feedback loop for the platform-specific code a macOS dev machine
-# never builds (`cfg(windows)` transport / process detach / config dir,
-# the Linux `/proc` queries, the x11/wayland gpui backends). The macOS job
-# guards against regressing the original target.
+# The fork's CI: upstream's ci.yml, narrowed to macOS and to main-niu. Upstream's
+# ci.yml stays byte-identical and disabled here (`gh workflow disable ci.yml`),
+# so its edits never conflict with the fork's. Job names match branch
+# protection's required checks; keep them.
 on:
   push:
-    branches: [main]
+    branches: [main-niu]
   pull_request:
   workflow_dispatch:
 
@@ -51,9 +50,8 @@ jobs:
   # A standalone job on purpose, and one that must stay *non-required*: main's
   # required checks are `rustfmt` and the three `build & test (<target>)` names,
   # and folding this into either would make it required the moment it lands —
-  # wedging every open PR on a check they have never seen. Same reasoning as
-  # `server-musl` below. Cheap enough (a checkout and a grep) that it does not
-  # need caching or a toolchain.
+  # wedging every open PR on a check they have never seen. Cheap enough (a
+  # checkout and a grep) that it does not need caching or a toolchain.
   host-boundary:
     name: host boundary
     runs-on: ubuntu-latest
@@ -98,10 +96,13 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: windows-latest
-            target: x86_64-pc-windows-msvc
-          - runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+          # Off for CI speed while the fork is macOS-only; uncomment to build
+          # them again (and re-add their required checks). Releases still build
+          # every platform.
+          # - runner: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          # - runner: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
     needs: changes
     runs-on: ${{ matrix.runner }}
     # Line tables keep file:line in backtraces but shrink the cached target dir.
@@ -144,7 +145,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: needs.changes.outputs.code == 'true'
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
 
       # `--locked` on the build so a Cargo.lock that disagrees with Cargo.toml
@@ -223,117 +224,19 @@ jobs:
       # timeout above is what fixes that — the step *fails*, so the log lands,
       # with the name in it.
 
-  # Static musl builds of the headless server binary that remote workspaces push
-  # onto the far machine (decision D10).
-  # One binary has to run on any distro without regard to the target's glibc
-  # version, so it is linked fully static against musl rather than built per
-  # distro. Compile-only — this job publishes nothing; release.yml and
-  # nightly.yml carry the same job with an upload step.
-  #
-  # Deliberately a *separate* job rather than two more rows in the `build` matrix
-  # above: those three `build & test (<target>)` names are main's required
-  # checks, and reshaping that matrix would wedge branch protection on every open
-  # PR. Keep this job non-required until it has a few weeks of green.
-  server-musl:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    name: tty7-server musl (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-    # `-C strip=symbols` is applied by rustc through the linker, so it strips the
-    # aarch64 output from an x86_64 runner — plain `strip(1)` would not. Set here
-    # rather than in [profile.release] because the release profile is shared with
-    # the GUI builds, which keep their symbols.
-    env:
-      RUSTFLAGS: -C strip=symbols
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      # zig supplies both the musl sysroot and the C cross-compiler, which is
-      # what makes one x86_64 runner able to emit both musl targets. russh's
-      # default crypto backend (aws-lc-rs) builds a sizable C/asm library through
-      # cmake, and that is the part every other approach trips over: `cross`
-      # needs a custom image to get cmake into the sandbox, and Ubuntu's
-      # `musl-tools` only ships an x86_64 `musl-gcc` wrapper with no C++ driver
-      # and nothing at all for aarch64. Verified locally: both targets link
-      # statically and the resulting binaries run under Alpine.
-      #
-      # If setup-zig ever becomes a problem (its GitHub repo is a mirror of a
-      # Codeberg original), cargo-zigbuild also accepts zig from PyPI —
-      # `pip3 install ziglang`, which it finds via CARGO_ZIGBUILD_PYTHON_PATH —
-      # so this can drop to zero third-party actions without changing anything
-      # else.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-zigbuild
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
-
-      # The crate split lands separately; until `tty7-server` exists as a
-      # workspace member this job has nothing to build. Skip cleanly rather than
-      # fail, so the workflow can land before the split and simply start working
-      # once it arrives. `--no-deps` keeps this to a manifest parse — no
-      # resolution, no network.
-      - name: Look for the tty7-server package
-        id: probe
-        run: |
-          set -euo pipefail
-          if cargo metadata --no-deps --format-version 1 \
-              | jq -e '[.packages[].name] | index("tty7-server")' >/dev/null; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::tty7-server is not a workspace member yet (crate split, M1) — nothing to build"
-          fi
-
-      # `-p tty7-server` addresses the package by name, so this survives whatever
-      # directory layout the split settles on. It also keeps feature unification
-      # scoped to the server's own dependency graph: the GUI crate is the one
-      # that turns on tty7-core's `gssapi` feature, and that feature cannot build
-      # under musl (libgssapi-sys wants a system MIT/Heimdal krb5). Building the
-      # whole workspace here would drag it in and fail.
-      - name: Build static tty7-server
-        if: steps.probe.outputs.present == 'true'
-        run: cargo zigbuild --release --locked -p tty7-server --target ${{ matrix.target }}
-
-      - name: Assert the binary is static
-        if: steps.probe.outputs.present == 'true'
-        run: bash .github/scripts/assert-static.sh "target/${{ matrix.target }}/release/tty7-server"
-
-  # The same headless server for remote Macs. A second job rather than more rows
-  # in `server-musl`: that one exists to cross-compile from Linux with zig, and
-  # neither half of it applies here — an Apple target needs an Apple runner for
-  # the SDK, and there is no musl to link.
+  # The headless server for remote Macs. upstream's ci.yml also builds a static
+  # Linux server (`server-musl`); the fork's CI is macOS only.
   #
   # Both slices come off one arm64 runner. Cross-compiling to x86_64 needs
   # nothing but the rustup target: the Xcode SDK carries both architectures, and
   # the linker is the same one.
   #
-  # Compile-only, like `server-musl` — release.yml and nightly.yml carry the
-  # same job with an upload step. Non-required until it has a few weeks of
-  # green, for the branch-protection reason spelled out above.
+  # Compile-only; release.yml carries the same job with an upload step.
+  # Non-required, for the branch-protection reason spelled out above.
   server-macos:
     needs: changes
-    # Skipped on PRs: free accounts get ~5 macOS runners at once, and these two
-    # jobs made each PR hold three. A server-only break surfaces on main-niu.
-    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    if: needs.changes.outputs.code == 'true'
     name: tty7-server macOS (${{ matrix.target }})
     runs-on: macos-latest
     timeout-minutes: 45
@@ -357,7 +260,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.ref == 'refs/heads/main-niu' || github.event_name == 'workflow_dispatch' }}
 
       - name: Look for the tty7-server package
         id: probe
