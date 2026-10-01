@@ -896,6 +896,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 crate::daemon::history::carry(dead, id);
             }
             let predecessor = restore.as_ref().map(|r| r.pane_id);
+            let run_once = restore.as_ref().and_then(|r| r.run_once.clone());
             let restore = restore.and_then(restored_screen);
             log::info!(
                 "pane {id} spawn requested; restore_from={predecessor:?} screen_restored={}",
@@ -921,6 +922,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 owner,
                 workspace,
                 restore,
+                run_once,
                 allow_remote_clipboard_write,
                 on_dead,
             ) {

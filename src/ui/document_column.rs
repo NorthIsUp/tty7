@@ -572,6 +572,7 @@ mod gpui_tests {
                     run_on_land: None,
                     owner: None,
                     font_size: 14.0,
+                    ..Default::default()
                 },
                 cx,
             )
