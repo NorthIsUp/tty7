@@ -22,6 +22,7 @@ pub mod remote_link;
 #[cfg(target_os = "macos")]
 pub mod responsibility;
 pub mod router;
+pub(crate) mod run_once;
 pub mod scrollback;
 pub mod server;
 pub mod singleton;
