@@ -23,6 +23,7 @@ struct BaseBindings(Vec<KeyBinding>);
 impl Global for BaseBindings {}
 
 pub fn init(cx: &mut App) {
+    crate::ui::background_tab::bind_shift_enter(cx);
     if cx.try_global::<BaseBindings>().is_none() {
         let base: Vec<KeyBinding> = cx.key_bindings().borrow().bindings().cloned().collect();
         cx.set_global(BaseBindings(base));
