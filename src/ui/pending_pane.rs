@@ -11,7 +11,7 @@ use crate::daemon::protocol::ShellSpec;
 use crate::terminal::PaneWorkspace;
 use crate::ui::i18n::{L10nKey, t_fmt};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PendingSpawn {
     pub workspace: Option<PaneWorkspace>,
     pub working_directory: Option<std::path::PathBuf>,
@@ -24,8 +24,14 @@ pub struct PendingSpawn {
     /// opened to run something (a quick-launched agent). Typed only into this
     /// pane, and only when it is a fresh shell rather than a restored one.
     pub run_on_land: Option<String>,
+    /// A prompt for the agent this pane resumes, sent with the resume itself
+    /// (Continue All Agents).
+    pub agent_prompt: Option<String>,
     pub owner: Option<crate::core::session::WorkspaceId>,
     pub font_size: f32,
+    /// Fork: how this pane's agent resume is delivered, decided once at its
+    /// first spawn (see `agent_resume::spawn_job`).
+    pub resume: Option<crate::ui::agent_resume::PaneResume>,
 }
 
 pub enum PendingState {
