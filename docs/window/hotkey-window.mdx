@@ -1,0 +1,48 @@
+---
+title: "The hotkey window"
+description: "A system-wide hotkey shows and hides a dedicated tty7 window from any app."
+---
+
+<kbd>⌥ Space</kbd> shows the hotkey window, a tty7 window of its own, from any
+app. Press it again while that window has focus and it hides, handing focus
+back to the app you were in. If it is on screen but something else has focus,
+the hotkey raises it.
+
+Only the hotkey shows it. <kbd>⌘ Tab</kbd>, a Dock click and a relaunch bring
+back your other tty7 windows and leave the hotkey window hidden, and the
+hotkey leaves those other windows where they are. The first press opens it
+with a fresh workspace; its tabs are kept like any other window's and come
+back on the next press after a restart.
+
+To use another workspace, open the workspace switcher, and in that
+workspace's <kbd>…</kbd> menu choose **Set as Hotkey Workspace**. The current
+hotkey window hides and goes back to being a plain window; the next press
+shows the chosen workspace, opening it if it is closed or taking over its
+window if it is already open. **Unset Hotkey Workspace** on the current one
+leaves its window where it is, and the next press opens a fresh workspace.
+The switcher row and the Window menu mark the hotkey workspace with the
+hotkey's keys. The items appear only while the global hotkey is on.
+
+Settings → Appearance → **Hotkey window** holds the switches:
+
+| Setting | `config.json` | Does |
+| --- | --- | --- |
+| Global hotkey | `global_hotkey` | On or off; off is `null` |
+| Hotkey | `global_hotkey` | Click it, then press the chord. <kbd>Esc</kbd> keeps the old one, <kbd>Backspace</kbd> turns the hotkey off |
+| Full screen | `global_hotkey_fullscreen` | Show the hotkey window over the screen the mouse is on, below its menu bar and over the Dock area, above other apps' windows and on the current Space |
+| Hide on focus loss | `global_hotkey_hide_on_blur` | Hide the hotkey window whenever you switch to another app |
+| Fade | `global_hotkey_fade_ms` | Fade in and out over this many milliseconds; `0` is instant |
+
+The chord uses keymap syntax, as in `keybindings`: `"alt-space"`,
+`"cmd-shift-t"`, `"ctrl-\`"`. It has to be a single chord. Edits to
+`config.json` take effect without a restart.
+
+In full screen, a tty7 window you open or click while the hotkey window is up
+(Settings, a file picker, another workspace) goes above it; one that was
+already open stays below until you click it. Clicking the hotkey window puts
+it back on top. A switch to another app drops the window back to the normal
+level so the other app is not stuck under it; the next hotkey press raises it
+again. Turning full screen off puts the window back where it was.
+
+macOS only; the hotkey needs no Accessibility permission. If another app
+already holds the chord, tty7 logs that it could not register it.
