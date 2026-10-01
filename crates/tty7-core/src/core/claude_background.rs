@@ -9,6 +9,7 @@
 //! starts fresh instead.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
@@ -23,9 +24,9 @@ struct Entry {
     job_id: Option<String>,
 }
 
-/// Where Claude keeps its per-process session files on this machine.
-pub fn sessions_dir() -> Option<PathBuf> {
-    crate::core::agent_history::Roots::local().map(|roots| roots.claude.join("sessions"))
+/// Claude's config root (`~/.claude`) on this machine.
+pub fn local_claude_root() -> Option<PathBuf> {
+    crate::core::agent_history::Roots::local().map(|roots| roots.claude)
 }
 
 /// `(session id, job id)` for each background session whose process is up.
@@ -49,6 +50,27 @@ pub fn job_for_session(dir: &Path, session_id: &str) -> Option<String> {
 /// The session background job `job` is running.
 pub fn session_for_job(dir: &Path, job: &str) -> Option<String> {
     live_jobs(dir).find_map(|(s, j)| (j == job).then_some(s))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JobState {
+    session_id: Option<String>,
+    resume_session_id: Option<String>,
+}
+
+/// The session `claude attach <job>` opens, with Claude's files under
+/// `claude_root`. Without a live process (stopped, still respawning, killed by
+/// a reboot) `jobs/<job>/state.json` still names it, so the pane records a
+/// session to resume instead of caching a miss.
+pub fn attached_session(claude_root: &Path, job: &str) -> Option<String> {
+    session_for_job(&claude_root.join("sessions"), job).or_else(|| {
+        let path = claude_root.join("jobs").join(job).join("state.json");
+        let state: JobState = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        // A job resumed from another conversation keeps writing that one.
+        let set = |s: Option<String>| s.filter(|s| !s.is_empty());
+        set(state.resume_session_id).or(set(state.session_id))
+    })
 }
 
 /// How to reopen an agent session, decided on the host that has its files.
@@ -95,31 +117,65 @@ pub fn resume_plan(claude_root: &Path, agent: CLIAgent, session_id: &str) -> Res
 #[derive(Default)]
 pub(crate) struct PaneFork {
     /// See [`adopt_argv_session`].
-    pub(crate) argv_session_miss: Option<Vec<String>>,
+    pub(crate) argv_session_checked: Option<(Vec<String>, Instant)>,
 }
+
+/// How long an argv's lookup stands before it is read again: the sessions
+/// dir scan runs under the pane mutex, so never on every poll.
+const RECHECK: Duration = Duration::from_secs(30);
 
 /// Fill in the session id `argv` names for a pane no hook has spoken for
 /// yet, which is what lets a reboot resume Claude without its hooks. `true`
-/// when `session` changed. `miss` remembers the argv that named nothing, so
-/// an unmappable `claude attach` doesn't reread the sessions dir every poll.
+/// when `session` changed. `checked` holds the argv last looked up and when:
+/// a miss is retried, and a `claude attach` re-read (its job may move to
+/// another conversation), once per [`RECHECK`].
 pub fn adopt_argv_session(
     agent: Option<CLIAgent>,
     argv: Option<&[String]>,
     session: &mut Option<AgentSessionState>,
-    miss: &mut Option<Vec<String>>,
+    checked: &mut Option<(Vec<String>, Instant)>,
+) -> bool {
+    let root = local_claude_root();
+    adopt_argv_session_in(
+        root.as_deref(),
+        Instant::now(),
+        agent,
+        argv,
+        session,
+        checked,
+    )
+}
+
+fn adopt_argv_session_in(
+    claude_root: Option<&Path>,
+    now: Instant,
+    agent: Option<CLIAgent>,
+    argv: Option<&[String]>,
+    session: &mut Option<AgentSessionState>,
+    checked: &mut Option<(Vec<String>, Instant)>,
 ) -> bool {
     let (Some(agent), Some(argv)) = (agent, argv) else {
         return false;
     };
-    if session.as_ref().is_some_and(|s| s.session_id.is_some()) || miss.as_deref() == Some(argv) {
+    let job = attached_job(argv);
+    let known = session.as_ref().and_then(|s| s.session_id.as_deref());
+    // Only an attach is worth re-reading once known: its job is the one
+    // source, and no hook reports for it.
+    if known.is_some() && job.is_none() {
         return false;
     }
-    // `claude attach <job>` names only its job; the session file maps it back.
+    if checked
+        .as_ref()
+        .is_some_and(|(a, at)| a == argv && now.duration_since(*at) < RECHECK)
+    {
+        return false;
+    }
+    *checked = Some((argv.to_vec(), now));
+    // `claude attach <job>` names only its job; Claude's files map it back.
     let named = agent
         .session_id_in_argv(argv)
-        .or_else(|| session_for_job(&sessions_dir()?, attached_job(argv)?));
-    let Some(id) = named else {
-        *miss = Some(argv.to_vec());
+        .or_else(|| attached_session(claude_root?, job?));
+    let Some(id) = named.filter(|id| Some(id.as_str()) != known) else {
         return false;
     };
     let sess = session.get_or_insert_with(Default::default);
@@ -236,43 +292,138 @@ mod tests {
         );
     }
 
+    fn argv(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn job_state(root: &Path, job: &str, body: &str) {
+        let dir = root.join("jobs").join(job);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("state.json"), body).unwrap();
+    }
+
     #[test]
-    fn an_argv_session_is_adopted_once_and_a_miss_is_remembered() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let (mut session, mut miss) = (None, None);
+    fn an_argv_session_is_adopted_once() {
+        let (mut session, mut checked) = (None, None);
         let named = argv(&["claude", "--session-id", ID]);
-        let claude = Some(CLIAgent::Claude);
-        assert!(adopt_argv_session(
-            claude,
-            Some(&named),
-            &mut session,
-            &mut miss
-        ));
+        let adopt = |s: &mut _, c: &mut _, now| {
+            adopt_argv_session_in(None, now, Some(CLIAgent::Claude), Some(&named), s, c)
+        };
+        let t0 = Instant::now();
+        assert!(adopt(&mut session, &mut checked, t0));
         let got = session.clone().unwrap();
         assert_eq!(got.session_id.as_deref(), Some(ID));
         assert_eq!(got.launch_argv.as_deref(), Some(&named[..]));
-        assert!(!adopt_argv_session(
-            claude,
-            Some(&named),
-            &mut session,
-            &mut miss
-        ));
+        assert!(!adopt(&mut session, &mut checked, t0 + RECHECK * 2));
+    }
 
-        let (mut session, mut miss) = (None, None);
-        let orphan = argv(&["claude", "attach", "ffffffff"]);
-        assert!(!adopt_argv_session(
-            claude,
-            Some(&orphan),
-            &mut session,
-            &mut miss
-        ));
-        assert_eq!(miss.as_deref(), Some(&orphan[..]));
-        assert!(session.is_none());
+    #[test]
+    fn an_attach_miss_is_retried_only_after_the_window_and_follows_its_job() {
+        let root = tempfile::tempdir().unwrap();
+        let attach = argv(&["claude", "attach", "6011098d"]);
+        let (mut session, mut checked) = (None, None);
+        let mut adopt = |s: &mut Option<AgentSessionState>, now| {
+            adopt_argv_session_in(
+                Some(root.path()),
+                now,
+                Some(CLIAgent::Claude),
+                Some(&attach),
+                s,
+                &mut checked,
+            )
+        };
+        let t0 = Instant::now();
+        assert!(!adopt(&mut session, t0), "nothing on disk yet");
+        job_state(
+            root.path(),
+            "6011098d",
+            &format!(r#"{{"sessionId":"{ID}"}}"#),
+        );
+        assert!(!adopt(&mut session, t0 + RECHECK / 2), "within the window");
+        assert!(adopt(&mut session, t0 + RECHECK));
+        assert_eq!(session.as_ref().unwrap().session_id.as_deref(), Some(ID));
+
+        job_state(
+            root.path(),
+            "6011098d",
+            r#"{"sessionId":"x","resumeSessionId":"moved"}"#,
+        );
+        assert!(!adopt(&mut session, t0 + RECHECK * 3 / 2));
+        assert!(adopt(&mut session, t0 + RECHECK * 2), "the job moved on");
+        assert_eq!(
+            session.as_ref().unwrap().session_id.as_deref(),
+            Some("moved")
+        );
+        assert!(
+            !adopt(&mut session, t0 + RECHECK * 3),
+            "unchanged is no change"
+        );
+    }
+
+    #[test]
+    fn a_live_job_wins_over_its_state_file_and_blanks_are_skipped() {
+        let root = tempfile::tempdir().unwrap();
+        job_state(
+            root.path(),
+            "6011098d",
+            r#"{"sessionId":"stale","resumeSessionId":""}"#,
+        );
+        assert_eq!(
+            attached_session(root.path(), "6011098d").as_deref(),
+            Some("stale")
+        );
+        job_state(
+            root.path(),
+            "44883d52",
+            r#"{"sessionId":"","resumeSessionId":""}"#,
+        );
+        assert_eq!(attached_session(root.path(), "44883d52"), None);
+
+        let sessions = root.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("1.json"),
+            entry(std::process::id(), ID, "bg", Some("6011098d")),
+        )
+        .unwrap();
+        assert_eq!(
+            attached_session(root.path(), "6011098d").as_deref(),
+            Some(ID)
+        );
+    }
+
+    #[test]
+    fn a_job_with_no_process_still_names_the_session_it_runs() {
+        // A stopped job, one `claude attach` is still respawning, or one a
+        // reboot killed has no `sessions/<pid>.json`; its state file remains.
+        // A resumed job runs `resumeSessionId`, not its own id.
+        let root = tempfile::tempdir().unwrap();
+        let job = root.path().join("jobs").join("6011098d");
+        std::fs::create_dir_all(&job).unwrap();
+        std::fs::write(
+            job.join("state.json"),
+            format!(
+                r#"{{"state":"done","sessionId":"6011098d-13db-4e04-8991-8032b55894a8","resumeSessionId":"{ID}"}}"#
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            attached_session(root.path(), "6011098d").as_deref(),
+            Some(ID)
+        );
+        assert_eq!(attached_session(root.path(), "ffffffff"), None);
+
+        let fresh = root.path().join("jobs").join("44883d52");
+        std::fs::create_dir_all(&fresh).unwrap();
+        std::fs::write(fresh.join("state.json"), r#"{"sessionId":"own"}"#).unwrap();
+        assert_eq!(
+            attached_session(root.path(), "44883d52").as_deref(),
+            Some("own")
+        );
     }
 
     #[test]
     fn an_attach_argv_names_its_job() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
             attached_job(&argv(&["/usr/local/bin/claude", "attach", "6011098d"])),
             Some("6011098d")
