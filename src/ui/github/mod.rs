@@ -160,6 +160,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) branch_pulls: HashMap<BranchPullKey, BranchPullCache>,
     /// The long sections of a detail the user unfolded.
     pub(crate) unfolded: std::collections::HashSet<(RepoSlug, u64, Fold)>,
+    /// The Session tab and what it shows (`github_session`).
+    pub(crate) session: crate::ui::github_session::SessionState,
 }
 
 /// A detail section that folds when it runs long.
@@ -195,7 +197,7 @@ pub(crate) enum GhTarget {
 /// Not gpui's background executor: a request can sit on a dead link for its
 /// whole timeout, and parking one of the executor's few workers for that long
 /// starves everything else scheduled on it.
-fn off_ui<T, F>(f: F) -> impl std::future::Future<Output = Option<T>>
+pub(crate) fn off_ui<T, F>(f: F) -> impl std::future::Future<Output = Option<T>>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
@@ -286,7 +288,12 @@ impl Tty7App {
                 return GhTarget::Pending;
             }
         };
-        let pick = self.github.remote_pick.get(&repo).map(String::as_str);
+        let pick = crate::ui::github_session::remote_pick(
+            self.github.remote_pick.get(&repo).map(String::as_str),
+            cx.global::<crate::core::config::Config>()
+                .fork
+                .github_panel_prefer_origin,
+        );
         match tty7_core::core::github::remote::default_remote(&remotes, pick) {
             Some(chosen) => {
                 let chosen = chosen.clone();
@@ -727,6 +734,7 @@ impl Tty7App {
             entry.error = false;
             entry.fetched = None;
         }
+        crate::ui::github_session::mark_due(&mut self.github.session);
         cx.notify();
     }
 

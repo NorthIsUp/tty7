@@ -246,6 +246,12 @@ pub fn list(t: &dyn Transport, q: &ListQuery, page: u32) -> Result<ListPage, Api
     })
 }
 
+/// One issue or pull request as a list row, in one request.
+pub fn item(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Item, ApiError> {
+    let reply = t.get(&format!("{}/issues/{number}", repo_path(slug)))?;
+    Ok(decode::<RawIssue>(&reply)?.into_item())
+}
+
 /// One issue or pull request with its body and conversation — and, for a pull
 /// request, its branches, size and changed files.
 pub fn detail(t: &dyn Transport, slug: &RepoSlug, number: u64) -> Result<Detail, ApiError> {
@@ -453,6 +459,24 @@ pub(crate) mod tests {
             state: StateFilter::Open,
             label: label.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn an_item_is_one_issue_read_and_knows_a_merged_pull_request() {
+        let mut t = Fixture::new();
+        t.on(
+            "/repos/l0ng-ai/tty7/issues/8",
+            r#"{"number": 8, "title": "Fix typo", "state": "closed", "user": {"login": "cy"},
+                "labels": [], "comments": 0, "created_at": "2026-09-02T10:00:00Z",
+                "updated_at": "2026-09-03T10:00:00Z", "html_url": "https://github.com/l0ng-ai/tty7/pull/8",
+                "pull_request": {"url": "x", "merged_at": "2026-09-03T10:00:00Z"}}"#,
+            false,
+        );
+        let got = item(&t, &slug(), 8).unwrap();
+        assert!(got.is_pr);
+        assert_eq!(got.state, ItemState::Merged);
+        assert_eq!(*t.asked.lock().unwrap(), ["/repos/l0ng-ai/tty7/issues/8"]);
+        assert_eq!(item(&t, &slug(), 9), Err(ApiError::NotFound));
     }
 
     #[test]
