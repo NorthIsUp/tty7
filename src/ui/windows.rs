@@ -67,19 +67,28 @@ impl WindowRegistry {
 
     pub fn most_recent(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
+        let hotkey = crate::ui::hotkey_window::workspace(cx);
         let active = WorkspaceStore::all(cx).active;
         let registry = cx.global::<Self>();
         active
-            .filter(|id| registry.windows.iter().any(|w| w.workspace == *id))
-            .or_else(|| registry.windows.first().map(|w| w.workspace))
+            .filter(|id| Some(*id) != hotkey && registry.windows.iter().any(|w| w.workspace == *id))
+            .or_else(|| {
+                registry
+                    .windows
+                    .iter()
+                    .map(|w| w.workspace)
+                    .find(|id| Some(*id) != hotkey)
+            })
     }
 
     pub fn most_recent_local(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
+        let hotkey = crate::ui::hotkey_window::workspace(cx);
         let views = WorkspaceStore::all(cx);
         let registry = cx.global::<Self>();
         let is_open_local = |id: WorkspaceId| {
-            registry.windows.iter().any(|window| window.workspace == id)
+            Some(id) != hotkey
+                && registry.windows.iter().any(|window| window.workspace == id)
                 && views.get(id).is_some_and(|view| !view.is_remote())
         };
         views.active.filter(|id| is_open_local(*id)).or_else(|| {
@@ -303,7 +312,7 @@ pub fn open_from_cli(cx: &mut App, path: Option<std::path::PathBuf>) {
         WindowRegistry::most_recent(cx)
     };
     let Some(workspace) = workspace else {
-        open_missing_cli_window_with(cx, path, open_at);
+        open_restored(cx, path, open_at);
         return;
     };
     let Some(handle) = WindowRegistry::window_for(cx, workspace) else {
@@ -482,6 +491,19 @@ pub fn announce_detached_at_launch(cx: &mut App, restored: Option<RestoreTarget>
     });
 }
 
+/// Launch, a Dock click or the CLI with no window up: the restore below,
+/// unless the hotkey window is all there is to bring back.
+pub(crate) fn open_restored(
+    cx: &mut App,
+    path: Option<std::path::PathBuf>,
+    open: impl FnOnce(&mut App, Option<WorkspaceId>, Option<std::path::PathBuf>),
+) {
+    if crate::ui::hotkey_window::summon_alone(cx, path.as_deref()) {
+        return;
+    }
+    open_missing_cli_window_with(cx, path, open);
+}
+
 /// Opens a window after CLI routing reaches a GUI process with no live windows.
 ///
 /// Both shapes of request follow the same restoration policy as normal startup;
@@ -516,7 +538,7 @@ fn reopen_with(
 ) {
     match WindowRegistry::most_recent(cx) {
         Some(workspace) => activate(cx, workspace),
-        None => open_missing_cli_window_with(cx, None, open),
+        None => open_restored(cx, None, open),
     }
 }
 
@@ -903,6 +925,7 @@ fn cascade(bounds: Bounds<gpui::Pixels>, existing: usize) -> Bounds<gpui::Pixels
 mod tests {
     use super::*;
     use crate::core::session::{RemoteRef, RemoteTarget, WindowView, WindowViews};
+    use crate::ui::hotkey_window::tests::FakeHotkey;
     use crate::ui::i18n::{L10nKey, set_locale, t_plural};
 
     fn bounds_at(x: f32, y: f32) -> Bounds<gpui::Pixels> {
@@ -1014,6 +1037,30 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_hotkey_workspace_alone_opens_nothing_else(cx: &mut gpui::TestAppContext) {
+        let view = WindowView::default();
+        let hot = view.id;
+        cx.update(|cx| {
+            WorkspaceStore::install_for_test(
+                cx,
+                WindowViews {
+                    views: vec![view],
+                    active: Some(hot),
+                },
+            );
+            cx.set_global(FakeHotkey {
+                workspace: Some(hot),
+                summoned: false,
+            });
+            open_restored(cx, None, |_, workspace, _| {
+                panic!("opened {workspace:?} beside the hotkey workspace");
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|cx| assert!(cx.global::<FakeHotkey>().summoned));
+    }
+
+    #[gpui::test]
     fn a_pathless_cli_request_creates_a_default_window_without_history(
         cx: &mut gpui::TestAppContext,
     ) {
@@ -1021,12 +1068,12 @@ mod tests {
 
         cx.update(|cx| {
             WorkspaceStore::install_for_test(cx, WindowViews::default());
-            open_missing_cli_window_with(cx, None, |_, workspace, path| {
+            open_restored(cx, None, |_, workspace, path| {
                 opened = Some((workspace, path));
             });
         });
 
-        assert_eq!(opened, Some((None, None)));
+        assert_eq!(opened, Some((None, None)), "a fresh workspace");
     }
 
     #[gpui::test]
