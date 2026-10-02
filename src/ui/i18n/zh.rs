@@ -2269,6 +2269,14 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "编号",
+        L10nKey::CmdCopyRaw => "原样复制",
+        L10nKey::SettingsSearchCopyJoinWrappedKeywords => {
+            "剪贴板 复制 折行 合并 clipboard copy wrap unwrap join lines claude raw"
+        }
+        L10nKey::SettingsCopyJoinWrapped => "复制时合并折行",
+        L10nKey::SettingsCopyJoinWrappedDesc => {
+            "在 Claude Code 窗格中，将 Claude 在窗格边缘折行的内容重新合并，段落粘贴为一行。⌘⌥C 或“原样复制”按显示内容复制"
+        }
     })
 }
 
