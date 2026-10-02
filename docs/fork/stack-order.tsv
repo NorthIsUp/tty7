@@ -10,3 +10,4 @@ pane-nice	pane shells start at the configured nice
 github-session	the GitHub panel's Session tab and This session filter
 osc8-underline	OSC 8 links rest under a faint dotted underline
 hotkey-window	a global hotkey window
+copy-unwrap	copy rejoins lines Claude Code wrapped

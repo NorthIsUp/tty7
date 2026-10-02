@@ -1,0 +1,26 @@
+  You didn't pick between U1 and U2, so I did U1: rewrote the PR title and body. The new title is feat(infra)!:
+  source Fly app secrets from Pulumi ESC at boot.
+
+  The staging sync is a secret-store write, which auto-mode won't let me do. It prints the rollback revision
+  first, then key names only:
+
+  ! pulumi env version history exampleco/fly/staging | head -1; cd
+  ~/src/exampleco/Exampl_1/.worktrees/ex-12345-fly-esc-run/src/exmpl && .venv/bin/python
+  ~/tmp/esc_sync_staging.py --apply
+
+⏺ Background command "Rebuild and reload dev app with both fixes" was stopped because the system is running low
+on memory
+
+⏺ Rebuild the dev app yourself when you're ready:
+
+  ! cd /Users/adam/src/tty7-mdfix && mise run reload
+
+  Fixes for #1 and #2 (about 15 minutes with a test):
+
+  # users/adapters.py: drop `import random`
+  from django.utils.crypto import get_random_string
+  ...
+  return get_random_string(6, allowed_chars="0123456789")
+
+  # settings/base.py
+  ACCOUNT_RATE_LIMITS = {"confirm_email": "1/55s/key,10/m/ip"}

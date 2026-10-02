@@ -47,6 +47,7 @@ read when a sync stops on a conflict in that feature.
 - [github-session](docs/fork/features/github-session.md): the GitHub panel's Session tab and This session filter
 - [osc8-underline](docs/fork/features/osc8-underline.md): OSC 8 links rest under a faint dotted underline
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
+- [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 
 ## Syncing
 

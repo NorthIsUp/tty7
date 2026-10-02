@@ -1911,6 +1911,10 @@ l10n_keys! {
     GitHubAll,
     GitHubNoSessionMentions,
     GitHubNoSessionMatches,
+    CmdCopyRaw,
+    SettingsCopyJoinWrapped,
+    SettingsCopyJoinWrappedDesc,
+    SettingsSearchCopyJoinWrappedKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.
