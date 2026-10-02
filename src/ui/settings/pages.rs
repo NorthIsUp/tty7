@@ -1345,7 +1345,9 @@ impl Tty7App {
                         cx,
                     ),
                 ]
-                .map(IntoElement::into_any_element),
+                .map(IntoElement::into_any_element)
+                .into_iter()
+                .chain(self.copy_unwrap_settings(cx)),
                 cx,
             ),
         ];
