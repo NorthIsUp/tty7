@@ -10,3 +10,4 @@ github-session	the GitHub panel's Session tab and This session filter
 github-review	the GitHub panel's pull request review box
 github-merge	the GitHub panel's pull request merge buttons and auto-merge
 hotkey-window	a global hotkey window
+copy-unwrap	copy rejoins lines Claude Code wrapped

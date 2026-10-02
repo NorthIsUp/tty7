@@ -6847,6 +6847,11 @@ impl Tty7App {
                     });
                 }
             }
+            CopyRaw => {
+                if let Some(leaf) = self.focused_leaf(window, cx) {
+                    leaf.update(cx, |view, cx| view.copy_raw(cx));
+                }
+            }
             CutText => {
                 if let Some(leaf) = self.focused_leaf(window, cx) {
                     leaf.update(cx, |view, cx| {
@@ -7184,6 +7189,9 @@ impl Tty7App {
             L10nKey::SettingsTrimTrailingSpaces => {
                 self.set_clipboard_trim(defaults.clipboard_trim_trailing_spaces, cx)
             }
+            L10nKey::SettingsCopyJoinWrapped => self.update_config(cx, |c| {
+                c.fork.copy_join_wrapped = defaults.fork.copy_join_wrapped
+            }),
             L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
                 c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
             }),
