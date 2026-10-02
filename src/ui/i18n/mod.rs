@@ -1941,6 +1941,10 @@ l10n_keys! {
     GitHubAutoMergeDisable,
     GitHubMergeConfirm,
     GitHubAutoMergeConfirm,
+    CmdCopyRaw,
+    SettingsCopyJoinWrapped,
+    SettingsCopyJoinWrappedDesc,
+    SettingsSearchCopyJoinWrappedKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.
