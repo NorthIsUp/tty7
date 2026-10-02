@@ -39,6 +39,7 @@ Each stack commit is titled `fork(<slug>): <summary>` and carries a
 | `pane-nice` | `Config::nice` and its rechecks |
 | `github-session` | the GitHub panel's This session filter, fork default and Session tab |
 | `osc8-underline` | the dotted underline under OSC 8 links |
+| `panel-tabs` | the side panel's lit current tab; clicking it no longer closes the panel |
 | `hotkey-window` | the global hotkey window and its fixes |
 
 Features upstream merged on 2026-10-01 (#1059–#1064: process CPU and memory,
