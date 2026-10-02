@@ -46,6 +46,7 @@ read when a sync stops on a conflict in that feature.
 - [pane-nice](docs/fork/features/pane-nice.md): pane shells start at the configured nice
 - [github-session](docs/fork/features/github-session.md): the GitHub panel's Session tab and This session filter
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
+- [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 
 ## Syncing
 

@@ -9,3 +9,4 @@ sidebar-groups	group colours, headers, fill and fold
 pane-nice	pane shells start at the configured nice
 github-session	the GitHub panel's Session tab and This session filter
 hotkey-window	a global hotkey window
+copy-unwrap	copy rejoins lines Claude Code wrapped
