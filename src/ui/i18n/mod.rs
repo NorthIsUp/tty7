@@ -1911,6 +1911,8 @@ l10n_keys! {
     GitHubAll,
     GitHubNoSessionMentions,
     GitHubNoSessionMatches,
+    GitHubSortRecent,
+    GitHubSortNumber,
     CmdCopyRaw,
     SettingsCopyJoinWrapped,
     SettingsCopyJoinWrappedDesc,

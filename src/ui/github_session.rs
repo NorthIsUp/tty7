@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use gpui::{AnyElement, Context, Window, prelude::*, px};
-use gpui_component::v_flex;
+use gpui_component::{h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::github::api::{self, ListQuery};
@@ -30,6 +30,7 @@ use crate::ui::app::{CONTENT_INSET, Tty7App};
 use crate::ui::github::{STALE_AFTER, off_ui};
 use crate::ui::host_ops::{HostOps, SharedHost};
 use crate::ui::i18n::{L10nKey, t};
+use crate::ui::panel_github::switch_cell;
 
 /// ponytail: mentions past the newest this many are never looked up one by
 /// one; they stay hidden unless a list page or a detail has them.
@@ -68,6 +69,20 @@ pub(crate) struct SessionState {
     /// results are dropped.
     seq: Arc<AtomicU64>,
     shown: Option<RepoSlug>,
+    /// How the Issues and Pull Requests lists are ordered. Here, not on
+    /// `GitHubPanelState`, so the fork's state stays in a fork file.
+    pub(crate) sort: ListSort,
+}
+
+/// The Issues and Pull Requests lists' order.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ListSort {
+    /// Last updated first, with what the focused pane's session mentioned
+    /// lifted to the top of the rows loaded.
+    #[default]
+    Recent,
+    /// Highest number first, which GitHub sorts (`sort=created`).
+    Number,
 }
 
 impl Default for SessionState {
@@ -80,6 +95,7 @@ impl Default for SessionState {
             backoff: HashMap::new(),
             seq: Arc::new(AtomicU64::new(0)),
             shown: None,
+            sort: ListSort::default(),
         }
     }
 }
@@ -114,6 +130,15 @@ fn newest<'a>(items: impl Iterator<Item = &'a Item>) -> HashMap<u64, &'a Item> {
 /// `prefer_origin`, else upstream's own order in `default_remote`.
 pub(crate) fn remote_pick(pick: Option<&str>, prefer_origin: bool) -> Option<&str> {
     pick.or(prefer_origin.then_some("origin"))
+}
+
+/// `items` with the ones `mentioned` (latest first) lifted to the top, the
+/// rest in the order GitHub sent them.
+pub(crate) fn mentions_first<'a>(items: &'a [Item], mentioned: &[u64]) -> Vec<&'a Item> {
+    let rank: HashMap<u64, usize> = mentioned.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let mut rows: Vec<&Item> = items.iter().collect();
+    rows.sort_by_key(|i| rank.get(&i.number).copied().unwrap_or(usize::MAX));
+    rows
 }
 
 /// `numbers` (latest mention first) as the rows `state` and `label` keep; a
@@ -158,6 +183,7 @@ fn all_query(slug: &RepoSlug, kind: Kind) -> ListQuery {
         kind,
         state: StateFilter::All,
         label: None,
+        by_number: false,
     }
 }
 
@@ -349,6 +375,47 @@ impl Tty7App {
         .detach();
     }
 
+    /// The focused session's mentions, which Recent lifts to the top of a
+    /// list; `None` under Number, which GitHub orders itself.
+    pub(crate) fn github_list_mentions(
+        &mut self,
+        host: &SharedHost,
+        slug: &RepoSlug,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<Mentions>> {
+        if self.github.session.sort != ListSort::Recent {
+            return None;
+        }
+        let key = self.github_session_key(host, slug, window, cx)?;
+        self.github_ensure_mentions(host, key, cx)
+    }
+
+    /// Recent | Number, for the Issues and Pull Requests tabs only: the
+    /// Session list keeps its mention order.
+    pub(crate) fn github_sort_cells(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.github.session.tab {
+            return None;
+        }
+        let sort = self.github.session.sort;
+        let cells = [
+            (ListSort::Recent, t(L10nKey::GitHubSortRecent)),
+            (ListSort::Number, t(L10nKey::GitHubSortNumber)),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (s, label))| {
+            switch_cell(("panel-github-sort", i), label, s == sort, cx)
+                .on_click(cx.listener(move |this, _, _window, cx| {
+                    this.github.session.sort = s;
+                    this.github.list_scroll = gpui::ScrollHandle::new();
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+        Some(h_flex().gap(px(2.)).children(cells).into_any_element())
+    }
+
     /// The focused pane's agent session, if it has one.
     fn github_session_key(
         &self,
@@ -464,6 +531,23 @@ mod tests {
                 .remote,
             "upstream"
         );
+    }
+
+    #[test]
+    fn recent_lifts_the_mentions_and_keeps_github_s_order_for_the_rest() {
+        let page = [item(2), item(7), item(5), item(9)];
+        let rows = |mentioned: &[u64]| -> Vec<u64> {
+            mentions_first(&page, mentioned)
+                .into_iter()
+                .map(|i| i.number)
+                .collect()
+        };
+        assert_eq!(
+            rows(&[5, 1, 9]),
+            [5, 9, 2, 7],
+            "latest mention first, #1 not loaded"
+        );
+        assert_eq!(rows(&[]), [2, 7, 5, 9]);
     }
 
     #[test]
