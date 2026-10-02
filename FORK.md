@@ -48,6 +48,7 @@ read when a sync stops on a conflict in that feature.
 - [github-review](docs/fork/features/github-review.md): the GitHub panel's pull request review box
 - [github-merge](docs/fork/features/github-merge.md): the GitHub panel's pull request merge buttons and auto-merge
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
+- [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 
 ## Syncing
 

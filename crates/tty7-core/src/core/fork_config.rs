@@ -71,6 +71,9 @@ pub struct ForkConfig {
     pub global_hotkey_hide_on_blur: bool,
     /// How long the hotkey's fade in and out takes; 0 is instant.
     pub global_hotkey_fade_ms: u64,
+    /// In a Claude Code pane, copy joins the rows Claude wrapped itself, so a
+    /// paragraph pastes as one line. ⌘⌥C and Copy Raw copy the rows as is.
+    pub copy_join_wrapped: bool,
 }
 
 impl Default for ForkConfig {
@@ -98,6 +101,7 @@ impl Default for ForkConfig {
             global_hotkey_fullscreen: false,
             global_hotkey_hide_on_blur: false,
             global_hotkey_fade_ms: 150,
+            copy_join_wrapped: false,
         }
     }
 }

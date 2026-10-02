@@ -2564,6 +2564,14 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeConfirm => {
             "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
         }
+        L10nKey::CmdCopyRaw => "Копировать как есть",
+        L10nKey::SettingsSearchCopyJoinWrappedKeywords => {
+            "буфер обмена копирование перенос склеить строки claude clipboard copy wrap unwrap join lines raw"
+        }
+        L10nKey::SettingsCopyJoinWrapped => "Склеивать перенесённые строки при копировании",
+        L10nKey::SettingsCopyJoinWrappedDesc => {
+            "В панели Claude Code склеивать строки, которые Claude перенёс у края панели, чтобы абзац вставлялся одной строкой. ⌘⌥C или «Копировать как есть» копируют их как на экране"
+        }
     })
 }
 
