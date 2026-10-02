@@ -151,6 +151,8 @@ pub struct ListQuery {
     pub kind: Kind,
     pub state: StateFilter,
     pub label: Option<String>,
+    /// Created (so number) order instead of last updated.
+    pub by_number: bool,
 }
 
 /// One page of a list, and the page after it when there is one.
@@ -180,8 +182,9 @@ fn repo_path(slug: &RepoSlug) -> String {
 fn list_request(q: &ListQuery, page: u32) -> (String, Endpoint) {
     let base = repo_path(&q.slug);
     let common = format!(
-        "state={}&sort=updated&direction=desc&per_page={PAGE_SIZE}&page={page}",
-        q.state.as_query()
+        "state={}&sort={}&direction=desc&per_page={PAGE_SIZE}&page={page}",
+        q.state.as_query(),
+        if q.by_number { "created" } else { "updated" }
     );
     let label = q.label.as_deref().filter(|l| !l.is_empty());
     match (q.kind, label) {
@@ -458,7 +461,21 @@ pub(crate) mod tests {
             kind,
             state: StateFilter::Open,
             label: label.map(str::to_string),
+            by_number: false,
         }
+    }
+
+    #[test]
+    fn by_number_asks_github_for_created_order() {
+        let q = ListQuery {
+            by_number: true,
+            ..query(Kind::Pulls, None)
+        };
+        assert!(
+            list_request(&q, 1)
+                .0
+                .contains("sort=created&direction=desc")
+        );
     }
 
     #[test]

@@ -745,6 +745,7 @@ impl Tty7App {
             kind: self.github.kind,
             state: self.github.state,
             label: self.github.label.clone(),
+            by_number: self.github.session.sort == crate::ui::github_session::ListSort::Number,
         }
     }
 

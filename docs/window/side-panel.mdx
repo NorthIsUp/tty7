@@ -102,8 +102,11 @@ fork, where `origin` is yours and `upstream` is the project, it picks
 is more than one. GitHub Enterprise hosts are not supported.
 
 - **Session | Issues | Pull Requests** and **Open | Closed | All** switch the
-  list. Issues and Pull Requests are the repository's, newest activity first,
-  50 at a time with **Load more** underneath.
+  list. Issues and Pull Requests are the repository's, 50 at a time with
+  **Load more** underneath. **Recent | Number** orders them: Recent is newest
+  activity first, with what the focused pane's agent session mentioned lifted
+  to the top of the rows loaded (latest mention first); Number counts down from
+  the highest.
 - **Session**, the tab the panel opens on, lists every issue and pull request
   the focused pane's agent session has mentioned: `#N`, `owner/repo#N` or a
   github.com link in its prompts, replies or tool output, latest mention first.

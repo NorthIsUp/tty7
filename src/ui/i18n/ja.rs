@@ -2503,6 +2503,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAll => "すべて",
         L10nKey::GitHubNoSessionMentions => "このセッションで言及された issue や PR はありません",
         L10nKey::GitHubNoSessionMatches => "このセッションで言及されたものに該当なし",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "番号",
         L10nKey::CmdCopyRaw => "そのままコピー",
         L10nKey::SettingsSearchCopyJoinWrappedKeywords => {
             "クリップボード コピー 折り返し 行 結合 clipboard copy wrap unwrap join lines claude raw"

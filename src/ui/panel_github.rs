@@ -15,6 +15,8 @@ use tty7_core::core::github::{
 
 use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, Tty7App};
 use crate::ui::github::{GhTarget, now_unix};
+use crate::ui::github_session::mentions_first;
+use crate::ui::host_ops::SharedHost;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::right_panel::{META, ROW_FILL_RADIUS, ROW_INSET, TAB_TEXT, TEXT, TEXT_INSET};
 use crate::ui::scm::path::relative_time;
@@ -127,7 +129,7 @@ impl Tty7App {
         pinned.push(div().flex_none().h(px(LIST_GAP)).into_any_element());
         let body = match self.github_session_tab_body(&host, &chosen.slug, window, cx) {
             Some(body) => body,
-            None => self.github_list_body(&chosen.slug, cx),
+            None => self.github_list_body(&host, &chosen.slug, window, cx),
         };
         self.github_shell(title, pinned, body, false)
     }
@@ -419,6 +421,7 @@ impl Tty7App {
             (StateFilter::All, t(L10nKey::GitHubAll)),
         ];
         let session_cell = self.github_session_tab_cell(cx);
+        let sort_cells = self.github_sort_cells(cx);
         let kind_cells = kinds.into_iter().enumerate().map(|(i, (k, label))| {
             switch_cell(("panel-github-kind", i), label, k == kind && !session, cx)
                 .on_click(cx.listener(move |this, _, _window, cx| {
@@ -456,6 +459,7 @@ impl Tty7App {
                     .child(session_cell)
                     .children(kind_cells),
             )
+            .children(sort_cells)
             .child(h_flex().gap(px(2.)).children(state_cells))
             .into_any_element()
     }
@@ -496,7 +500,13 @@ impl Tty7App {
             .into_any_element()
     }
 
-    fn github_list_body(&mut self, slug: &RepoSlug, cx: &mut Context<Self>) -> AnyElement {
+    fn github_list_body(
+        &mut self,
+        host: &SharedHost,
+        slug: &RepoSlug,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let query = self.github_query(slug);
         let authenticated = self.github_authenticated();
         let Some(cache) = self.github.lists.get(&query) else {
@@ -529,9 +539,11 @@ impl Tty7App {
             }
             return body.into_any_element();
         }
+        let mentioned = self.github_list_mentions(host, slug, window, cx);
+        let items = mentions_first(&items, mentioned.as_ref().map_or(&[][..], |m| &m.numbers));
         let now = now_unix();
         let mut rows = v_flex().px(px(CONTENT_INSET));
-        for item in items.iter() {
+        for item in items {
             rows = rows.child(self.github_item_row(slug, item, now, cx));
         }
         body = body.child(rows);
