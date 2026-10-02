@@ -1507,7 +1507,7 @@ impl Tty7App {
                     // destroys the element holding the focus — and a keymap
                     // scoped to a focused thing goes quiet with it, leaving the
                     // ⌘J that would undo this doing nothing. Hand the terminal
-                    // back what it lost, the same way the tab tiles below do.
+                    // back what it lost.
                     .on_click(cx.listener(|this, _, window, cx| {
                         let closing = this.right_panel_open(cx);
                         this.toggle_right_panel(cx);
@@ -1564,8 +1564,8 @@ impl Tty7App {
                             .hover(move |s| s.text_color(body_ink))
                             .child(t(label_key)),
                     )
-                    // The current one does nothing: only the panel's close
-                    // button puts it away.
+                    // The current one does nothing: only ⌘J and the title-bar
+                    // panel tile put the panel away.
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if this.right_panel_tab != tab {
                             this.set_right_panel_tab(tab, cx);

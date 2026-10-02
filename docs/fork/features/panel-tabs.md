@@ -6,5 +6,5 @@
 
 | file | function / site | why |
 |---|---|---|
-| `src/ui/tab_strip.rs` | `right_panel_tabs` | the current tab gets a pill; clicking it does nothing, so only the close button hides the panel |
+| `src/ui/tab_strip.rs` | `right_panel_tabs` | the current tab gets a pill; clicking it does nothing, so only ⌘J and the title-bar panel tile hide the panel |
 | `docs/window/side-panel.mdx` | intro | says so |
