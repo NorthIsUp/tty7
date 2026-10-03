@@ -1713,8 +1713,10 @@ fn invert_cursor_cell(
     cell.bg = colors.caret;
     cell.draw_bg = true;
     cell.fg = ink;
+    // Keep the underline's own alpha: an OSC 8 link's held-back dots stay
+    // faint under the caret rather than turning into a full-strength line.
     if let Some(under) = cell.underline_color.as_mut() {
-        *under = ink;
+        *under = ink.opacity(under.a);
     }
     // A wide character's trailing spacer is absorbed into the lead cell's
     // background run by `paint_backgrounds`, so the fill already covers both

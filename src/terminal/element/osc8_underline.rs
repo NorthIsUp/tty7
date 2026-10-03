@@ -34,7 +34,9 @@ mod tests {
 
     use alacritty_terminal::vte::ansi::Rgb;
 
-    use super::super::{GlyphStyle, PaintColors, snapshot_cell, tests::test_colors};
+    use super::super::{
+        GlyphStyle, PaintColors, invert_cursor_cell, snapshot_cell, tests::test_colors,
+    };
     use super::*;
 
     fn linked(flags: Flags) -> Cell {
@@ -103,5 +105,21 @@ mod tests {
             .underline_style()
             .expect("a solid underline");
         assert!(!solid.wavy);
+    }
+
+    #[test]
+    fn the_dots_stay_faint_under_a_block_cursor() {
+        let (palette, colors) = paint_fixture();
+        let rc = snapshot_cell(
+            &linked(Flags::empty()),
+            Point::new(Line(0), Column(0)),
+            &palette,
+            &colors,
+            None,
+        );
+        let mut buf = vec![rc];
+        invert_cursor_cell(&mut buf, 1, 0, 0, &colors);
+        let under = buf[0].underline_color.expect("the dots keep a colour");
+        assert_eq!(under.a, buf[0].fg.a * HELD_BACK_LINK_ALPHA);
     }
 }
