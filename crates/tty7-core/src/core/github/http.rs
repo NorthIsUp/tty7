@@ -47,11 +47,15 @@ impl HttpTransport {
 
 impl Transport for HttpTransport {
     fn get(&self, path: &str) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github+json")
+        self.request(path, "application/vnd.github+json", None)
     }
 
     fn get_full(&self, path: &str) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github.full+json")
+        self.request(path, "application/vnd.github.full+json", None)
+    }
+
+    fn post(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
+        self.request(path, "application/vnd.github+json", Some(body))
     }
 
     fn authenticated(&self) -> bool {
@@ -60,20 +64,19 @@ impl Transport for HttpTransport {
 }
 
 impl HttpTransport {
-    fn request(&self, path: &str, accept: &str) -> Result<Reply, ApiError> {
-        let mut request = self
-            .agent
-            .get(format!("{API}{path}"))
-            .header("Accept", accept)
-            .header("X-GitHub-Api-Version", "2022-11-28");
-        if let Some(token) = &self.token {
-            request = request.header("Authorization", format!("Bearer {}", token.expose()));
-        }
+    /// A GET, or a POST of `body` as JSON.
+    fn request(&self, path: &str, accept: &str, body: Option<&[u8]>) -> Result<Reply, ApiError> {
+        let url = format!("{API}{path}");
+        let response = match body {
+            None => self.headers(self.agent.get(url), accept).call(),
+            Some(body) => self
+                .headers(self.agent.post(url), accept)
+                .header("Content-Type", "application/json")
+                .send(body),
+        };
         // ureq's error text names the URL and the transport failure, never
         // the request headers, so it is safe to show.
-        let mut response = request
-            .call()
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let mut response = response.map_err(|e| ApiError::Network(e.to_string()))?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         let header = |name: &str| {
@@ -93,5 +96,19 @@ impl HttpTransport {
             has_next: header("link").is_some_and(|l| link_has_next(&l)),
             body,
         })
+    }
+
+    fn headers<B>(
+        &self,
+        request: ureq::RequestBuilder<B>,
+        accept: &str,
+    ) -> ureq::RequestBuilder<B> {
+        let request = request
+            .header("Accept", accept)
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        match &self.token {
+            Some(token) => request.header("Authorization", format!("Bearer {}", token.expose())),
+            None => request,
+        }
     }
 }

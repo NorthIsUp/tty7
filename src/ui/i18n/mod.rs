@@ -1934,6 +1934,9 @@ l10n_keys! {
     SettingsCopyJoinWrapped,
     SettingsCopyJoinWrappedDesc,
     SettingsSearchCopyJoinWrappedKeywords,
+    GitHubReviewPlaceholder,
+    GitHubReviewComment,
+    GitHubReviewApprove,
 }
 
 /// The source control strings that are translated but not yet displayed.
