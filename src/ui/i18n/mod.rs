@@ -1935,6 +1935,9 @@ l10n_keys! {
     SettingsSearchNewTabAgentsKeywords,
     GitHubSortRecent,
     GitHubSortNumber,
+    GitHubReviewPlaceholder,
+    GitHubReviewComment,
+    GitHubReviewApprove,
 }
 
 /// The source control strings that are translated but not yet displayed.
