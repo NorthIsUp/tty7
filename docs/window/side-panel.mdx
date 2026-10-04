@@ -95,7 +95,8 @@ commit, and push without leaving the window.
 
 ## GitHub
 
-Issues and pull requests for the repository the focused pane is in, read-only.
+Issues and pull requests for the repository the focused pane is in, read-only
+apart from reviewing a pull request.
 The tab reads the repository's remotes and binds to the one on `github.com`; in a
 fork, where `origin` is yours and `upstream` is the project, it picks
 `upstream`, and the name at the top is a menu of every GitHub remote when there
@@ -118,6 +119,8 @@ is more than one. GitHub Enterprise hosts are not supported.
   and the conversation as Markdown. A pull request adds its branches, size and
   changed files — click a file to open its patch in the
   [diff overlay](/git/diffs).
+- Signed in, a pull request's detail ends in a review box: **Comment** posts
+  what you wrote as a review, **Approve** approves it (the text is optional).
 - The ↗ button opens the repository, or the issue, on github.com; ↻ refreshes.
 
 Lists are kept per repository, so switching tabs or panes does not fetch them

@@ -13,6 +13,7 @@ pub mod http;
 pub mod markdown;
 pub mod model;
 pub mod remote;
+pub mod review;
 pub mod token;
 
 pub use api::{ApiError, ListPage, ListQuery, Reply, Transport};
