@@ -2285,6 +2285,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "编号",
+        L10nKey::GitHubReviewPlaceholder => "留下审查意见…",
+        L10nKey::GitHubReviewComment => "评论",
+        L10nKey::GitHubReviewApprove => "批准",
     })
 }
 

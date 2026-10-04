@@ -81,11 +81,15 @@ impl HttpTransport {
 
 impl Transport for HttpTransport {
     fn get(&self, path: &str) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github+json")
+        self.request(path, "application/vnd.github+json", None)
     }
 
     fn get_full(&self, path: &str) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github.full+json")
+        self.request(path, "application/vnd.github.full+json", None)
+    }
+
+    fn post(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
+        self.request(path, "application/vnd.github+json", Some(body))
     }
 
     fn authenticated(&self) -> bool {
@@ -94,27 +98,29 @@ impl Transport for HttpTransport {
 }
 
 impl HttpTransport {
-    fn request(&self, path: &str, accept: &str) -> Result<Reply, ApiError> {
-        let mut request = self
-            .agent
-            .get(format!("{API}{path}"))
-            .header("Accept", accept)
-            .header("X-GitHub-Api-Version", "2022-11-28");
-        if let Some(token) = &self.token {
-            request = request.header("Authorization", format!("Bearer {}", token.expose()));
-        }
+    /// A GET, or a POST of `body` as JSON.
+    fn request(&self, path: &str, accept: &str, body: Option<&[u8]>) -> Result<Reply, ApiError> {
+        let url = format!("{API}{path}");
         // Only a plain GET is revalidated: `get_full` carries signed
         // attachment URLs that expire, so its old body must not be replayed.
-        let cacheable = accept == "application/vnd.github+json";
+        let cacheable = body.is_none() && accept == "application/vnd.github+json";
         let known = cacheable.then(|| self.etags.get(path)).flatten();
-        if let Some(known) = &known {
-            request = request.header("If-None-Match", &known.0);
-        }
+        let response = match body {
+            None => {
+                let mut request = self.headers(self.agent.get(url), accept);
+                if let Some(known) = &known {
+                    request = request.header("If-None-Match", &known.0);
+                }
+                request.call()
+            }
+            Some(body) => self
+                .headers(self.agent.post(url), accept)
+                .header("Content-Type", "application/json")
+                .send(body),
+        };
         // ureq's error text names the URL and the transport failure, never
         // the request headers, so it is safe to show.
-        let mut response = request
-            .call()
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let mut response = response.map_err(|e| ApiError::Network(e.to_string()))?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         let header = |name: &str| {
@@ -143,6 +149,20 @@ impl HttpTransport {
             self.etags.store(path, tag, &reply);
         }
         Ok(reply)
+    }
+
+    fn headers<B>(
+        &self,
+        request: ureq::RequestBuilder<B>,
+        accept: &str,
+    ) -> ureq::RequestBuilder<B> {
+        let request = request
+            .header("Accept", accept)
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        match &self.token {
+            Some(token) => request.header("Authorization", format!("Bearer {}", token.expose())),
+            None => request,
+        }
     }
 }
 
@@ -189,5 +209,4 @@ mod tests {
         assert_eq!(etags.get("/new").map(|e| e.0.clone()).as_deref(), Some("t"));
         // An answer read before the clear can still be replayed for its 304.
         assert_eq!(held.0, "t");
-    }
-}
+    }}

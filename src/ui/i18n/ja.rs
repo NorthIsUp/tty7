@@ -2523,6 +2523,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "番号",
+        L10nKey::GitHubReviewPlaceholder => "レビューを書く…",
+        L10nKey::GitHubReviewComment => "コメント",
+        L10nKey::GitHubReviewApprove => "承認",
     })
 }
 
