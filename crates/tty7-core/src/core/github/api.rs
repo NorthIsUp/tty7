@@ -40,6 +40,9 @@ pub enum ApiError {
     Http(u16),
     /// A 2xx whose body did not decode.
     Decode(String),
+    /// GitHub refused a request and said why: a 4xx's `message` (a merge
+    /// that is not allowed, say) or a GraphQL error.
+    Rejected(String),
 }
 
 impl std::fmt::Display for ApiError {
@@ -55,6 +58,7 @@ impl std::fmt::Display for ApiError {
             ApiError::Network(msg) => write!(f, "network error: {msg}"),
             ApiError::Http(code) => write!(f, "HTTP {code}"),
             ApiError::Decode(msg) => write!(f, "unexpected response: {msg}"),
+            ApiError::Rejected(msg) => write!(f, "rejected: {msg}"),
         }
     }
 }
@@ -82,6 +86,10 @@ pub trait Transport: Send + Sync {
     /// A POST with a JSON body. Read-only transports (the test fixtures)
     /// refuse it.
     fn post(&self, _path: &str, _body: &[u8]) -> Result<Reply, ApiError> {
+        Err(ApiError::Http(405))
+    }
+    /// A PUT with a JSON body, refused the same way.
+    fn put(&self, _path: &str, _body: &[u8]) -> Result<Reply, ApiError> {
         Err(ApiError::Http(405))
     }
     /// Whether requests carry a token. Decides how a 404 or a rate limit is
@@ -136,7 +144,10 @@ pub fn classify(
                 Err(ApiError::Forbidden(msg))
             }
         }
-        code => Err(ApiError::Http(code)),
+        code => match message() {
+            msg if (400..500).contains(&code) && !msg.is_empty() => Err(ApiError::Rejected(msg)),
+            _ => Err(ApiError::Http(code)),
+        },
     }
 }
 
@@ -223,7 +234,7 @@ fn escape_query(s: &str) -> String {
     out
 }
 
-fn decode<T: DeserializeOwned>(reply: &Reply) -> Result<T, ApiError> {
+pub(super) fn decode<T: DeserializeOwned>(reply: &Reply) -> Result<T, ApiError> {
     serde_json::from_slice(&reply.body).map_err(|e| ApiError::Decode(e.to_string()))
 }
 
@@ -611,7 +622,8 @@ pub(crate) mod tests {
                 "created_at": "2026-09-02T10:00:00Z", "updated_at": "2026-09-21T08:30:00Z",
                 "html_url": "https://github.com/l0ng-ai/tty7/pull/13",
                 "head": {"ref": "feat/panel"}, "base": {"ref": "main"},
-                "additions": 120, "deletions": 4, "changed_files": 2, "commits": 3}"#,
+                "additions": 120, "deletions": 4, "changed_files": 2, "commits": 3,
+                "node_id": "PR_kw13", "auto_merge": {"merge_method": "squash"}}"#,
             false,
         );
         t.on(
@@ -632,6 +644,7 @@ pub(crate) mod tests {
             ("feat/panel", "main")
         );
         assert_eq!((pull.additions, pull.deletions, pull.commits), (120, 4, 3));
+        assert_eq!((pull.node_id.as_str(), pull.auto_merge), ("PR_kw13", true));
         let files = d.files.unwrap();
         assert_eq!(files[0].status, FileStatus::Added);
         assert!(files[0].patch.is_some());
@@ -850,6 +863,15 @@ pub(crate) mod tests {
         assert_eq!(classify(401, &none, b""), Err(ApiError::Unauthorized));
         assert_eq!(classify(404, &none, b""), Err(ApiError::NotFound));
         assert_eq!(classify(500, &none, b""), Err(ApiError::Http(500)));
+        assert_eq!(classify(422, &none, b""), Err(ApiError::Http(422)));
+        assert_eq!(
+            classify(
+                405,
+                &none,
+                br#"{"message": "Pull Request is not mergeable"}"#
+            ),
+            Err(ApiError::Rejected("Pull Request is not mergeable".into()))
+        );
         assert_eq!(
             classify(
                 403,
