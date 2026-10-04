@@ -28,6 +28,7 @@
 //! request pinned over the list follows a `git switch`.
 
 pub(crate) mod detail;
+pub(crate) mod merge;
 pub(crate) mod review;
 
 use std::collections::HashMap;
@@ -165,6 +166,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) session: crate::ui::github_session::SessionState,
     /// Review drafts (`github::review`).
     pub(crate) reviews: review::Reviews,
+    /// Merge rules and merges in flight (`github::merge`).
+    pub(crate) merges: merge::Merges,
 }
 
 /// A detail section that folds when it runs long.
