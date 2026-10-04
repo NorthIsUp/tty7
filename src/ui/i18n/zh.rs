@@ -2288,6 +2288,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubReviewPlaceholder => "留下审查意见…",
         L10nKey::GitHubReviewComment => "评论",
         L10nKey::GitHubReviewApprove => "批准",
+        L10nKey::GitHubMergeCommit => "合并",
+        L10nKey::GitHubMergeSquash => "压缩合并",
+        L10nKey::GitHubMergeRebase => "变基合并",
+        L10nKey::GitHubAutoMergeEnable => "启用自动合并",
+        L10nKey::GitHubAutoMergeDisable => "停用自动合并",
+        L10nKey::GitHubMergeConfirm => "将 #{number} 合并到 {base}？",
+        L10nKey::GitHubAutoMergeConfirm => "在满足要求后将 #{number} 合并到 {base}（{method}）？",
     })
 }
 

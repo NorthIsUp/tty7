@@ -2526,6 +2526,15 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubReviewPlaceholder => "レビューを書く…",
         L10nKey::GitHubReviewComment => "コメント",
         L10nKey::GitHubReviewApprove => "承認",
+        L10nKey::GitHubMergeCommit => "マージ",
+        L10nKey::GitHubMergeSquash => "スカッシュしてマージ",
+        L10nKey::GitHubMergeRebase => "リベースしてマージ",
+        L10nKey::GitHubAutoMergeEnable => "自動マージを有効にする",
+        L10nKey::GitHubAutoMergeDisable => "自動マージを無効にする",
+        L10nKey::GitHubMergeConfirm => "#{number} を {base} にマージしますか？",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "要件を満たしたら #{number} を {base} にマージしますか（{method}）？"
+        }
     })
 }
 
