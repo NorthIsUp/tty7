@@ -1930,6 +1930,9 @@ l10n_keys! {
     GitHubNoSessionMatches,
     GitHubSortRecent,
     GitHubSortNumber,
+    GitHubReviewPlaceholder,
+    GitHubReviewComment,
+    GitHubReviewApprove,
 }
 
 /// The source control strings that are translated but not yet displayed.
