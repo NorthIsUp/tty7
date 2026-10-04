@@ -9,4 +9,5 @@ sidebar-groups	group colours, headers, fill and fold
 pane-nice	pane shells start at the configured nice
 github-session	the GitHub panel's Session tab and This session filter
 github-review	the GitHub panel's pull request review box
+github-merge	the GitHub panel's pull request merge buttons and auto-merge
 hotkey-window	a global hotkey window

@@ -2452,6 +2452,15 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubReviewPlaceholder => "Leave a review…",
         L10nKey::GitHubReviewComment => "Comment",
         L10nKey::GitHubReviewApprove => "Approve",
+        L10nKey::GitHubMergeCommit => "Merge",
+        L10nKey::GitHubMergeSquash => "Squash and merge",
+        L10nKey::GitHubMergeRebase => "Rebase and merge",
+        L10nKey::GitHubAutoMergeEnable => "Enable auto-merge",
+        L10nKey::GitHubAutoMergeDisable => "Disable auto-merge",
+        L10nKey::GitHubMergeConfirm => "Merge #{number} into {base}?",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "Merge #{number} into {base} once its requirements pass ({method})?"
+        }
     }
 }
 

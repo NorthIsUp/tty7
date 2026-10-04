@@ -5,6 +5,8 @@
 
 use std::time::Duration;
 
+use ureq::http::Method;
+
 use super::api::{ApiError, Reply, Transport, classify, link_has_next};
 use super::token::Token;
 
@@ -55,7 +57,19 @@ impl Transport for HttpTransport {
     }
 
     fn post(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github+json", Some(body))
+        self.request(
+            path,
+            "application/vnd.github+json",
+            Some((Method::POST, body)),
+        )
+    }
+
+    fn put(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
+        self.request(
+            path,
+            "application/vnd.github+json",
+            Some((Method::PUT, body)),
+        )
     }
 
     fn authenticated(&self) -> bool {
@@ -64,15 +78,26 @@ impl Transport for HttpTransport {
 }
 
 impl HttpTransport {
-    /// A GET, or a POST of `body` as JSON.
-    fn request(&self, path: &str, accept: &str, body: Option<&[u8]>) -> Result<Reply, ApiError> {
+    /// A GET, or a POST or PUT of `body` as JSON.
+    fn request(
+        &self,
+        path: &str,
+        accept: &str,
+        body: Option<(Method, &[u8])>,
+    ) -> Result<Reply, ApiError> {
         let url = format!("{API}{path}");
         let response = match body {
             None => self.headers(self.agent.get(url), accept).call(),
-            Some(body) => self
-                .headers(self.agent.post(url), accept)
-                .header("Content-Type", "application/json")
-                .send(body),
+            Some((method, body)) => {
+                let request = if method == Method::PUT {
+                    self.agent.put(url)
+                } else {
+                    self.agent.post(url)
+                };
+                self.headers(request, accept)
+                    .header("Content-Type", "application/json")
+                    .send(body)
+            }
         };
         // ureq's error text names the URL and the transport failure, never
         // the request headers, so it is safe to show.

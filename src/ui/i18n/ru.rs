@@ -2555,6 +2555,15 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",
         L10nKey::GitHubReviewComment => "Комментировать",
         L10nKey::GitHubReviewApprove => "Одобрить",
+        L10nKey::GitHubMergeCommit => "Слить",
+        L10nKey::GitHubMergeSquash => "Сжать и слить",
+        L10nKey::GitHubMergeRebase => "Перебазировать и слить",
+        L10nKey::GitHubAutoMergeEnable => "Включить автослияние",
+        L10nKey::GitHubAutoMergeDisable => "Выключить автослияние",
+        L10nKey::GitHubMergeConfirm => "Слить #{number} в {base}?",
+        L10nKey::GitHubAutoMergeConfirm => {
+            "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
+        }
     })
 }
 
