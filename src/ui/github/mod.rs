@@ -28,6 +28,7 @@
 //! request pinned over the list follows a `git switch`.
 
 pub(crate) mod detail;
+pub(crate) mod review;
 pub(crate) mod rows;
 
 use std::collections::HashMap;
@@ -163,6 +164,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) unfolded: std::collections::HashSet<(RepoSlug, u64, Fold)>,
     /// The Session tab and what it shows (`github_session`).
     pub(crate) session: crate::ui::github_session::SessionState,
+    /// Review drafts (`github::review`).
+    pub(crate) reviews: review::Reviews,
 }
 
 /// A detail section that folds when it runs long.
