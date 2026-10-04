@@ -102,6 +102,7 @@ impl Tty7App {
         let mut body = v_flex()
             .pb(px(16.))
             .child(self.github_detail_head(&detail, cx));
+        body = body.children(self.github_merge_box(slug, number, &detail, cx));
         // What a pull request is usually opened to find out — can it go in,
         // and if not, what is it waiting for — before what it says.
         if let Some(checks) = detail.checks.as_ref().filter(|c| !c.items.is_empty()) {
