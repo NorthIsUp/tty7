@@ -882,6 +882,7 @@ pub(crate) fn describe_error(err: &ApiError, authenticated: bool) -> (String, Op
             None,
         ),
         ApiError::Decode(_) => (t(L10nKey::GitHubDecodeError).into(), None),
+        ApiError::Rejected(msg) => (msg.clone(), None),
     }
 }
 
