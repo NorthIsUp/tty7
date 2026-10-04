@@ -2464,6 +2464,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::GitHubSortRecent => "Recent",
         L10nKey::GitHubSortNumber => "Number",
+        L10nKey::GitHubReviewPlaceholder => "Leave a review…",
+        L10nKey::GitHubReviewComment => "Comment",
+        L10nKey::GitHubReviewApprove => "Approve",
     }
 }
 
