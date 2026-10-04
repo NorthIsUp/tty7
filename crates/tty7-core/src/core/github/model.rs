@@ -105,6 +105,9 @@ pub struct PullInfo {
     pub changed_files: u32,
     pub commits: u32,
     pub merge_state: MergeState,
+    /// GraphQL's id for the pull request, which auto-merge is set through.
+    pub node_id: String,
+    pub auto_merge: bool,
 }
 
 /// GitHub's `mergeable_state`: whether the pull request could be merged now,
@@ -453,6 +456,10 @@ pub(crate) struct RawPull {
     #[serde(default)]
     mergeable_state: Option<String>,
     #[serde(default)]
+    node_id: String,
+    #[serde(default)]
+    auto_merge: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
     pub(crate) requested_reviewers: Vec<RawUser>,
     #[serde(default)]
     pub(crate) requested_teams: Vec<RawTeam>,
@@ -618,6 +625,8 @@ impl RawPull {
             changed_files: self.changed_files.unwrap_or(0),
             commits: self.commits.unwrap_or(0),
             merge_state: MergeState::parse(self.mergeable_state.as_deref()),
+            node_id: self.node_id,
+            auto_merge: self.auto_merge.is_some(),
         };
         let item = Item {
             number: self.number,
