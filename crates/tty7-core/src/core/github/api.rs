@@ -79,6 +79,11 @@ pub trait Transport: Send + Sync {
     fn get_full(&self, path: &str) -> Result<Reply, ApiError> {
         self.get(path)
     }
+    /// A POST with a JSON body. Read-only transports (the test fixtures)
+    /// refuse it.
+    fn post(&self, _path: &str, _body: &[u8]) -> Result<Reply, ApiError> {
+        Err(ApiError::Http(405))
+    }
     /// Whether requests carry a token. Decides how a 404 or a rate limit is
     /// explained: to a signed-out user, both usually mean "sign in".
     fn authenticated(&self) -> bool;
@@ -171,7 +176,7 @@ enum Endpoint {
     Pulls,
 }
 
-fn repo_path(slug: &RepoSlug) -> String {
+pub(super) fn repo_path(slug: &RepoSlug) -> String {
     format!(
         "/repos/{}/{}",
         super::remote::escape_path(&slug.owner),
