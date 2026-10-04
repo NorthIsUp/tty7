@@ -11,6 +11,7 @@ pub mod api;
 #[cfg(feature = "github")]
 pub mod http;
 pub mod markdown;
+pub mod merge;
 pub mod model;
 pub mod remote;
 pub mod review;
