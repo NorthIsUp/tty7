@@ -47,6 +47,7 @@ read when a sync stops on a conflict in that feature.
 - [github-session](docs/fork/features/github-session.md): the GitHub panel's Session tab and This session filter
 - [github-review](docs/fork/features/github-review.md): the GitHub panel's pull request review box
 - [github-merge](docs/fork/features/github-merge.md): the GitHub panel's pull request merge buttons and auto-merge
+- [github-row-links](docs/fork/features/github-row-links.md): the GitHub panel's row links and pull request stacks
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 - [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 - [diff-one-sided](docs/fork/features/diff-one-sided.md): a new or deleted file's diff draws unified

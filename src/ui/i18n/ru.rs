@@ -2571,6 +2571,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchCopyJoinWrappedKeywords => {
             "буфер обмена копирование перенос склеить строки claude clipboard copy wrap unwrap join lines raw"
         }
+        L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
         L10nKey::SettingsCopyJoinWrapped => "Склеивать перенесённые строки при копировании",
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "В панели Claude Code склеивать строки, которые Claude перенёс у края панели, чтобы абзац вставлялся одной строкой. ⌘⌥C или «Копировать как есть» копируют их как на экране"

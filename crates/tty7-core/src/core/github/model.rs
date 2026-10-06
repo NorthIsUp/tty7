@@ -82,6 +82,8 @@ pub struct Item {
     pub created_at: i64,
     pub updated_at: i64,
     pub html_url: String,
+    /// The branches, when the row came from `/pulls`; `/issues` has none.
+    pub pull: Option<super::stack::PullRefs>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -402,12 +404,14 @@ pub(crate) struct RawIssue {
     draft: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub(crate) struct RawBranchRef {
     #[serde(default, rename = "ref")]
     name: String,
     #[serde(default)]
     sha: String,
+    #[serde(default)]
+    label: String,
 }
 
 #[derive(Deserialize)]
@@ -603,6 +607,7 @@ impl RawIssue {
             created_at: timestamp(&self.created_at),
             updated_at: timestamp(&self.updated_at),
             html_url: self.html_url,
+            pull: None,
         }
     }
 }
@@ -615,11 +620,21 @@ impl RawPull {
             self.merged_at.is_some(),
             self.draft.unwrap_or(false),
         );
-        let (head_ref, head_sha) = self.head.map(|h| (h.name, h.sha)).unwrap_or_default();
+        let base_ref = self.base.map(|b| b.name).unwrap_or_default();
+        let head = self.head.unwrap_or_default();
+        let pull = super::stack::PullRefs {
+            head_ref: head.name.clone(),
+            head_owner: head
+                .label
+                .split_once(':')
+                .map(|(owner, _)| owner.to_string())
+                .unwrap_or_default(),
+            base_ref: base_ref.clone(),
+        };
         let info = PullInfo {
-            head_ref,
-            head_sha,
-            base_ref: self.base.map(|b| b.name).unwrap_or_default(),
+            head_ref: head.name,
+            head_sha: head.sha,
+            base_ref,
             additions: self.additions.unwrap_or(0),
             deletions: self.deletions.unwrap_or(0),
             changed_files: self.changed_files.unwrap_or(0),
@@ -639,6 +654,7 @@ impl RawPull {
             created_at: timestamp(&self.created_at),
             updated_at: timestamp(&self.updated_at),
             html_url: self.html_url,
+            pull: Some(pull),
         };
         (item, info)
     }
