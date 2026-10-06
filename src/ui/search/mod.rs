@@ -15,7 +15,7 @@ mod history_text;
 mod score;
 mod sources;
 mod text;
-mod view;
+pub(crate) mod view;
 
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};

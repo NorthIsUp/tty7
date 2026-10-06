@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ClickEvent, Context, Entity, EventEmitter, FontWeight, MouseButton, MouseDownEvent,
+    App, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, MouseButton, MouseDownEvent,
     ScrollStrategy, Subscription, Task, Window, div, prelude::*, px, rems,
 };
 use gpui_component::{
@@ -97,10 +97,7 @@ impl SearchDelegate {
 
     fn render_row(&self, ix: IndexPath, item: &Item, cx: &App) -> gpui::AnyElement {
         let picked = Some(ix) == self.selected;
-        let (fg, muted) = {
-            let t = cx.theme();
-            (t.foreground, t.muted_foreground)
-        };
+        let muted = cx.theme().muted_foreground;
 
         // The title holds its width longest, with what was typed picked out
         // in it; the subtitle goes to the right edge, in caption ink, and is
@@ -116,14 +113,7 @@ impl SearchDelegate {
         }
         let title = gpui::SharedString::from(item.title.clone());
         let title = match match_range(&item.title, &self.query) {
-            Some(range) => gpui::StyledText::new(title).with_highlights([(
-                range,
-                gpui::HighlightStyle {
-                    font_weight: Some(FontWeight::SEMIBOLD),
-                    color: Some(fg),
-                    ..Default::default()
-                },
-            )]),
+            Some(range) => gpui::StyledText::new(title).with_highlights([(range, hit(cx))]),
             None => gpui::StyledText::new(title),
         };
         left = left.child(
@@ -131,10 +121,7 @@ impl SearchDelegate {
                 .flex_shrink(1.)
                 .min_w(px(40.))
                 .truncate()
-                .text_color(match self.query.trim().is_empty() {
-                    true => fg,
-                    false => fg.opacity(0.78),
-                })
+                .text_color(title_ink(!self.query.trim().is_empty(), cx))
                 .child(title),
         );
         if let Some(subtitle) = item.subtitle.clone() {
@@ -938,19 +925,8 @@ impl SearchView {
     /// on the popover's selected step. Go to File has no pill of its own —
     /// it is a chord, not a scope — so there none is lit.
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
-        let (active_bg, hover_bg) = (gpui::rgb(sf.selected), gpui::rgb(sf.hover));
-        let theme = cx.theme();
-        let (fg, muted) = (theme.foreground, theme.muted_foreground);
-        h_flex()
-            .h(px(TABS_H))
-            .px(px(SCOPE_PAD))
-            .pb(px(6.))
-            .gap(px(2.))
-            .items_center()
-            .bg(theme.popover)
-            .border_b_1()
-            .border_color(theme.border)
+        let muted = cx.theme().muted_foreground;
+        scope_bar(cx)
             .when(self.scope_row().is_none(), |row| {
                 // Go to File's rows are a capped sample of the project, so a
                 // count there would read as the size of something it is not.
@@ -962,50 +938,21 @@ impl SearchView {
                     SearchTab::Locations => self.heading.unwrap_or_else(|| self.tab.title()),
                     _ => self.tab.title(),
                 };
-                row.child(
-                    div()
-                        .h(px(24.))
-                        .px(px(9.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .bg(active_bg)
-                        .text_size(rems(SCOPE_TEXT))
-                        .text_color(fg)
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(heading),
-                )
-                .when(count > 0, |row| {
-                    row.child(
-                        div()
-                            .px(px(6.))
-                            .text_size(rems(SCOPE_TEXT))
-                            .text_color(muted)
-                            .child(count.to_string()),
-                    )
-                })
+                row.child(scope_chip(true, cx).child(heading))
+                    .when(count > 0, |row| {
+                        row.child(
+                            div()
+                                .px(px(6.))
+                                .text_size(rems(SCOPE_TEXT))
+                                .text_color(muted)
+                                .child(count.to_string()),
+                        )
+                    })
             })
             .when_some(self.scope_row(), |row, tabs| {
                 row.children(tabs.into_iter().enumerate().map(|(i, tab)| {
-                    let active = tab == self.tab;
-                    div()
+                    scope_chip(tab == self.tab, cx)
                         .id(("search-tab", i))
-                        .h(px(24.))
-                        .px(px(9.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .text_size(rems(SCOPE_TEXT))
-                        .cursor_pointer()
-                        .map(|d| match active {
-                            true => d
-                                .bg(active_bg)
-                                .text_color(fg)
-                                .font_weight(FontWeight::MEDIUM),
-                            false => d
-                                .text_color(muted)
-                                .hover(move |d| d.bg(hover_bg).text_color(fg)),
-                        })
                         .child(tab.title())
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.go_to_tab(tab, window, cx);
@@ -1018,40 +965,25 @@ impl SearchView {
     /// The switcher's footer, minus its New workspace button: the keys that
     /// move and run, as caps with a word after each.
     fn render_footer(&self, cx: &App) -> impl IntoElement + use<> {
-        let theme = cx.theme();
-        let hint = |keys: Vec<gpui::AnyElement>, label: &'static str| {
-            h_flex()
-                .items_center()
-                .gap(px(6.))
-                .children(keys)
-                .child(label)
-        };
         let tabs = !self.in_sub_list() && self.scope_row().is_some();
-        h_flex()
-            .flex_none()
-            .items_center()
-            .gap(px(16.))
-            .h(px(FOOTER_H))
-            .px(px(16.))
-            .border_t_1()
-            .border_color(theme.border)
-            .overflow_hidden()
-            .text_size(rems(ROW_META))
-            .text_color(theme.muted_foreground)
+        footer_bar(cx)
             .when(tabs, |row| {
-                row.child(hint(
+                row.child(footer_hint(
                     vec![keycap(crate::ui::keymap::key_tokens("tab").join(""), cx)],
                     t(L10nKey::SearchHintNextScope),
                 ))
             })
             .child(div().flex_1())
-            .child(hint(
+            .child(footer_hint(
                 vec![keycap("↑", cx), keycap("↓", cx)],
                 t(L10nKey::SwitcherHintNavigate),
             ))
-            .child(hint(vec![keycap("↵", cx)], t(L10nKey::SwitcherHintOpen)))
+            .child(footer_hint(
+                vec![keycap("↵", cx)],
+                t(L10nKey::SwitcherHintOpen),
+            ))
             .when(self.selected_opens_tab(cx), |row| {
-                row.child(hint(
+                row.child(footer_hint(
                     vec![keycap("⇧", cx), keycap("↵", cx)],
                     t(L10nKey::SearchHintBackground),
                 ))
@@ -1086,7 +1018,7 @@ const HEADER_H: f32 = 24.;
 /// How far the list sits in from the card's edges, and how far a row's text
 /// then sits in from its own fill — the switcher's `COLUMN_PAD` and
 /// `ROW_PAD`.
-const LIST_PAD: f32 = 8.;
+pub(crate) const LIST_PAD: f32 = 8.;
 const ROW_PAD: f32 = 10.;
 
 /// The scope row's inset, and its words: a step under the rows.
@@ -1103,23 +1035,130 @@ const ROW_RADIUS: f32 = 7.;
 
 /// The card's breathing room from the window's bottom edge, and its width.
 /// Its corner and its footer are `ui::dialog`'s, the switcher's numbers.
-const CARD_MARGIN: f32 = 24.;
+pub(crate) const CARD_MARGIN: f32 = 24.;
 pub(crate) const CARD_MAX_W: f32 = 620.;
 
 /// The search row gpui-component's `List` draws above the rows: a 32px field
 /// with 6px above and below and a 1px rule.
-const SEARCH_H: f32 = 32. + 6. * 2. + 1.;
+pub(crate) const SEARCH_H: f32 = 32. + 6. * 2. + 1.;
 
 /// A row's title, and the subtitle, hints and keycaps beside it: the
 /// switcher's row name and its metadata line.
 const ROW_TEXT: f32 = 13. / 16.;
-const ROW_META: f32 = 11.5 / 16.;
+pub(crate) const ROW_META: f32 = 11.5 / 16.;
 
 const AVATAR: f32 = 18.;
 
 /// The scope row's height with its padding and rule, reserved out of the
 /// list's.
-const TABS_H: f32 = 34.;
+pub(crate) const TABS_H: f32 = 34.;
+
+// The card's parts, drawn the same wherever the palette shows: its own list,
+// and the New Tab page (`new_tab_page`) it draws in that list's place.
+
+/// How far down the window the card hangs: the switcher's drop on a
+/// full-size window, less on a short one so the card keeps its rows.
+pub(crate) fn card_top(viewport_h: f32) -> f32 {
+    (viewport_h * 0.16).clamp(16., crate::ui::switcher::CARD_TOP)
+}
+
+/// The list's height in `room`: at least a row, at most `VISIBLE_ROWS`.
+pub(crate) fn list_max_h(room: f32) -> f32 {
+    room.clamp(ROW_H, ROW_H * VISIBLE_ROWS + LIST_PAD * 2.)
+}
+
+/// The run of a title the query matched.
+pub(crate) fn hit(cx: &App) -> gpui::HighlightStyle {
+    gpui::HighlightStyle {
+        font_weight: Some(FontWeight::SEMIBOLD),
+        color: Some(cx.theme().foreground),
+        ..Default::default()
+    }
+}
+
+/// A title's ink, eased off while a query is typed so the run it matched
+/// ([`hit`]) stands out.
+pub(crate) fn title_ink(typed: bool, cx: &App) -> gpui::Hsla {
+    let fg = cx.theme().foreground;
+    match typed {
+        true => fg.opacity(0.78),
+        false => fg,
+    }
+}
+
+/// The `esc` cap in the search field's trailing corner, laid over the field.
+pub(crate) fn esc_cap(cx: &App) -> Div {
+    div()
+        .absolute()
+        .top(px((SEARCH_H - 1. - KEYCAP) / 2.))
+        .right(px(16.))
+        .child(keycap("esc", cx))
+}
+
+/// The scope row under the search field.
+pub(crate) fn scope_bar(cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .h(px(TABS_H))
+        .px(px(SCOPE_PAD))
+        .pb(px(6.))
+        .gap(px(2.))
+        .items_center()
+        .bg(theme.popover)
+        .border_b_1()
+        .border_color(theme.border)
+}
+
+/// One scope on [`scope_bar`]: the popover's selected step when `active`,
+/// caption ink that lifts under the pointer when not.
+pub(crate) fn scope_chip(active: bool, cx: &App) -> Div {
+    let sf = cx.global::<crate::ui::presets::Surfaces>().popover;
+    let (active_bg, hover_bg) = (gpui::rgb(sf.selected), gpui::rgb(sf.hover));
+    let theme = cx.theme();
+    let (fg, muted) = (theme.foreground, theme.muted_foreground);
+    div()
+        .h(px(24.))
+        .px(px(9.))
+        .flex()
+        .items_center()
+        .rounded(px(6.))
+        .text_size(rems(SCOPE_TEXT))
+        .map(|d| match active {
+            true => d
+                .bg(active_bg)
+                .text_color(fg)
+                .font_weight(FontWeight::MEDIUM),
+            false => d
+                .cursor_pointer()
+                .text_color(muted)
+                .hover(move |d| d.bg(hover_bg).text_color(fg)),
+        })
+}
+
+/// The footer: the keys that move and run, as caps with a word after each
+/// ([`footer_hint`]).
+pub(crate) fn footer_bar(cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .flex_none()
+        .items_center()
+        .gap(px(16.))
+        .h(px(FOOTER_H))
+        .px(px(16.))
+        .border_t_1()
+        .border_color(theme.border)
+        .overflow_hidden()
+        .text_size(rems(ROW_META))
+        .text_color(theme.muted_foreground)
+}
+
+pub(crate) fn footer_hint(keys: Vec<gpui::AnyElement>, label: impl IntoElement) -> Div {
+    h_flex()
+        .items_center()
+        .gap(px(6.))
+        .children(keys)
+        .child(label)
+}
 
 /// Where `query` first appears in `title`, ignoring case: the stretch of the
 /// title the row picks out. `None` for an empty query, or one the fuzzy
@@ -1182,15 +1221,13 @@ impl Render for SearchView {
         let viewport = window.viewport_size();
         // The switcher's drop from the top on a full-size window; a short one
         // still brings the card up to keep its rows.
-        let top = (viewport.height.as_f32() * 0.16).clamp(16., crate::ui::switcher::CARD_TOP);
+        let top = card_top(viewport.height.as_f32());
         // Reserve space for the tab row, the search row, the footer and the
         // card's margin, including when a split-screen window is shorter than
         // the full list.
         let tabs_h = if tabs { TABS_H } else { 0. };
         let chrome = tabs_h + SEARCH_H + FOOTER_H + CARD_MARGIN;
-        let list_max_h = px((viewport.height.as_f32() - top - chrome)
-            .max(ROW_H)
-            .min(ROW_H * VISIBLE_ROWS + LIST_PAD * 2.));
+        let list_max_h = px(list_max_h(viewport.height.as_f32() - top - chrome));
         let typed = !self.list.read(cx).delegate().query.is_empty();
         let placeholder = match self.scope(cx) {
             Scope::Tab(_) => self.tab.placeholder(),
@@ -1230,15 +1267,7 @@ impl Render for SearchView {
             // own — and only while the field is empty, since typing brings up
             // the field's clear button in the same spot. No handlers, so a
             // click on it still reaches the field under it.
-            .when(!typed, |card| {
-                card.child(
-                    div()
-                        .absolute()
-                        .top(px((SEARCH_H - 1. - KEYCAP) / 2.))
-                        .right(px(16.))
-                        .child(keycap("esc", cx)),
-                )
-            })
+            .when(!typed, |card| card.child(esc_cap(cx)))
             .child(self.render_footer(cx));
         let card = match self.new_tab_page() {
             Some(page) => page.into_any_element(),
@@ -1303,12 +1332,12 @@ impl Render for SearchView {
 /// selection has not caught up with it.
 #[derive(IntoElement)]
 pub struct SearchRow {
-    id: gpui::ElementId,
+    pub(crate) id: gpui::ElementId,
     /// What a screen reader reads for the row: its title, and its subtitle
     /// when there is one.
-    label: gpui::SharedString,
-    selected: bool,
-    child: gpui::AnyElement,
+    pub(crate) label: gpui::SharedString,
+    pub(crate) selected: bool,
+    pub(crate) child: gpui::AnyElement,
 }
 
 impl Selectable for SearchRow {
