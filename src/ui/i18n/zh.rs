@@ -2303,6 +2303,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeDisable => "停用自动合并",
         L10nKey::GitHubMergeConfirm => "将 #{number} 合并到 {base}？",
         L10nKey::GitHubAutoMergeConfirm => "在满足要求后将 #{number} 合并到 {base}（{method}）？",
+        L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
     })
 }
 

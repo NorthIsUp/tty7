@@ -9,11 +9,13 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 
+use tty7_core::core::github::stack::{StackPos, stack_order};
 use tty7_core::core::github::{
     ApiError, CheckState, GitHubRemote, Item, ItemState, Kind, Label, RepoSlug, StateFilter,
 };
 
 use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, Tty7App};
+use crate::ui::github::rows::{hovered_links, stack_glyph, stack_trunk};
 use crate::ui::github::{GhTarget, now_unix};
 use crate::ui::github_session::mentions_first;
 use crate::ui::host_ops::SharedHost;
@@ -23,7 +25,7 @@ use crate::ui::scm::path::relative_time;
 use crate::ui::scm::state::RepoKey;
 
 /// A list row: one line, the Source Control tab's row pitch.
-const ROW_H: f32 = 26.;
+pub(crate) const ROW_H: f32 = 26.;
 /// How many label chips a hovered row shows before the age.
 const MAX_ROW_LABELS: usize = 3;
 /// The widest a hovered row lets its author get before truncating it.
@@ -31,7 +33,7 @@ const AUTHOR_MAX_W: f32 = 96.;
 /// What a hovered row leaves of its title, however much meta it shows.
 const TITLE_MIN_W: f32 = 48.;
 /// The state glyph, and the column it sits in.
-const GLYPH: f32 = 14.;
+pub(crate) const GLYPH: f32 = 14.;
 /// The pinned rows' height — the Info tab's row pitch.
 const PINNED_ROW_H: f32 = 28.;
 /// The segmented switches' cells.
@@ -543,8 +545,8 @@ impl Tty7App {
         let items = mentions_first(&items, mentioned.as_ref().map_or(&[][..], |m| &m.numbers));
         let now = now_unix();
         let mut rows = v_flex().px(px(CONTENT_INSET));
-        for item in items {
-            rows = rows.child(self.github_item_row(slug, item, now, cx));
+        for row in self.github_stack_rows(slug, &items, now, cx) {
+            rows = rows.child(row);
         }
         body = body.child(rows);
         if let Some(page) = next_page {
@@ -571,10 +573,30 @@ impl Tty7App {
     /// resting list reads as a column of titles, and hovering a row answers
     /// "what labels, whose, how fresh" without a second line under every one
     /// of them.
+    /// `items` as list rows, stacks gathered, with each stack's trunk drawn
+    /// under its bottom pull request so the run reads bottom-up.
+    pub(crate) fn github_stack_rows(
+        &self,
+        slug: &RepoSlug,
+        items: &[&Item],
+        now: i64,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut out = Vec::new();
+        for (item, pos) in stack_order(items, &slug.owner) {
+            out.push(self.github_item_row(slug, item, pos, now, cx));
+            if let StackPos::Bottom { base } = pos {
+                out.push(stack_trunk(base, cx));
+            }
+        }
+        out
+    }
+
     pub(crate) fn github_item_row(
         &self,
         slug: &RepoSlug,
         item: &Item,
+        pos: StackPos,
         now: i64,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -582,6 +604,7 @@ impl Tty7App {
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
         let number = item.number;
+        let links = (self.github.hovered == Some(number)).then(|| hovered_links(slug, item, cx));
         let slug = slug.clone();
         let hovered = self.github.hovered == Some(number);
         let title = SharedString::from(item.title.clone());
@@ -673,11 +696,7 @@ impl Tty7App {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.github_open_detail(slug.clone(), number, cx);
             }))
-            .child(
-                div()
-                    .flex_none()
-                    .child(state_glyph(item.state, item.is_pr, cx)),
-            )
+            .child(stack_glyph(item, pos, cx))
             .child(
                 div()
                     .flex_none()
@@ -696,6 +715,7 @@ impl Tty7App {
                     .child(item.title.clone()),
             )
             .children(meta)
+            .children(links)
             .into_any_element()
     }
 
@@ -711,7 +731,7 @@ impl Tty7App {
 
 /// A 18px chrome tile, the Info rows' size.
 pub(crate) fn github_tile(
-    id: &'static str,
+    id: impl Into<gpui::ElementId>,
     icon: Icon,
     tooltip: &'static str,
     cx: &gpui::App,

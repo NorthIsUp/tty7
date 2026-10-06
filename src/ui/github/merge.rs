@@ -160,7 +160,7 @@ impl Tty7App {
         else {
             return;
         };
-        let (base, node_id) = (pull.base_ref.as_str(), pull.node_id.clone());
+        let (base, node_id) = (pull.refs.base_ref.as_str(), pull.node_id.clone());
         let number_text = number.to_string();
         let question = match action {
             Action::AutoMerge(None) => {
