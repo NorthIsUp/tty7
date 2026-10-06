@@ -15,12 +15,13 @@ pub mod merge;
 pub mod model;
 pub mod remote;
 pub mod review;
+pub mod stack;
 pub mod token;
 
 pub use api::{ApiError, ListPage, ListQuery, Reply, Transport};
 pub use model::{
     Check, CheckState, Checks, Comment, Detail, Item, ItemState, Kind, Label, MergeState, PrFile,
-    PullInfo, Readiness, ReviewState, Reviewer, StateFilter, readiness,
+    PullInfo, PullRefs, Readiness, ReviewState, Reviewer, StateFilter, readiness,
 };
 pub use remote::{GitHubRemote, RepoSlug};
 pub use token::{Token, TokenSource};
