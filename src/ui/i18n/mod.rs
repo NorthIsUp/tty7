@@ -1954,6 +1954,7 @@ l10n_keys! {
     GitHubAutoMergeDisable,
     GitHubMergeConfirm,
     GitHubAutoMergeConfirm,
+    GitHubOpenInGraphite,
 }
 
 /// The source control strings that are translated but not yet displayed.
