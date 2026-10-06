@@ -242,8 +242,9 @@ impl Tty7App {
         } else {
             let now = crate::ui::github::now_unix();
             let mut list = v_flex().px(px(CONTENT_INSET));
-            for item in rows {
-                list = list.child(self.github_item_row(slug, item, now, cx));
+            let rows: Vec<Item> = rows.into_iter().cloned().collect();
+            for row in self.github_stack_rows(slug, &rows, now, cx) {
+                list = list.child(row);
             }
             v_flex().pb(px(12.)).child(list).into_any_element()
         };
@@ -500,6 +501,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             html_url: String::new(),
+            pull: None,
         }
     }
 
@@ -744,6 +746,7 @@ mod gpui_tests {
             created_at: 0,
             updated_at: 1,
             html_url: String::new(),
+            pull: None,
         };
         app.update_in(&mut vcx, |app, _, _| {
             app.github.session.looked_up.insert((slug(), 5), Some(old));
