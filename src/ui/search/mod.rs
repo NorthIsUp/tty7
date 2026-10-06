@@ -8,10 +8,10 @@
 //! - [`score`]: the one fuzzy scorer every tab shares.
 //! - [`view`]: the modal — the tab row, the list, the theme picker.
 
-mod agents;
 mod command;
 pub(crate) mod files;
 mod history_text;
+mod open_sessions;
 mod score;
 mod sources;
 mod text;
@@ -19,6 +19,7 @@ pub(crate) mod view;
 
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};
+pub(crate) use open_sessions::open_first;
 pub(crate) use score::fuzzy_score;
 pub(crate) use sources::{Catalog, LiveQuery, host_items};
 pub(crate) use view::{CARD_MAX_W, KEY_CONTEXT, SearchEvent, SearchView};
@@ -45,9 +46,6 @@ pub(crate) enum SearchTab {
     /// Full text over past agent conversations (`history_text`): like Text,
     /// asked only once enough is typed, and never on the All tab.
     History,
-    /// Open tabs, then the agent sessions not open in one (`agents`, ⌘K).
-    /// Off the row: Terminals and Sessions already are its halves.
-    Agents,
     /// What to open and where (`new_tab_page`, ⌘T): the page draws itself in
     /// place of the list. Off the row.
     NewTab,
@@ -95,7 +93,6 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchTabLocations,
             SearchTab::Text => L10nKey::SearchTabText,
             SearchTab::History => L10nKey::SearchTabHistory,
-            SearchTab::Agents => L10nKey::SearchTabAgents,
             SearchTab::NewTab => L10nKey::NewTabPageTitle,
         })
     }
@@ -120,7 +117,6 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
             SearchTab::Text => L10nKey::SearchPlaceholderText,
             SearchTab::History => L10nKey::SearchPlaceholderHistory,
-            SearchTab::Agents => L10nKey::SearchPlaceholderAgents,
             SearchTab::NewTab => L10nKey::NewTabPagePlaceholder,
         })
     }

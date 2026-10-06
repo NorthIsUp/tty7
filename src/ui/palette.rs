@@ -1,4 +1,4 @@
-//! ⌘T, ⌘P and ⌘K open the palette on their tab — New Tab, All, Agents — from
+//! ⌘T, ⌘P and ⌘K open the palette on their tab — New Tab, All, Sessions — from
 //! wherever focus is, and an open palette keeps every key for itself.
 //!
 //! Both run in a keystroke interceptor, which gpui calls before it matches a
@@ -46,7 +46,7 @@ fn chord_tab(ks: &Keystroke, cx: &App) -> Option<SearchTab> {
     [
         (&NewTab as &dyn Action, SearchTab::NewTab),
         (&TogglePalette, SearchTab::All),
-        (&SearchAgents, SearchTab::Agents),
+        (&SearchAgents, SearchTab::Sessions),
     ]
     .into_iter()
     .find_map(|(action, tab)| bound(action).then_some(tab))
@@ -252,7 +252,7 @@ mod tests {
         ];
         // Unbound off macOS.
         if let Some(agents) = vcx.update(|_, cx| effective_key("SearchAgents", cx)) {
-            chords.push((agents, SearchTab::Agents));
+            chords.push((agents, SearchTab::Sessions));
         }
         type Input = fn(&Tty7App) -> Entity<gpui_component::input::InputState>;
         let side_panel: Input = |app| app.file_search.clone();

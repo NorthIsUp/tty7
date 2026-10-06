@@ -105,9 +105,6 @@ pub(crate) struct Catalog {
     pub live_query: Option<LiveQuery>,
     /// The tabs the window answers as they are typed in (`text::LiveTab`).
     pub live: Vec<super::text::LiveTab>,
-    /// Agent session ids open in some pane, which the Agents tab lists as
-    /// their tab instead of as a session to resume.
-    pub open_agent_sessions: Vec<String>,
 }
 
 /// Something that answers a query later — a language server.
@@ -135,7 +132,6 @@ impl Catalog {
             project_symbols: Vec::new(),
             live_query: None,
             live: Vec::new(),
-            open_agent_sessions: Vec::new(),
         }
     }
 
@@ -153,11 +149,6 @@ impl Catalog {
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
             SearchTab::Text | SearchTab::History => self.live_source(tab),
-            SearchTab::Agents => Some(Box::new(super::agents::Agents {
-                terminals: &self.terminals,
-                sessions: &self.sessions,
-                open: &self.open_agent_sessions,
-            })),
             // The page draws its own rows (`new_tab_page`).
             SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
@@ -329,7 +320,7 @@ fn untitled(hits: Vec<(i32, Item)>) -> Vec<Section> {
 }
 
 /// Consecutive rows that share a section label, under that label.
-pub(super) fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Section> {
+fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<Section> {
     let mut out: Vec<Section> = Vec::new();
     for item in items {
         match out.last_mut() {
@@ -345,7 +336,7 @@ pub(super) fn by_section<'a>(items: impl IntoIterator<Item = &'a Item>) -> Vec<S
 
 /// Every row that matches, best first. Stable, so rows that score alike keep
 /// the order the tab lists them in — most recently used, for most tabs.
-pub(super) fn rank(items: &[Item], query: &str, bonus: impl Fn(&Item) -> i32) -> Vec<(i32, Item)> {
+fn rank(items: &[Item], query: &str, bonus: impl Fn(&Item) -> i32) -> Vec<(i32, Item)> {
     let mut hits: Vec<(i32, Item)> = items
         .iter()
         .filter_map(|item| Some((item_score(query, item)? + bonus(item), item.clone())))
@@ -469,9 +460,12 @@ impl Source for Sessions<'_> {
     /// The last few sessions that ran where you are, and nothing from
     /// elsewhere: a session from another project is not what an empty query
     /// in this one is reaching for.
+    /// Those open in a tab lead the list but not the All tab, which has
+    /// their tab already.
     fn highlights(&self, _cx: &App) -> Vec<Item> {
         self.items[..self.here.min(self.items.len())]
             .iter()
+            .filter(|item| matches!(item.kind, CommandKind::ResumeSession { .. }))
             .take(SESSIONS_HERE_ON_ALL)
             .cloned()
             .collect()

@@ -6338,7 +6338,6 @@ impl Tty7App {
         catalog.sessions = sessions;
         catalog.sessions_here = here;
         catalog.files = self.file_list_now(cx);
-        catalog.open_agent_sessions = self.open_agent_session_ids(cx);
         catalog
     }
 
@@ -6412,7 +6411,7 @@ impl Tty7App {
             None => Vec::new(),
         };
         out.extend(rest.drain(..).map(|s| row(s, recent.clone())));
-        (out, count)
+        crate::ui::search::open_first(out, count, &self.open_agent_sessions(cx))
     }
 
     /// The Actions tab: the fixed set, plus the rows only this window can
@@ -6881,7 +6880,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
-            SearchAgents => self.open_palette_on(SearchTab::Agents, window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Sessions, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             // Picked from the palette with ⌥ held, the way a New Tab menu row
@@ -10238,7 +10237,7 @@ impl Render for Tty7App {
                     this.continue_all_agents(window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
-                    this.open_palette_on(SearchTab::Agents, window, cx)
+                    this.open_palette_on(SearchTab::Sessions, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)
