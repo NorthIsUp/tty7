@@ -2631,6 +2631,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeConfirm => {
             "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
         }
+        L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
     })
 }
 
