@@ -46,6 +46,7 @@ read when a sync stops on a conflict in that feature.
 - [github-session](docs/fork/features/github-session.md): the GitHub panel's Session tab and This session filter
 - [github-review](docs/fork/features/github-review.md): the GitHub panel's pull request review box
 - [github-merge](docs/fork/features/github-merge.md): the GitHub panel's pull request merge buttons and auto-merge
+- [github-row-links](docs/fork/features/github-row-links.md): the GitHub panel's row links and pull request stacks
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 
 ## Syncing

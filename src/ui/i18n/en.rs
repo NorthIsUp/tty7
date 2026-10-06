@@ -2476,6 +2476,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubAutoMergeConfirm => {
             "Merge #{number} into {base} once its requirements pass ({method})?"
         }
+        L10nKey::GitHubOpenInGraphite => "Open in Graphite",
     }
 }
 

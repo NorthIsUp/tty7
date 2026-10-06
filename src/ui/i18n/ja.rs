@@ -2545,6 +2545,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeConfirm => {
             "要件を満たしたら #{number} を {base} にマージしますか（{method}）？"
         }
+        L10nKey::GitHubOpenInGraphite => "Graphite で開く",
     })
 }
 
