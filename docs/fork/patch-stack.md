@@ -85,9 +85,12 @@ Between syncs, `main-niu` is the stack plus a tail of these squash commits.
    commit whose `Fork-Feature` matches it, in tail order. Untagged tail
    commits are picked at the end. The rebase runs on the current base with
    `GIT_SEQUENCE_EDITOR` pointed at the plan, so nothing is interactive.
-   Check: the folded tip's tree is identical to `main-niu`'s
-   (`git diff --quiet main-niu HEAD`). Folding only reorders and merges
-   commits, so any difference is a bad resolution, and the sync stops.
+   Check: the folded tip's tree is identical to `main-niu`'s, except that
+   `src/ui/i18n/*.rs` compare as sorted lines: a feature moved up the stack
+   takes its keys from the end of the fork's block to its own place. Folding
+   only reorders and merges commits, so any other difference is a bad
+   resolution, and the sync stops. After resolving a fold conflict by hand
+   and finishing the rebase, rerun with `SYNC_FROM=HEAD`.
 2. **Rebase** onto `upstream/main`, with `rerere.enabled` and
    `rerere.autoupdate`. A stack commit whose change upstream now contains
    comes out empty and is dropped (`--empty=drop`). One that upstream took in

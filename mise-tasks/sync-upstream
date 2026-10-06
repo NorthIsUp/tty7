@@ -12,6 +12,17 @@ git fetch -q "$upstream" main
 git fetch -q "$origin" "$branch"
 [ -n "${SYNC_SKIP_MIRROR:-}" ] || gh repo sync NorthIsUp/tty7 --branch main --source l0ng-ai/tty7
 
+# Whether two trees hold the same content. A feature moved up the stack takes
+# its i18n keys from the end of the fork's block to its own place, so those
+# files compare as sorted lines; everything else must match exactly.
+same_tree() {
+  local f
+  git diff --quiet "$1" "$2" -- . ':!src/ui/i18n/*.rs' || return 1
+  for f in $(git diff --name-only "$1" "$2" -- 'src/ui/i18n/*.rs'); do
+    cmp -s <(git show "$1:$f" | LC_ALL=C sort) <(git show "$2:$f" | LC_ALL=C sort) || return 1
+  done
+}
+
 # Fold BASE..HEAD into one commit per feature. Folding only regroups commits,
 # so a tree that differs afterwards means a conflict was resolved wrongly.
 fold() {
@@ -20,15 +31,15 @@ fold() {
   plan=$(mktemp)
   "$here/fold-plan" "$base" HEAD docs/fork/stack-order.tsv ${SYNC_MAP:+"$SYNC_MAP"} > "$plan"
   git "${rr[@]}" -c sequence.editor="cp $plan" rebase -q -i "$base" \
-    || { echo "sync-upstream: fold stopped on a conflict; resolve, git rebase --continue, rerun" >&2; exit 1; }
-  git diff --quiet "$before" HEAD \
+    || { echo "sync-upstream: fold stopped on a conflict; resolve, git rebase --continue, rerun with SYNC_FROM=HEAD" >&2; exit 1; }
+  same_tree "$before" HEAD \
     || { echo "sync-upstream: the fold changed the tree (compare $before with HEAD)" >&2; exit 1; }
 }
 
 lease=$(git rev-parse "$origin/$branch")
 # A start other than origin's tip must hold the same tree, or a PR merged since
 # it was cut would be pushed away.
-[ -z "${SYNC_FROM:-}" ] || git diff --quiet "$lease" "$SYNC_FROM" \
+[ -z "${SYNC_FROM:-}" ] || same_tree "$lease" "$SYNC_FROM" \
   || { echo "sync-upstream: $SYNC_FROM's tree differs from $origin/$branch ($lease); bring the new commits over first" >&2; exit 1; }
 git switch -q --detach "${SYNC_FROM:-$lease}"
 fold "$(git merge-base HEAD "$upstream/main")"

@@ -11,7 +11,8 @@ setup() { # $root/{upstream,origin}.git, a work clone at $root/work
   root=$(mktemp -d)
   git init -q --bare -b main "$root/upstream.git"
   git clone -q "$root/upstream.git" "$root/seed"; (cd "$root/seed" && ident \
-    && echo base > base.txt && git add -A && git commit -qm base && git push -q origin main)
+    && echo base > base.txt && mkdir -p src/ui/i18n && echo x > src/ui/i18n/en.rs \
+    && git add -A && git commit -qm base && git push -q origin main)
   git clone -q --bare "$root/upstream.git" "$root/origin.git"
   git clone -q "$root/origin.git" "$root/work"; cd "$root/work"; ident
   git remote add upstream "$root/upstream.git"
@@ -77,5 +78,25 @@ mkdir -p "$root/origin.git/hooks"
 printf '#!/bin/sh\necho nope >&2; exit 1\n' > "$root/origin.git/hooks/pre-receive"; chmod +x "$root/origin.git/hooks/pre-receive"
 out=$("$here/sync-upstream" 2>&1 >/dev/null || true)
 echo "$out" | grep -q "push failed" || fail "reject: said: $(echo "$out" | tail -1)"
+
+# a fold that moves a feature's i18n key resumes from SYNC_FROM=HEAD once
+# resolved; a resolution that loses a key is refused
+fold_conflict() { # leaves the fold stopped; $1 is what the second stop resolves to
+  setup
+  printf 'a\tA feature\nb\tB feature\n' > docs/fork/stack-order.tsv; git commit -qam "fork(a): order" -m "Fork-Feature: a"
+  echo b1 >> src/ui/i18n/en.rs; git commit -qam "fork(b): B feature" -m "Fork-Feature: b"
+  echo a1 >> src/ui/i18n/en.rs; git commit -qam "fix(a): a key" -m "Fork-Feature: a"
+  git push -q origin main-niu
+  if "$here/sync-upstream" >/dev/null 2>&1; then fail "i18n: the fold did not stop"; fi
+  printf 'x\na1\n' > src/ui/i18n/en.rs; git add -A; GIT_EDITOR=true git rebase --continue >/dev/null 2>&1 || true
+  printf "$1" > src/ui/i18n/en.rs; git add -A; GIT_EDITOR=true git rebase --continue >/dev/null 2>&1
+}
+fold_conflict 'x\na1\nb1\n'
+SYNC_FROM=HEAD "$here/sync-upstream" >/dev/null || fail "i18n: a reorder was refused"
+[ "$(git -C "$root/origin.git" show main-niu:src/ui/i18n/en.rs | tr '\n' ' ')" = "x a1 b1 " ] || fail "i18n: order not kept"
+fold_conflict 'x\na1\n'
+before=$(git -C "$root/origin.git" rev-parse main-niu)
+if SYNC_FROM=HEAD "$here/sync-upstream" >/dev/null 2>&1; then fail "i18n: a lost key was pushed"; fi
+[ "$(git -C "$root/origin.git" rev-parse main-niu)" = "$before" ] || fail "i18n: origin changed"
 
 echo "sync-upstream-check: ok"
