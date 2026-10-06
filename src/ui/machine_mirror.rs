@@ -408,6 +408,27 @@ fn view_of<'a>(
     Some((ws, &machine.panes))
 }
 
+/// The agent sessions open in `entry`'s tabs, each with the tab it is in.
+pub fn agent_sessions_of(
+    cx: &App,
+    entry: &crate::core::session::WindowView,
+) -> Vec<(String, TabId)> {
+    let Some((ws, panes)) = view_of(cx, entry) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for tab in &ws.tabs {
+        for id in tab.root.pane_ids() {
+            let session = panes
+                .iter()
+                .find(|p| p.id == id)
+                .and_then(|p| p.agent.as_ref()?.session_id.clone());
+            out.extend(session.map(|s| (s, tab.id)));
+        }
+    }
+    out
+}
+
 pub fn display_name(cx: &App, entry: &crate::core::session::WindowView) -> Option<String> {
     match view_of(cx, entry) {
         Some((ws, panes)) => Some(display_name_of(ws, panes)),
