@@ -36,6 +36,40 @@ fold() {
     || { echo "sync-upstream: the fold changed the tree (compare $before with HEAD)" >&2; exit 1; }
 }
 
+# A feature upstream merged leaves a commit holding only its fork docs (its
+# page, FORK.md line and stack-order row). Drop it, and take its lines out of
+# the two lists the commits above it also append to.
+drop_upstreamed() {
+  local base=$1 before c slug f plan gone drops=()
+  before=$(git rev-parse HEAD)
+  for c in $(git rev-list --reverse "$base..HEAD"); do
+    slug=$(git log -1 --format='%(trailers:key=Fork-Feature,valueonly)' "$c" | head -1)
+    [[ -n $slug && $slug != fork-* ]] || continue
+    git diff --quiet "$c^" "$c" -- . ':!FORK.md' ':!docs/fork/' || continue
+    drops+=("$c"); echo "sync-upstream: upstream took $slug; dropping its fork docs"
+  done
+  [ ${#drops[@]} -gt 0 ] || return 0
+  plan=$(mktemp) gone=$(mktemp)
+  for c in $(git rev-list --reverse "$base..HEAD"); do
+    [[ " ${drops[*]} " == *" $c "* ]] || echo "pick $c"
+  done > "$plan"
+  for c in "${drops[@]}"; do
+    git diff "$c^" "$c" -- FORK.md docs/fork/stack-order.tsv | grep '^+[^+]' | cut -c2-
+  done > "$gone"
+  git "${rr[@]}" -c sequence.editor="cp $plan" rebase -q -i "$base" 2>/dev/null || true
+  while [ -d "$(git rev-parse --git-path rebase-merge)" ]; do
+    for f in $(git diff --name-only --diff-filter=U); do
+      case $f in FORK.md|docs/fork/stack-order.tsv) ;; *)
+        echo "sync-upstream: dropping an upstreamed feature conflicts in $f; resolve, git rebase --continue, rerun with SYNC_FROM=HEAD" >&2; exit 1;;
+      esac
+      { git show ":3:$f" | grep -vxFf "$gone" || true; } > "$f"; git add "$f"
+    done
+    GIT_EDITOR=true git "${rr[@]}" rebase --continue >/dev/null 2>&1 || true
+  done
+  git diff --quiet "$before" HEAD -- . ':!FORK.md' ':!docs/fork/' \
+    || { echo "sync-upstream: dropping upstreamed features changed more than fork docs (compare $before with HEAD)" >&2; exit 1; }
+}
+
 lease=$(git rev-parse "$origin/$branch")
 # A start other than origin's tip must hold the same tree, or a PR merged since
 # it was cut would be pushed away.
@@ -45,6 +79,7 @@ git switch -q --detach "${SYNC_FROM:-$lease}"
 fold "$(git merge-base HEAD "$upstream/main")"
 git "${rr[@]}" rebase -q --empty=drop "$upstream/main" \
   || { echo "sync-upstream: rebase stopped; keep upstream's side, re-add the hook (docs/fork/features/), git rebase --continue, rerun" >&2; exit 1; }
+drop_upstreamed "$upstream/main"
 run_tests() { [ -n "${SYNC_SKIP_TESTS:-}" ] || eval "${SYNC_TEST_CMD:-mise run test}"; }
 run_tests
 
