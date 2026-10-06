@@ -37,6 +37,19 @@ setup
 "$here/sync-upstream" >/dev/null
 [ "$(tip_subjects | head -1)" = "upstream: took a" ] || fail "drop: $(tip_subjects)"
 
+# a feature upstream merged loses its leftover fork docs, even mid-list
+setup
+feat() { mkdir -p docs/fork/features; echo "$1" > "$1.txt"; echo "# $1" > "docs/fork/features/$1.md"
+  echo "- $1" >> FORK.md; printf '%s\t%s\n' "$1" "$1" >> docs/fork/stack-order.tsv
+  git add -A; git commit -qm "fork($1): $1" -m "Fork-Feature: $1"; }
+feat b; feat c; git push -q origin main-niu
+(cd "$root/seed" && echo b > b.txt && git add -A && git commit -qm "upstream: took b" && git push -q origin main)
+"$here/sync-upstream" >/dev/null
+[ "$(tip_subjects | head -3)" = $'fork(c): c\nfork(a): A feature\nupstream: took b' ] || fail "upstreamed: $(tip_subjects)"
+[ "$(git -C "$root/origin.git" show main-niu:FORK.md)" = "- c" ] || fail "upstreamed: FORK.md kept b"
+git -C "$root/origin.git" show main-niu:docs/fork/stack-order.tsv | grep -q '^b' && fail "upstreamed: stack-order kept b"
+git -C "$root/origin.git" show main-niu:docs/fork/features/b.md >/dev/null 2>&1 && fail "upstreamed: b's page kept"
+
 # a PR merges mid-sync: the lease fails once, the new commit is refolded
 setup
 race="$root/race.sh"; cat > "$race" <<EOF

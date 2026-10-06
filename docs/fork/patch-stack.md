@@ -95,6 +95,8 @@ Between syncs, `main-niu` is the stack plus a tail of these squash commits.
    `rerere.autoupdate`. A stack commit whose change upstream now contains
    comes out empty and is dropped (`--empty=drop`). One that upstream took in
    a reworded form conflicts, and is resolved by keeping upstream's side.
+   Either way the feature's commit is left holding only its fork docs; the
+   task drops it and takes its lines out of FORK.md and `stack-order.tsv`.
 3. **Publish** with `git push --force-with-lease=main-niu:<sha fetched in phase 1>`.
    If the lease fails because a PR merged mid-sync, the task fetches, folds
    only the commits that are new since that sha (they sit on top of the tip
