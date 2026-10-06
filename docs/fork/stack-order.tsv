@@ -15,3 +15,4 @@ copy-unwrap	copy rejoins lines Claude Code wrapped
 diff-one-sided	a new or deleted file's diff draws unified
 github-etag	the GitHub panel's reads revalidate by ETag
 github-parallel	the GitHub panel's detail fetches in parallel
+github-row-links	the GitHub panel's row links and pull request stacks

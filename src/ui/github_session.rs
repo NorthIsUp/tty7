@@ -22,6 +22,7 @@ use gpui_component::{h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::github::api::{self, ListQuery};
+use tty7_core::core::github::stack::stack_order;
 use tty7_core::core::github::{ApiError, Item, Kind, RepoSlug, StateFilter};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
@@ -243,8 +244,8 @@ impl Tty7App {
         } else {
             let now = crate::ui::github::now_unix();
             let mut list = v_flex().px(px(CONTENT_INSET));
-            for item in rows {
-                list = list.child(self.github_item_row(slug, item, now, cx));
+            for (item, link) in stack_order(&rows, &slug.owner) {
+                list = list.child(self.github_item_row(slug, item, link, now, cx));
             }
             v_flex().pb(px(12.)).child(list).into_any_element()
         };
@@ -501,6 +502,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             html_url: String::new(),
+            pull: None,
         }
     }
 
@@ -745,6 +747,7 @@ mod gpui_tests {
             created_at: 0,
             updated_at: 1,
             html_url: String::new(),
+            pull: None,
         };
         app.update_in(&mut vcx, |app, _, _| {
             app.github.session.looked_up.insert((slug(), 5), Some(old));
