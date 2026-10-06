@@ -483,12 +483,11 @@ impl Render for NewTabPage {
             });
 
         // gpui-component's `List` draws the palette's field; this is its
-        // markup, so the two fields read the same.
+        // markup, so the two fields read the same. Less its rule: the palette
+        // lays its scope row over that, so the only rule is the scope row's.
         let field = div()
             .px_2()
             .py_1p5()
-            .border_b_1()
-            .border_color(cx.theme().border)
             .child(
                 Input::new(&self.query)
                     .prefix(Icon::new(IconName::Search).text_color(muted))
