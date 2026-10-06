@@ -38,6 +38,23 @@ enum Kind {
 }
 
 impl Kind {
+    /// The mark a Sessions row and a tab carry for the same kind.
+    fn icon(self, at: usize, cx: &App) -> gpui::AnyElement {
+        let agent = match self {
+            Kind::Terminal => None,
+            Kind::Agent(agent) => Some(agent),
+        };
+        crate::ui::tab_strip::avatar(
+            ("new-tab-kind-icon", at),
+            crate::ui::search::Avatar {
+                agent,
+                ..Default::default()
+            },
+            16.,
+            cx,
+        )
+    }
+
     fn label(self) -> SharedString {
         match self {
             Kind::Terminal => t(L10nKey::NewTabPageTerminal).into(),
@@ -430,6 +447,7 @@ impl Render for NewTabPage {
                     .when(at < 9, |chip| {
                         chip.child(div().mr(px(5.)).opacity(0.6).child(digit_chord(at + 1)))
                     })
+                    .child(div().mr(px(5.)).child(kind.icon(at, cx)))
                     .child(kind.label())
                     .on_click(cx.listener(move |this, _, _window, cx| {
                         this.kind = at;
@@ -485,17 +503,14 @@ impl Render for NewTabPage {
         // gpui-component's `List` draws the palette's field; this is its
         // markup, so the two fields read the same. Less its rule: the palette
         // lays its scope row over that, so the only rule is the scope row's.
-        let field = div()
-            .px_2()
-            .py_1p5()
-            .child(
-                Input::new(&self.query)
-                    .prefix(Icon::new(IconName::Search).text_color(muted))
-                    .cleanable(true)
-                    .p_0()
-                    .appearance(false)
-                    .text_size(px(15.)),
-            );
+        let field = div().px_2().py_1p5().child(
+            Input::new(&self.query)
+                .prefix(Icon::new(IconName::Search).text_color(muted))
+                .cleanable(true)
+                .p_0()
+                .appearance(false)
+                .text_size(px(15.)),
+        );
 
         let key = |k: &str| keycap(k.to_string(), cx);
         let footer = search::footer_bar(cx)
