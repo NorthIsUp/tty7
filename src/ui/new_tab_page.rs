@@ -10,30 +10,26 @@ use std::path::{Path, PathBuf};
 
 use gpui::ClickEvent;
 use gpui::{
-    App, Context, Entity, FontWeight, HighlightStyle, Keystroke, ScrollHandle, SharedString,
-    StyledText, Subscription, WeakEntity, Window, div, prelude::*, px, rems,
+    App, Context, Entity, Keystroke, ScrollHandle, SharedString, StyledText, Subscription,
+    WeakEntity, Window, div, prelude::*, px,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_component::{ActiveTheme as _, Icon, IconName, v_flex};
 
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
 use crate::ui::app::Tty7App;
-use crate::ui::dialog::CARD_RADIUS;
+use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, keycap};
 use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
-use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::i18n::{L10nKey, t};
 use crate::ui::path_display::{abbreviate_home, local_home};
+use crate::ui::search::view as search;
+use crate::ui::search::view::SearchRow;
 use crate::ui::search::{CARD_MAX_W, SearchTab, fuzzy_score};
-use crate::ui::switcher::CARD_TOP;
 use tty7_core::host::Host;
 use tty7_core::host::local::LocalHost;
-
-const LIST_H: f32 = 336.0;
-/// Denser than the palette's 32px rows: a directory row is one line of path,
-/// with no icon or subtitle to make room for.
-const ROW_H: f32 = 28.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -422,60 +418,15 @@ impl NewTabPage {
 
 impl Render for NewTabPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (fg, muted, border) = (theme.foreground, theme.muted_foreground, theme.border);
-        let (primary, primary_fg) = (theme.primary, theme.primary_foreground);
-        let hit = HighlightStyle {
-            color: Some(theme.primary),
-            font_weight: Some(FontWeight::BOLD),
-            ..Default::default()
-        };
         let query = self.query.read(cx).value().trim().to_string();
-        let (hover, picked) = {
-            let sf = &cx.global::<crate::ui::presets::Surfaces>().popover;
-            (gpui::rgb(sf.hover), gpui::rgb(sf.selected))
-        };
+        let (hit, ink) = (search::hit(cx), search::title_ink(!query.is_empty(), cx));
+        let muted = cx.theme().muted_foreground;
 
-        // The palette's scope row, where a tab off the row shows its name.
-        let scope = h_flex()
-            .px(px(12.))
-            .py(px(6.))
-            .gap(px(6.))
-            .flex_wrap()
-            .items_center()
-            .border_b_1()
-            .border_color(border)
-            .child(
-                div()
-                    .h(px(24.))
-                    .px(px(9.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(6.))
-                    .bg(picked)
-                    .text_size(rems(12. / 16.))
-                    .text_color(fg)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SearchTab::NewTab.title()),
-            )
-            .children(self.kinds.iter().enumerate().map(|(at, &kind)| {
-                let on = at == self.kind;
-                div()
+        // The kinds are this page's scopes, on the palette's scope row.
+        let scope =
+            search::scope_bar(cx).children(self.kinds.iter().enumerate().map(|(at, &kind)| {
+                search::scope_chip(at == self.kind, cx)
                     .id(("new-tab-kind", at))
-                    .h(px(24.))
-                    .px(px(10.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(6.))
-                    .text_size(rems(12. / 16.))
-                    .cursor_pointer()
-                    .when(on, |chip| chip.bg(primary).text_color(primary_fg))
-                    .when(!on, |chip| {
-                        chip.border_1()
-                            .border_color(border)
-                            .text_color(fg)
-                            .hover(|chip| chip.bg(hover))
-                    })
                     .when(at < 9, |chip| {
                         chip.child(div().mr(px(5.)).opacity(0.6).child(digit_chord(at + 1)))
                     })
@@ -487,82 +438,97 @@ impl Render for NewTabPage {
             }));
 
         let rows = self.rows.iter().enumerate().map(|(at, dir)| {
-            h_flex()
+            let shown = display_path(dir, self.home.as_deref()).to_string();
+            let ranges = row_highlights(&query, dir, &shown);
+            let text = div().min_w_0().truncate().text_color(ink).child(
+                StyledText::new(shown.clone())
+                    .with_highlights(ranges.into_iter().map(|r| (r, hit))),
+            );
+            div()
                 .id(("new-tab-dir", at))
-                .flex_shrink_0()
-                .h(px(ROW_H))
-                .px(px(10.))
-                .items_center()
-                .rounded(crate::ui::rounding::ROW_RADIUS)
-                .cursor_pointer()
-                .text_color(fg)
-                .when(at == self.selected, |row| row.bg(picked))
-                .when(at != self.selected, |row| row.hover(|row| row.bg(hover)))
-                .child(div().min_w_0().truncate().child({
-                    let shown = display_path(dir, self.home.as_deref()).to_string();
-                    let ranges = row_highlights(&query, dir, &shown);
-                    StyledText::new(shown).with_highlights(ranges.into_iter().map(|r| (r, hit)))
-                }))
                 .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                     this.selected = at;
                     this.open(ev.modifiers().shift, window, cx);
                 }))
+                .child(SearchRow {
+                    id: ("new-tab-row", at).into(),
+                    label: shown.into(),
+                    selected: at == self.selected,
+                    child: text.into_any_element(),
+                })
         });
 
         let viewport = window.viewport_size();
         let card_w = (viewport.width.as_f32() - 32.).clamp(0., CARD_MAX_W);
-        let list_h = LIST_H
-            .min(viewport.height.as_f32() - CARD_TOP - 160.)
-            .max(3. * ROW_H);
+        let top = search::card_top(viewport.height.as_f32());
+        let chrome = search::TABS_H + search::SEARCH_H + FOOTER_H + search::CARD_MARGIN;
         let list = v_flex()
             .id("new-tab-dirs")
             .track_scroll(&self.scroll)
-            .max_h(px(list_h))
+            .max_h(px(search::list_max_h(
+                viewport.height.as_f32() - top - chrome,
+            )))
             .overflow_y_scroll()
-            .p(px(6.))
-            .gap(px(1.))
+            .pt(px(6.))
+            .pb(px(search::LIST_PAD))
             .children(rows)
             .when(self.rows.is_empty(), |list| {
                 list.child(
                     div()
-                        .px(px(10.))
+                        .px(px(search::LIST_PAD + 10.))
                         .py(px(10.))
                         .text_color(muted)
                         .child(t(L10nKey::SwitcherNoMatch)),
                 )
             });
 
+        // gpui-component's `List` draws the palette's field; this is its
+        // markup, so the two fields read the same.
+        let field = div()
+            .px_2()
+            .py_1p5()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                Input::new(&self.query)
+                    .prefix(Icon::new(IconName::Search).text_color(muted))
+                    .cleanable(true)
+                    .p_0()
+                    .appearance(false)
+                    .text_size(px(15.)),
+            );
+
+        let key = |k: &str| keycap(k.to_string(), cx);
+        let footer = search::footer_bar(cx)
+            .child(search::footer_hint(
+                vec![key(&crate::ui::keymap::key_tokens("tab").join(""))],
+                t(L10nKey::SearchHintNextScope),
+            ))
+            .child(div().flex_1())
+            .child(search::footer_hint(
+                vec![key("↑"), key("↓")],
+                t(L10nKey::SwitcherHintNavigate),
+            ))
+            .child(search::footer_hint(
+                vec![key("↵")],
+                t(L10nKey::SwitcherHintOpen),
+            ))
+            .child(search::footer_hint(
+                vec![key("⇧"), key("↵")],
+                t(L10nKey::SearchHintBackground),
+            ));
+
         v_flex()
+            .relative()
             .w(px(card_w))
             .map(|card| crate::ui::theme::floating_surface(card, cx))
             .rounded(px(CARD_RADIUS))
             .overflow_hidden()
-            .child(
-                div()
-                    .h(px(44.))
-                    .px(px(14.))
-                    .flex()
-                    .items_center()
-                    .border_b_1()
-                    .border_color(border)
-                    .child(Input::new(&self.query).appearance(false).pl_0()),
-            )
+            .child(field)
             .child(scope)
             .child(list)
-            .child(
-                div()
-                    .px(px(14.))
-                    .py(px(8.))
-                    .border_t_1()
-                    .border_color(border)
-                    .text_size(rems(11. / 16.))
-                    .text_color(muted)
-                    .child(format!(
-                        "{} · {}",
-                        t_fmt(L10nKey::NewTabPageHint, &[("first", &digit_chord(1))]),
-                        t(L10nKey::NewTabPageHintBackground)
-                    )),
-            )
+            .child(footer)
+            .when(query.is_empty(), |card| card.child(search::esc_cap(cx)))
     }
 }
 
