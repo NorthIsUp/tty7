@@ -2564,6 +2564,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
             "буфер обмена копирование перенос склеить строки claude clipboard copy wrap unwrap join lines raw"
         }
         L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
+        L10nKey::SettingsNewTabAgents => "Агенты в новой вкладке",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
+        }
         L10nKey::SettingsCopyJoinWrapped => "Склеивать перенесённые строки при копировании",
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "В панели Claude Code склеивать строки, которые Claude перенёс у края панели, чтобы абзац вставлялся одной строкой. ⌘⌥C или «Копировать как есть» копируют их как на экране"

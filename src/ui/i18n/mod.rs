@@ -1942,6 +1942,9 @@ l10n_keys! {
     SettingsCopyJoinWrappedDesc,
     SettingsSearchCopyJoinWrappedKeywords,
     GitHubOpenInGraphite,
+    SettingsNewTabAgents,
+    SettingsNewTabAgentsDesc,
+    SettingsSearchNewTabAgentsKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.

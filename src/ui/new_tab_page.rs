@@ -576,9 +576,10 @@ impl Tty7App {
             .collect();
         let active = cwds.get(self.active).cloned().flatten();
         let tab_cwds: Vec<PathBuf> = cwds.into_iter().flatten().collect();
-        let offered = self.offered_agents(cx);
+        let mut offered = self.offered_agents(cx);
         let home = local_home();
         let cfg = cx.global::<Config>();
+        offered.retain(|a| !cfg.fork.new_tab_hidden_agents.contains(a.slug()));
         let kind = initial_kind(&offered, &cfg.agent_frecency);
         // The open tabs are directories already, so they show at once; the
         // listing that has to touch the disk lands a moment later.

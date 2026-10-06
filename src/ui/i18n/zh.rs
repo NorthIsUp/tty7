@@ -2292,6 +2292,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
             "剪贴板 复制 折行 合并 clipboard copy wrap unwrap join lines claude raw"
         }
         L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
+        L10nKey::SettingsNewTabAgents => "新标签页中的 Agent",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
+        }
         L10nKey::SettingsCopyJoinWrapped => "复制时合并折行",
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "在 Claude Code 窗格中，将 Claude 在窗格边缘折行的内容重新合并，段落粘贴为一行。⌘⌥C 或“原样复制”按显示内容复制"

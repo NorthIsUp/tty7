@@ -757,6 +757,33 @@ impl SearchView {
         self.go_to_tab(next, window, cx);
     }
 
+    /// ← and → walk the tab row while nothing is typed, as on the New Tab
+    /// page; with a query they are the caret's. Taken ahead of the field
+    /// (`palette`'s interceptor), which would otherwise eat them.
+    pub(crate) fn on_arrow(
+        &mut self,
+        ks: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = &ks.modifiers;
+        let bare = !(m.platform || m.control || m.alt || m.shift || m.function);
+        let forward = match ks.key.as_str() {
+            "left" => false,
+            "right" => true,
+            _ => return false,
+        };
+        if !bare
+            || self.in_sub_list()
+            || self.scope_row().is_none()
+            || !self.list.read(cx).delegate().query.is_empty()
+        {
+            return false;
+        }
+        self.step_tab(forward, window, cx);
+        true
+    }
+
     fn open_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Open on the theme already in use: the picker previews the
         // highlighted row, and merely opening it must not change what the
@@ -1422,6 +1449,29 @@ mod tests {
             app.read_with(&vcx, |app, _| app.search.is_some()),
             "Tab stays inside the search instead of walking focus out of it"
         );
+    }
+
+    #[gpui::test]
+    fn arrows_walk_the_tabs_only_while_nothing_is_typed(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+
+        vcx.simulate_keystrokes("right");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Terminals));
+        vcx.simulate_keystrokes("left left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
+
+        vcx.simulate_input("x");
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
     }
 
     /// Opened with nothing typed, Return goes back to the tab you were last

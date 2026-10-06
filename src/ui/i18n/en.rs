@@ -2463,6 +2463,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "clipboard copy wrap unwrap join lines claude raw"
         }
         L10nKey::GitHubOpenInGraphite => "Open in Graphite",
+        L10nKey::SettingsNewTabAgents => "Agents in New Tab",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "The agents the New Tab page offers beside Terminal. One switched off is still on PATH and everywhere else"
+        }
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "agents new tab page offer hide claude codex pi"
+        }
         L10nKey::SettingsCopyJoinWrapped => "Join wrapped lines when copying",
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "In a Claude Code pane, rejoin the lines Claude wrapped at the pane's edge, so a paragraph pastes as one line. ⌘⌥C or Copy Raw copies them as shown"

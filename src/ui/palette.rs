@@ -106,6 +106,10 @@ fn intercept(ev: &KeystrokeEvent, window: &mut Window, cx: &mut App) {
         cx.stop_propagation();
         return;
     }
+    if search.update(cx, |search, cx| search.on_arrow(ks, window, cx)) {
+        cx.stop_propagation();
+        return;
+    }
     // Focus got out from under the palette: the key would land behind it.
     if !ev.context_stack.iter().any(|c| c.contains(KEY_CONTEXT)) {
         cx.stop_propagation();
