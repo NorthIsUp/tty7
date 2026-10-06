@@ -753,6 +753,7 @@ fn hovered_links(
         t(L10nKey::GitHubOpenOnGitHub),
         cx,
     )
+    .cursor_pointer()
     .on_click(move |_, _window, cx| {
         cx.stop_propagation();
         cx.open_url(&url);
@@ -761,10 +762,11 @@ fn hovered_links(
         let url = graphite_url(&slug.owner, &slug.name, number);
         github_tile(
             SharedString::from(format!("panel-github-row-gt-{number}")),
-            Icon::new(IconName::GalleryVerticalEnd),
+            Icon::empty().path("icons/graphite.svg"),
             t(L10nKey::GitHubOpenInGraphite),
             cx,
         )
+        .cursor_pointer()
         .on_click(move |_, _window, cx| {
             cx.stop_propagation();
             cx.open_url(&url);

@@ -9,6 +9,7 @@ A hovered row in the Session, Issues and Pull Requests lists shows an Open on Gi
 | file | what it holds |
 |---|---|
 | `crates/tty7-core/src/core/github/stack.rs` | `PullRefs` (head ref, head owner from `head.label`, base ref), `stack_order` (cycle-safe grouping and order, with each row's `StackLink`), `graphite_url` |
+| `assets/icons/graphite.svg` | Graphite's mark, from its web app's favicon, for the Open in Graphite tile |
 
 ## Hooks in upstream files
 
@@ -19,5 +20,6 @@ A hovered row in the Session, Issues and Pull Requests lists shows an Open on Gi
 | `crates/tty7-core/src/core/github/api.rs` | `detail` copies `pull` from `/pulls/{n}` | a detail's row stacks like a list's |
 | `src/ui/panel_github.rs` | `github_list_body` runs `stack_order`, `github_item_row` takes a `StackLink`, `stack_glyph`, `hovered_links`, `github_tile` takes any `ElementId` | the drawing and the tiles |
 | `src/ui/github_session.rs` | `github_session_tab_body` runs `stack_order`; test `Item`s gain `pull` | the Session list stacks too |
+| `src/ui/assets.rs` | `icons/graphite.svg` | the tile's icon |
 | `src/ui/i18n/{mod,en,ja,zh,ru}.rs` | `GitHubOpenInGraphite` | the Graphite tile's tooltip |
 | `docs/window/side-panel.mdx` | GitHub bullets | the tiles and stacks |
