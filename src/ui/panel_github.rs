@@ -544,8 +544,8 @@ impl Tty7App {
         let items = mentions_first(&items, mentioned.as_ref().map_or(&[][..], |m| &m.numbers));
         let now = now_unix();
         let mut rows = v_flex().px(px(CONTENT_INSET));
-        for (item, link) in stack_order(&items, &slug.owner) {
-            rows = rows.child(self.github_item_row(slug, item, link, now, cx));
+        for row in self.github_stack_rows(slug, &items, now, cx) {
+            rows = rows.child(row);
         }
         body = body.child(rows);
         if let Some(page) = next_page {
@@ -572,6 +572,29 @@ impl Tty7App {
     /// resting list reads as a column of titles, and hovering a row answers
     /// "what labels, whose, how fresh" without a second line under every one
     /// of them.
+    /// `items` as list rows, stacks gathered, with each stack's trunk drawn
+    /// under its bottom pull request so the run reads bottom-up.
+    pub(crate) fn github_stack_rows(
+        &self,
+        slug: &RepoSlug,
+        items: &[&Item],
+        now: i64,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut out = Vec::new();
+        for (item, mut link) in stack_order(items, &slug.owner) {
+            let trunk = (link.above && !link.below)
+                .then(|| item.pull.as_ref().map(|p| p.base_ref.clone()))
+                .flatten();
+            link.below |= trunk.is_some();
+            out.push(self.github_item_row(slug, item, link, now, cx));
+            if let Some(base) = trunk {
+                out.push(stack_trunk(base, cx));
+            }
+        }
+        out
+    }
+
     pub(crate) fn github_item_row(
         &self,
         slug: &RepoSlug,
@@ -731,6 +754,53 @@ fn stack_glyph(item: &Item, link: StackLink, cx: &gpui::App) -> AnyElement {
         .child(state_glyph(item.state, item.is_pr, cx))
         .when(link.above, |d| d.child(line().top_0()))
         .when(link.below, |d| d.child(line().bottom_0()))
+        .into_any_element()
+}
+
+/// The branch a stack is based on, under its bottom row: the connector ends
+/// in a dot beside the branch's name.
+fn stack_trunk(base: String, cx: &gpui::App) -> AnyElement {
+    let theme = cx.theme();
+    let color = theme.muted_foreground.opacity(0.5);
+    const H: f32 = 18.;
+    const DOT: f32 = 5.;
+    h_flex()
+        .h(px(H))
+        .px(px(ROW_INSET))
+        .gap(px(8.))
+        .items_center()
+        .child(
+            div()
+                .flex_none()
+                .relative()
+                .w(px(GLYPH))
+                .h(px(H))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left(px(GLYPH / 2. - 0.5))
+                        .w(px(1.))
+                        .h(px(H / 2.))
+                        .bg(color),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px((H - DOT) / 2.))
+                        .left(px((GLYPH - DOT) / 2.))
+                        .size(px(DOT))
+                        .rounded_full()
+                        .bg(color),
+                ),
+        )
+        .child(
+            div()
+                .text_size(rems(META))
+                .font_family(theme.mono_font_family.clone())
+                .text_color(theme.muted_foreground)
+                .child(base),
+        )
         .into_any_element()
 }
 

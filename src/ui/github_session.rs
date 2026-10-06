@@ -22,7 +22,6 @@ use gpui_component::{h_flex, v_flex};
 
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::github::api::{self, ListQuery};
-use tty7_core::core::github::stack::stack_order;
 use tty7_core::core::github::{ApiError, Item, Kind, RepoSlug, StateFilter};
 use tty7_core::core::history_search::Mentions;
 use tty7_core::host::HostId;
@@ -244,8 +243,8 @@ impl Tty7App {
         } else {
             let now = crate::ui::github::now_unix();
             let mut list = v_flex().px(px(CONTENT_INSET));
-            for (item, link) in stack_order(&rows, &slug.owner) {
-                list = list.child(self.github_item_row(slug, item, link, now, cx));
+            for row in self.github_stack_rows(slug, &rows, now, cx) {
+                list = list.child(row);
             }
             v_flex().pb(px(12.)).child(list).into_any_element()
         };
