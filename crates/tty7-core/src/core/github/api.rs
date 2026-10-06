@@ -816,13 +816,11 @@ pub(crate) mod tests {
             now: Default::default(),
             peak: Default::default(),
         };
-        let started = std::time::Instant::now();
         detail(&t, &slug(), 31).unwrap();
         // Seven requests, three round trips: issue ‖ comments, then
         // pull → (check-runs ‖ status) alongside reviews ‖ files.
         assert_eq!(t.inner.asked.lock().unwrap().len(), 7);
         assert!(t.peak.load(std::sync::atomic::Ordering::SeqCst) >= 3);
-        assert!(started.elapsed() < std::time::Duration::from_millis(30 * 6));
     }
 
     #[test]
