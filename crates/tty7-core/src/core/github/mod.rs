@@ -15,6 +15,7 @@ pub mod merge;
 pub mod model;
 pub mod remote;
 pub mod review;
+pub mod stack;
 pub mod token;
 
 pub use api::{ApiError, ListPage, ListQuery, Reply, Transport};

@@ -2536,6 +2536,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchCopyJoinWrappedKeywords => {
             "クリップボード コピー 折り返し 行 結合 clipboard copy wrap unwrap join lines claude raw"
         }
+        L10nKey::GitHubOpenInGraphite => "Graphite で開く",
         L10nKey::SettingsCopyJoinWrapped => "コピー時に折り返し行をつなげる",
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "Claude Code のペインで、Claude が画面端で折り返した行をつなげ、段落を 1 行として貼り付けます。⌘⌥C または「そのままコピー」で表示どおりにコピーします"
