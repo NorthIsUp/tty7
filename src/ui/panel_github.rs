@@ -112,15 +112,29 @@ impl Tty7App {
         let mut pinned = vec![self.github_repo_row(&repo, &remotes, &chosen, cx)];
         // The pull request the pane is working on, one click from the list
         // whichever way the list is switched.
-        if let Some(item) = self.github_branch_pull(host.clone(), &repo, &remotes, &chosen, cx) {
-            let branch = self
-                .github
-                .branches
-                .get(&repo)
-                .and_then(|b| b.head.as_ref())
-                .map(|h| h.branch.clone())
-                .unwrap_or_default();
-            pinned.push(self.github_branch_pull_row(&chosen.slug, &branch, &item, cx));
+        let current = self
+            .github_branch(host.clone(), &repo, cx)
+            .map(|h| h.branch);
+        let item = self.github_branch_pull(host.clone(), &repo, &remotes, &chosen, cx);
+        if let Some(current) = current {
+            pinned.push(self.github_branch_pull_row(
+                &chosen.slug,
+                &current,
+                item.as_ref(),
+                true,
+                cx,
+            ));
+            for head in self.github_recent_branches(host.clone(), &repo, &current, cx) {
+                let item = crate::ui::github::branch_pull_key(&head, &remotes, &chosen)
+                    .and_then(|key| self.github_pull_for(key, cx));
+                pinned.push(self.github_branch_pull_row(
+                    &chosen.slug,
+                    &head.branch,
+                    item.as_ref(),
+                    false,
+                    cx,
+                ));
+            }
         }
         pinned.push(self.github_switch_row(cx));
         if let Some(label) = self.github.label.clone() {
@@ -319,24 +333,16 @@ impl Tty7App {
         &self,
         slug: &RepoSlug,
         branch: &str,
-        item: &Item,
+        item: Option<&Item>,
+        this_branch: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let sf = cx.global::<crate::ui::presets::Surfaces>().sidebar;
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
-        let number = item.number;
-        let key = (slug.clone(), number);
-        let rollup = self
-            .github
-            .details
-            .get(&key)
-            .and_then(|d| d.detail.as_ref())
-            .and_then(|d| d.checks.as_ref())
-            .and_then(|c| c.rollup());
-        let open = self.github.open.as_ref() == Some(&key);
-        let slug = slug.clone();
-        let title = SharedString::from(item.title.clone());
+        // A recent branch stacks under the current one without the gap that
+        // sets the block off from the repo row.
+        let gap = if this_branch { PINNED_GAP } else { 2. };
         let caption = h_flex()
             .items_center()
             .gap(px(6.))
@@ -350,7 +356,9 @@ impl Tty7App {
                     .xsmall()
                     .text_color(muted),
             )
-            .child(div().flex_none().child(t(L10nKey::GitHubThisBranch)))
+            .when(this_branch, |c| {
+                c.child(div().flex_none().child(t(L10nKey::GitHubThisBranch)))
+            })
             .child(
                 div()
                     .min_w_0()
@@ -358,8 +366,27 @@ impl Tty7App {
                     .font_family(mono.clone())
                     .child(branch.to_string()),
             );
+        let Some(item) = item else {
+            return v_flex()
+                .flex_none()
+                .pt(px(gap))
+                .child(caption)
+                .into_any_element();
+        };
+        let number = item.number;
+        let key = (slug.clone(), number);
+        let rollup = self
+            .github
+            .details
+            .get(&key)
+            .and_then(|d| d.detail.as_ref())
+            .and_then(|d| d.checks.as_ref())
+            .and_then(|c| c.rollup());
+        let open = self.github.open.as_ref() == Some(&key);
+        let slug = slug.clone();
+        let title = SharedString::from(item.title.clone());
         let row = h_flex()
-            .id("panel-github-branch-pull")
+            .id(("panel-github-branch-pull", number as usize))
             .items_center()
             .gap(px(8.))
             .h(px(ROW_H))
@@ -401,7 +428,7 @@ impl Tty7App {
         v_flex()
             .flex_none()
             .gap(px(4.))
-            .pt(px(PINNED_GAP))
+            .pt(px(gap))
             .child(caption)
             .child(div().px(px(CONTENT_INSET)).child(row))
             .into_any_element()
