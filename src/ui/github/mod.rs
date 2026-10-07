@@ -29,6 +29,7 @@
 
 pub(crate) mod detail;
 pub(crate) mod merge;
+pub(crate) mod recent;
 pub(crate) mod review;
 pub(crate) mod rows;
 
@@ -58,7 +59,7 @@ pub(crate) const STALE_AFTER: Duration = Duration::from_secs(120);
 pub(crate) const CHECKS_POLL: Duration = Duration::from_secs(20);
 
 /// How long the pane's branch is trusted before it is read again.
-const BRANCH_TTL: Duration = Duration::from_secs(10);
+pub(crate) const BRANCH_TTL: Duration = Duration::from_secs(10);
 
 /// How far a list reads on by itself through pages that filter down to
 /// nothing (a pull-request-heavy repository's `/issues`), before it leaves
@@ -169,6 +170,8 @@ pub(crate) struct GitHubPanelState {
     pub(crate) reviews: review::Reviews,
     /// Merge rules and merges in flight (`github::merge`).
     pub(crate) merges: merge::Merges,
+    /// The branches the repository was on before this one (`github::recent`).
+    pub(crate) recent: recent::RecentBranches,
 }
 
 /// A detail section that folds when it runs long.
@@ -663,6 +666,16 @@ impl Tty7App {
     ) -> Option<Item> {
         let head = self.github_branch(host, repo, cx)?;
         let key = branch_pull_key(&head, remotes, chosen)?;
+        self.github_pull_for(key, cx)
+    }
+
+    /// The pull request `key`'s branch has, fetched once and revalidated like
+    /// a list.
+    pub(crate) fn github_pull_for(
+        &mut self,
+        key: BranchPullKey,
+        cx: &mut Context<Self>,
+    ) -> Option<Item> {
         let entry = self.github.branch_pulls.entry(key.clone()).or_default();
         let item = entry.item.clone();
         let due = !entry.loading
