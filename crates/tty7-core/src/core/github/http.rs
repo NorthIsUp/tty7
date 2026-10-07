@@ -4,7 +4,7 @@
 //! Blocking — every call runs on a worker, never on the UI thread.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::api::{ApiError, Reply, Transport, classify, link_has_next};
@@ -35,17 +35,15 @@ pub struct HttpTransport {
 /// against the rate limit, which is what keeps the panel's revalidations and
 /// polls from eating the hourly allowance it shares with `gh`.
 #[derive(Default)]
-struct Etags(Mutex<HashMap<String, (String, Reply)>>);
+struct Etags(Mutex<HashMap<String, Arc<(String, Reply)>>>);
 
 impl Etags {
-    fn tag(&self, path: &str) -> Option<String> {
+    /// The stored tag and the answer it stands for, read together: a 304
+    /// replays the answer that went with the tag that was sent, even if the
+    /// entry has since been replaced or the cache has started over.
+    fn get(&self, path: &str) -> Option<Arc<(String, Reply)>> {
         let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(path).map(|(tag, _)| tag.clone())
-    }
-
-    fn cached(&self, path: &str) -> Option<Reply> {
-        let map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(path).map(|(_, reply)| reply.clone())
+        map.get(path).cloned()
     }
 
     fn store(&self, path: &str, tag: String, reply: &Reply) {
@@ -55,7 +53,7 @@ impl Etags {
         if map.len() >= ETAG_CAP && !map.contains_key(path) {
             map.clear();
         }
-        map.insert(path.to_string(), (tag, reply.clone()));
+        map.insert(path.to_string(), Arc::new((tag, reply.clone())));
     }
 }
 
@@ -108,9 +106,9 @@ impl HttpTransport {
         // Only a plain GET is revalidated: `get_full` carries signed
         // attachment URLs that expire, so its old body must not be replayed.
         let cacheable = accept == "application/vnd.github+json";
-        let tag = cacheable.then(|| self.etags.tag(path)).flatten();
-        if let Some(tag) = &tag {
-            request = request.header("If-None-Match", tag);
+        let known = cacheable.then(|| self.etags.get(path)).flatten();
+        if let Some(known) = &known {
+            request = request.header("If-None-Match", &known.0);
         }
         // ureq's error text names the URL and the transport failure, never
         // the request headers, so it is safe to show.
@@ -126,10 +124,9 @@ impl HttpTransport {
                 .map(str::to_string)
         };
         if status == 304
-            && tag.is_some()
-            && let Some(reply) = self.etags.cached(path)
+            && let Some(known) = known
         {
-            return Ok(reply);
+            return Ok(known.1.clone());
         }
         let body = response
             .body_mut()
@@ -163,12 +160,19 @@ mod tests {
     #[test]
     fn a_stored_answer_is_replayed_by_its_tag() {
         let etags = Etags::default();
-        assert_eq!(etags.tag("/a"), None);
+        assert!(etags.get("/a").is_none());
         etags.store("/a", "W/\"1\"".into(), &reply("one"));
+        let first = etags.get("/a").unwrap();
         etags.store("/a", "W/\"2\"".into(), &reply("two"));
-        assert_eq!(etags.tag("/a").as_deref(), Some("W/\"2\""));
-        let back = etags.cached("/a").unwrap();
+        let (tag, back) = &*etags.get("/a").unwrap();
+        assert_eq!(tag, "W/\"2\"");
         assert_eq!((back.body.as_slice(), back.has_next), (&b"two"[..], true));
+        // What was read before the replacement still pairs its own tag and
+        // answer.
+        assert_eq!(
+            (first.0.as_str(), first.1.body.as_slice()),
+            ("W/\"1\"", &b"one"[..])
+        );
     }
 
     #[test]
@@ -178,11 +182,12 @@ mod tests {
             etags.store(&format!("/{i}"), "t".into(), &reply(""));
         }
         etags.store("/0", "t2".into(), &reply(""));
-        assert!(etags.tag("/1").is_some());
+        assert!(etags.get("/1").is_some());
+        let held = etags.get("/1").unwrap();
         etags.store("/new", "t".into(), &reply(""));
-        assert_eq!(
-            (etags.tag("/1"), etags.tag("/new").as_deref()),
-            (None, Some("t"))
-        );
+        assert!(etags.get("/1").is_none());
+        assert_eq!(etags.get("/new").map(|e| e.0.clone()).as_deref(), Some("t"));
+        // An answer read before the clear can still be replayed for its 304.
+        assert_eq!(held.0, "t");
     }
 }
