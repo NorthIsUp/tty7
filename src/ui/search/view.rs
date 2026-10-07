@@ -235,18 +235,7 @@ impl ListDelegate for SearchDelegate {
         cx: &mut Context<ListState<Self>>,
     ) -> Option<impl IntoElement> {
         let title = self.sections.get(section)?.title.clone()?;
-        // The sidebar's group heading: medium, a half step under the rows, in
-        // caption ink — never capitals, never a rule under it.
-        Some(
-            h_flex()
-                .h(px(HEADER_H))
-                .px(px(LABEL_INSET))
-                .items_center()
-                .text_size(rems(crate::ui::right_panel::HEADING))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(title),
-        )
+        Some(section_header(title, cx))
     }
 
     fn render_empty(
@@ -1084,6 +1073,20 @@ pub(crate) fn title_ink(typed: bool, cx: &App) -> gpui::Hsla {
         true => fg.opacity(0.78),
         false => fg,
     }
+}
+
+/// A section heading over its rows. The sidebar's group heading: medium, a
+/// half step under the rows, in caption ink — never capitals, never a rule
+/// under it.
+pub(crate) fn section_header(title: impl IntoElement, cx: &App) -> Div {
+    h_flex()
+        .h(px(HEADER_H))
+        .px(px(LABEL_INSET))
+        .items_center()
+        .text_size(rems(crate::ui::right_panel::HEADING))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(cx.theme().muted_foreground)
+        .child(title)
 }
 
 /// The `esc` cap in the search field's trailing corner, laid over the field.

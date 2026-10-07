@@ -2467,6 +2467,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "Новая вкладка",
         L10nKey::NewTabPageTerminal => "Терминал",
         L10nKey::NewTabPagePlaceholder => "Папка…",
+        L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
         L10nKey::SettingsGroupOutlineDesc => "Тонкий контур вокруг заголовка каждой группы.",

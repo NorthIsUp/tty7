@@ -2370,6 +2370,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTitle => "New tab",
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
+        L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",
         L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",

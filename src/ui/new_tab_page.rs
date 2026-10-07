@@ -23,7 +23,7 @@ use crate::ui::app::Tty7App;
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, keycap};
 use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
-use crate::ui::i18n::{L10nKey, t};
+use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::path_display::{abbreviate_home, local_home};
 use crate::ui::search::view as search;
 use crate::ui::search::view::SearchRow;
@@ -420,7 +420,8 @@ impl NewTabPage {
                     "up" => self.selected.saturating_sub(1),
                     _ => (self.selected + 1).min(self.rows.len().saturating_sub(1)),
                 };
-                self.scroll.scroll_to_item(self.selected);
+                // The list's first child is its heading.
+                self.scroll.scroll_to_item(self.selected + 1);
             }
             // ⌘1–9 on macOS, Ctrl+1–9 elsewhere, the way tabs are picked.
             _ => match key.parse::<usize>() {
@@ -489,6 +490,13 @@ impl Render for NewTabPage {
             .overflow_y_scroll()
             .pt(px(6.))
             .pb(px(search::LIST_PAD))
+            .child(search::section_header(
+                t_fmt(
+                    L10nKey::NewTabPageDirsHeading,
+                    &[("kind", &self.kinds[self.kind].label())],
+                ),
+                cx,
+            ))
             .children(rows)
             .when(self.rows.is_empty(), |list| {
                 list.child(

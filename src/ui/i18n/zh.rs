@@ -2213,6 +2213,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTitle => "新标签页",
         L10nKey::NewTabPageTerminal => "终端",
         L10nKey::NewTabPagePlaceholder => "目录…",
+        L10nKey::NewTabPageDirsHeading => "选择 {kind} 启动的目录",
         L10nKey::SearchHintBackground => "在后台打开",
         L10nKey::SettingsGroupOutline => "分组轮廓",
         L10nKey::SettingsGroupOutlineDesc => "在每个分组标题周围绘制细轮廓。",

@@ -1877,6 +1877,7 @@ l10n_keys! {
     NewTabPageTitle,
     NewTabPageTerminal,
     NewTabPagePlaceholder,
+    NewTabPageDirsHeading,
     SearchHintBackground,
     SettingsGroupOutline,
     SettingsGroupOutlineDesc,
