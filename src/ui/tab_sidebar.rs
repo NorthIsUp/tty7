@@ -520,6 +520,17 @@ impl Tty7App {
         // gone) is dropped, so it cannot fire when the row turns up later.
         let reveal = self.sidebar_reveal.get();
         let mut reveal_drawn = false;
+        let usage_panes: Vec<_> = self
+            .tabs
+            .iter()
+            .flat_map(|t| t.pane.terminals())
+            .map(|v| {
+                let v = v.read(cx);
+                let host = (!v.host_id().is_local()).then(|| v.host(cx)).flatten();
+                (v.pane_id, host)
+            })
+            .collect();
+        crate::ui::tab_usage::TabUsage::want(cx, usage_panes);
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             // The rule rides on the first unpinned block, in the gap above
             // it, so it never stands in the list's flow (see `sidebar_divider`).
@@ -667,6 +678,35 @@ impl Tty7App {
                         .max(48.);
                 let title_size = 0.875 * rem;
                 let meta_size = META_REM * rem;
+                let pane_ids: Vec<u64> = tab
+                    .pane
+                    .terminals()
+                    .iter()
+                    .map(|v| v.read(cx).pane_id)
+                    .collect();
+                let front = tab
+                    .pane
+                    .focused_or_first(window, cx)
+                    .map(|v| v.read(cx).pane_id);
+                // Only where the title keeps a usable line beside it; a
+                // narrow sidebar drops the numbers before the name.
+                let usage = crate::ui::tab_usage::TabUsage::of(cx, &pane_ids, front)
+                    .and_then(|u| u.label())
+                    .map(|label| {
+                        let w = measure_text(&window.text_system(), &meta_font, meta_size, &label)
+                            + row_metrics::META_GAP;
+                        (SharedString::from(label), w)
+                    })
+                    .filter(|(_, w)| label_avail - w >= 96.);
+                let label_avail = label_avail - usage.as_ref().map_or(0., |(_, w)| *w);
+                let usage_cell = |label: SharedString, cx: &gpui::App| {
+                    div()
+                        .flex_shrink_0()
+                        .text_size(px(meta_size))
+                        .text_color(cx.theme().muted_foreground)
+                        .font_features(tabular())
+                        .child(label)
+                };
                 let title_font = if is_active { &title_font_active } else { &font };
                 // Title: the *full* label, elided further down once the
                 // working directory beside it has said how much of the line
@@ -773,6 +813,9 @@ impl Tty7App {
                             );
                         }
                         line = line.child(counts);
+                    }
+                    if let Some((label, _)) = usage.clone() {
+                        line = line.child(usage_cell(label, cx));
                     }
                     line
                 });
@@ -1005,6 +1048,9 @@ impl Tty7App {
                                             .text_color(cx.theme().muted_foreground)
                                             .child(cwd),
                                     )
+                                })
+                                .when_some(usage.filter(|_| !two_line), |line, (label, _)| {
+                                    line.child(usage_cell(label, cx))
                                 }),
                         )
                         .children(git_line)
