@@ -726,7 +726,9 @@ pub(crate) mod tests {
         );
     }
 
-    /// Counts requests in flight at once; each takes long enough to overlap.
+    /// Counts requests in flight at once. Each one is held until three are
+    /// in flight, or for a second at most, so the overlap shows however slow
+    /// the machine is to start the threads.
     struct Slow {
         inner: Fixture,
         now: std::sync::atomic::AtomicUsize,
@@ -738,7 +740,10 @@ pub(crate) mod tests {
             use std::sync::atomic::Ordering::SeqCst;
             let n = self.now.fetch_add(1, SeqCst) + 1;
             self.peak.fetch_max(n, SeqCst);
-            std::thread::sleep(std::time::Duration::from_millis(30));
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            while self.peak.load(SeqCst) < 3 && std::time::Instant::now() < until {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
             self.now.fetch_sub(1, SeqCst);
             self.inner.get(path)
         }
