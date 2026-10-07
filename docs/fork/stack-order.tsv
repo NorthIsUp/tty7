@@ -11,3 +11,4 @@ github-review	the GitHub panel's pull request review box
 github-merge	the GitHub panel's pull request merge buttons and auto-merge	github-review
 hotkey-window	a global hotkey window
 github-row-links	the GitHub panel's row links and pull request stacks	github-session
+github-recent-branches	the GitHub panel keeps the last five branches	github-session
