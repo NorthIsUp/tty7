@@ -234,4 +234,5 @@ mod tests {
         assert_eq!(etags.get("/new").map(|e| e.0.clone()).as_deref(), Some("t"));
         // An answer read before the clear can still be replayed for its 304.
         assert_eq!(held.0, "t");
-    }}
+    }
+}
