@@ -675,17 +675,6 @@ impl Tty7App {
                     true => None,
                     false => self.row_status_dot(agent_status, agent_unread, rail_fill),
                 };
-                let status_extra = match status_dot.is_some() {
-                    true => row_metrics::STATUS + row_metrics::GAP,
-                    false => 0.,
-                };
-                // Elision is measured against this budget so the label and
-                // branch never wrap or overflow into CSS truncation.
-                let label_avail =
-                    (row_metrics::text_budget(width) - badge_extra - zoom_extra - status_extra)
-                        .max(48.);
-                let title_size = 0.875 * rem;
-                let meta_size = META_REM * rem;
                 let pane_ids: Vec<u64> = tab
                     .pane
                     .terminals()
@@ -696,14 +685,31 @@ impl Tty7App {
                     .pane
                     .focused_or_first(window, cx)
                     .map(|v| v.read(cx).pane_id);
+                let usage_cells = crate::ui::tab_usage::TabUsage::of(cx, &pane_ids, front)
+                    .map(|u| u.cells(usage_show))
+                    .filter(|cells| !cells.is_empty());
+                // A row with numbers keeps the dot's slot even without a dot,
+                // so the numbers stand in one column down the sidebar.
+                let status_slot = status_dot.is_none()
+                    && usage_cells.is_some()
+                    && !(show_badges && badge_pos < 9);
+                let status_extra = match status_dot.is_some() || status_slot {
+                    true => row_metrics::STATUS + row_metrics::GAP,
+                    false => 0.,
+                };
+                // Elision is measured against this budget so the label and
+                // branch never wrap or overflow into CSS truncation.
+                let label_avail =
+                    (row_metrics::text_budget(width) - badge_extra - zoom_extra - status_extra)
+                        .max(48.);
+                let title_size = 0.875 * rem;
+                let meta_size = META_REM * rem;
                 // Only where the title keeps a usable line beside it; a
                 // narrow sidebar drops the numbers before the name.
                 // Small, mono and padded to fixed widths, so a number that
                 // moves from 1.0 to 1.2 GB never nudges the row.
                 let usage_size = meta_size * 0.85;
-                let usage = crate::ui::tab_usage::TabUsage::of(cx, &pane_ids, front)
-                    .map(|u| u.cells(usage_show))
-                    .filter(|cells| !cells.is_empty())
+                let usage = usage_cells
                     .map(|cells| {
                         let w = cells
                             .iter()
@@ -1214,6 +1220,9 @@ impl Tty7App {
                     ))
                     .child(label_region)
                     .children(status_dot)
+                    .when(status_slot, |row| {
+                        row.child(div().flex_shrink_0().w(px(row_metrics::STATUS)))
+                    })
                     .when(show_badges && badge_pos < 9, |row| {
                         row.child(
                             div()
