@@ -427,7 +427,7 @@ impl Tty7App {
         .detach();
     }
 
-    /// The group header options, as rows for Settings' Tabs group.
+    /// The group header options, as rows for the Tabs group on Settings' Appearance page.
     pub(crate) fn group_header_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 6] {
         let cfg = cx.global::<Config>();
         let (outline, fill) = (cfg.fork.group_outline, cfg.fork.group_background);
