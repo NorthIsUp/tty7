@@ -530,7 +530,15 @@ impl Tty7App {
                 (v.pane_id, host)
             })
             .collect();
-        crate::ui::tab_usage::TabUsage::want(cx, usage_panes);
+        let usage_show = crate::ui::tab_usage::Show::of(&cx.global::<Config>().fork);
+        crate::ui::tab_usage::TabUsage::want(
+            cx,
+            usage_panes.into_iter().filter(|_| usage_show.any()),
+        );
+        let usage_font = gpui::Font {
+            family: cx.theme().mono_font_family.clone(),
+            ..meta_font.clone()
+        };
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             // The rule rides on the first unpinned block, in the gap above
             // it, so it never stands in the list's flow (see `sidebar_divider`).
@@ -690,22 +698,43 @@ impl Tty7App {
                     .map(|v| v.read(cx).pane_id);
                 // Only where the title keeps a usable line beside it; a
                 // narrow sidebar drops the numbers before the name.
+                // Small, mono and padded to fixed widths, so a number that
+                // moves from 1.0 to 1.2 GB never nudges the row.
+                let usage_size = meta_size * 0.85;
                 let usage = crate::ui::tab_usage::TabUsage::of(cx, &pane_ids, front)
-                    .and_then(|u| u.label())
-                    .map(|label| {
-                        let w = measure_text(&window.text_system(), &meta_font, meta_size, &label)
-                            + row_metrics::META_GAP;
-                        (SharedString::from(label), w)
+                    .map(|u| u.cells(usage_show))
+                    .filter(|cells| !cells.is_empty())
+                    .map(|cells| {
+                        let w = cells
+                            .iter()
+                            .map(|c| {
+                                measure_text(
+                                    &window.text_system(),
+                                    &usage_font,
+                                    usage_size,
+                                    &c.text,
+                                ) + row_metrics::META_GAP
+                            })
+                            .sum::<f32>();
+                        (cells, w)
                     })
+                    // Only where the title keeps a usable line beside it; a
+                    // narrow sidebar drops the numbers before the name.
                     .filter(|(_, w)| label_avail - w >= 96.);
                 let label_avail = label_avail - usage.as_ref().map_or(0., |(_, w)| *w);
-                let usage_cell = |label: SharedString, cx: &gpui::App| {
-                    div()
+                let usage_cell = |cells: Vec<crate::ui::tab_usage::Cell>, cx: &gpui::App| {
+                    let (muted, hot) = (cx.theme().muted_foreground, cx.theme().warning);
+                    h_flex()
                         .flex_shrink_0()
-                        .text_size(px(meta_size))
-                        .text_color(cx.theme().muted_foreground)
-                        .font_features(tabular())
-                        .child(label)
+                        .gap(px(row_metrics::META_GAP))
+                        .text_size(px(usage_size))
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .children(cells.into_iter().map(|c| {
+                            div()
+                                .whitespace_nowrap()
+                                .text_color(if c.hot { hot } else { muted })
+                                .child(c.text)
+                        }))
                 };
                 let title_font = if is_active { &title_font_active } else { &font };
                 // Title: the *full* label, elided further down once the
@@ -814,8 +843,8 @@ impl Tty7App {
                         }
                         line = line.child(counts);
                     }
-                    if let Some((label, _)) = usage.clone() {
-                        line = line.child(usage_cell(label, cx));
+                    if let Some((cells, _)) = usage.clone() {
+                        line = line.child(usage_cell(cells, cx));
                     }
                     line
                 });
@@ -1049,8 +1078,8 @@ impl Tty7App {
                                             .child(cwd),
                                     )
                                 })
-                                .when_some(usage.filter(|_| !two_line), |line, (label, _)| {
-                                    line.child(usage_cell(label, cx))
+                                .when_some(usage.filter(|_| !two_line), |line, (cells, _)| {
+                                    line.child(usage_cell(cells, cx))
                                 }),
                         )
                         .children(git_line)

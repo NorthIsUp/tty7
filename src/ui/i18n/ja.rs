@@ -2452,6 +2452,22 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTerminal => "ターミナル",
         L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
         L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
+        L10nKey::SettingsTabUsagePid => "各タブの PID を表示",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "サイドバーのタブ行の末尾に、前面ペインのシェルのプロセス ID を表示します"
+        }
+        L10nKey::SettingsTabUsageCpu => "各タブの CPU を表示",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の CPU 使用率。100% は 1 コア分です"
+        }
+        L10nKey::SettingsTabUsageMemory => "各タブのメモリを表示",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の常駐メモリ"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "リソースを多く使うタブを強調",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "CPU 80% またはメモリ 4 GB を超えている間、オフでもそのタブの CPU・メモリを警告色で表示します"
+        }
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
         L10nKey::SettingsGroupOutlineDesc => {

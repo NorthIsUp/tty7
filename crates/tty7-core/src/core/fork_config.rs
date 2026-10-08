@@ -73,6 +73,15 @@ pub struct ForkConfig {
     pub global_hotkey_hide_on_blur: bool,
     /// How long the hotkey's fade in and out takes; 0 is instant.
     pub global_hotkey_fade_ms: u64,
+    /// The sidebar row ends with the front pane's shell pid.
+    pub tab_usage_pid: bool,
+    /// …with the CPU% of every process in the tab's panes.
+    pub tab_usage_cpu: bool,
+    /// …with their resident memory.
+    pub tab_usage_memory: bool,
+    /// A tab past the high-use marks shows its CPU or memory in the warning
+    /// colour even with those switched off.
+    pub tab_usage_annotate: bool,
 }
 
 impl Default for ForkConfig {
@@ -101,6 +110,10 @@ impl Default for ForkConfig {
             global_hotkey_fullscreen: false,
             global_hotkey_hide_on_blur: false,
             global_hotkey_fade_ms: 150,
+            tab_usage_pid: false,
+            tab_usage_cpu: false,
+            tab_usage_memory: false,
+            tab_usage_annotate: true,
         }
     }
 }

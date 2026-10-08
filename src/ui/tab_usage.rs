@@ -8,9 +8,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use gpui::{App, Global};
+use gpui::{AnyElement, App, Context, Global, IntoElement as _};
 
-use crate::daemon::procstat::compact_bytes;
+use crate::core::config::Config;
+use crate::ui::app::Tty7App;
+use crate::ui::i18n::{L10nKey, t};
+
 use crate::daemon::protocol::PaneProcs;
 use crate::ui::host_ops::SharedHost;
 use crate::ui::proc_usage::{CpuTracker, totals};
@@ -41,20 +44,82 @@ pub(crate) struct Usage {
     pub rss: Option<u64>,
 }
 
+/// Which parts a row shows, from the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Show {
+    pub pid: bool,
+    pub cpu: bool,
+    pub memory: bool,
+    pub annotate: bool,
+}
+
+impl Show {
+    pub(crate) fn of(fork: &tty7_core::core::fork_config::ForkConfig) -> Show {
+        Show {
+            pid: fork.tab_usage_pid,
+            cpu: fork.tab_usage_cpu,
+            memory: fork.tab_usage_memory,
+            annotate: fork.tab_usage_annotate,
+        }
+    }
+
+    /// Whether anything could ever be drawn, so the poll can stay off.
+    pub(crate) fn any(&self) -> bool {
+        self.pid || self.cpu || self.memory || self.annotate
+    }
+}
+
+/// Where a tab counts as high-use.
+const HOT_CPU: f64 = 80.0;
+const HOT_RSS: u64 = 4 << 30;
+
+/// One part of a row's numbers; `hot` ones take the warning colour.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Cell {
+    pub text: String,
+    pub hot: bool,
+}
+
+/// Always one decimal, padded to six columns, so a mono font keeps the width
+/// still as the number moves (`  3.2%`, ` 12.0%`, `100.0%`).
+fn cpu_text(pct: f64) -> String {
+    format!("{:>5.1}%", pct.clamp(0., 999.9))
+}
+
+/// MB below a gigabyte, GB above, always `###.#` (`512.0 MB`, `  1.0 GB`).
+fn memory_text(bytes: u64) -> String {
+    const MB: f64 = 1024. * 1024.;
+    let (v, unit) = match bytes as f64 / MB {
+        mb if mb < 1000. => (mb, "MB"),
+        mb => (mb / 1024., "GB"),
+    };
+    format!("{:>5.1} {unit}", v.min(999.9))
+}
+
 impl Usage {
-    pub(crate) fn label(&self) -> Option<String> {
-        let parts: Vec<String> = [
-            self.pid.map(|pid| format!("pid {pid}")),
-            self.cpu.map(|pct| match pct < 10.0 {
-                true => format!("{pct:.1}%"),
-                false => format!("{pct:.0}%"),
-            }),
-            self.rss.map(compact_bytes),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        (!parts.is_empty()).then(|| parts.join(" · "))
+    pub(crate) fn cells(&self, show: Show) -> Vec<Cell> {
+        let cpu_hot = show.annotate && self.cpu.is_some_and(|p| p >= HOT_CPU);
+        let rss_hot = show.annotate && self.rss.is_some_and(|b| b >= HOT_RSS);
+        let mut out = Vec::new();
+        if let Some(pid) = self.pid.filter(|_| show.pid) {
+            out.push(Cell {
+                text: pid.to_string(),
+                hot: false,
+            });
+        }
+        if let Some(pct) = self.cpu.filter(|_| show.cpu || cpu_hot) {
+            out.push(Cell {
+                text: cpu_text(pct),
+                hot: cpu_hot,
+            });
+        }
+        if let Some(bytes) = self.rss.filter(|_| show.memory || rss_hot) {
+            out.push(Cell {
+                text: memory_text(bytes),
+                hot: rss_hot,
+            });
+        }
+        out
     }
 }
 
@@ -88,8 +153,7 @@ impl TabUsage {
             .and_then(|p| p.procs.procs.first())
             .filter(|p| p.depth == 0)
             .map(|p| p.pid);
-        let out = Usage { pid, cpu, rss };
-        out.label().map(|_| out)
+        (pid.is_some() || cpu.is_some() || rss.is_some()).then_some(Usage { pid, cpu, rss })
     }
 
     fn poll(cx: &mut App) {
@@ -133,29 +197,111 @@ impl TabUsage {
     }
 }
 
+impl Tty7App {
+    /// The four rows for Settings' Tabs group.
+    pub(crate) fn tab_usage_settings(&self, cx: &mut Context<Self>) -> [AnyElement; 4] {
+        type Field = fn(&mut tty7_core::core::fork_config::ForkConfig) -> &mut bool;
+        let rows: [(&str, L10nKey, L10nKey, Field); 4] = [
+            (
+                "tab-usage-pid",
+                L10nKey::SettingsTabUsagePid,
+                L10nKey::SettingsTabUsagePidDesc,
+                |f| &mut f.tab_usage_pid,
+            ),
+            (
+                "tab-usage-cpu",
+                L10nKey::SettingsTabUsageCpu,
+                L10nKey::SettingsTabUsageCpuDesc,
+                |f| &mut f.tab_usage_cpu,
+            ),
+            (
+                "tab-usage-memory",
+                L10nKey::SettingsTabUsageMemory,
+                L10nKey::SettingsTabUsageMemoryDesc,
+                |f| &mut f.tab_usage_memory,
+            ),
+            (
+                "tab-usage-annotate",
+                L10nKey::SettingsTabUsageAnnotate,
+                L10nKey::SettingsTabUsageAnnotateDesc,
+                |f| &mut f.tab_usage_annotate,
+            ),
+        ];
+        let show = Show::of(&cx.global::<Config>().fork);
+        let mut on = [show.pid, show.cpu, show.memory, show.annotate].into_iter();
+        rows.map(|(id, title, desc, field)| {
+            let on = on.next().unwrap_or_default();
+            let switch = self.settings_switch(id, on, cx, move |this, on, _, cx| {
+                this.update_config(cx, |c| *field(&mut c.fork) = on)
+            });
+            self.settings_row(t(title), t(desc), switch, cx)
+                .into_any_element()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_label_names_what_is_known_and_skips_the_rest() {
-        let all = Usage {
+    fn numbers_keep_their_width_as_they_move() {
+        assert_eq!(cpu_text(3.24), "  3.2%");
+        assert_eq!(cpu_text(12.0), " 12.0%");
+        assert_eq!(cpu_text(100.0), "100.0%");
+        assert_eq!(memory_text(512 << 20), "512.0 MB");
+        assert_eq!(memory_text(1 << 30), "  1.0 GB");
+        assert_eq!(memory_text(1288490188), "  1.2 GB");
+        assert_eq!(memory_text(47 << 30), " 47.0 GB");
+        let widths: Vec<usize> = [1u64 << 20, 999 << 20, 3 << 30, 200 << 30]
+            .map(|b| memory_text(b).chars().count())
+            .to_vec();
+        assert!(widths.iter().all(|w| *w == 8), "{widths:?}");
+    }
+
+    #[test]
+    fn a_hot_tab_shows_what_is_high_even_when_switched_off() {
+        let usage = Usage {
             pid: Some(4821),
-            cpu: Some(12.4),
-            rss: Some(3 << 30),
+            cpu: Some(95.0),
+            rss: Some(1 << 30),
         };
-        assert_eq!(all.label().as_deref(), Some("pid 4821 · 12% · 3.0 GB"));
-        let some = Usage {
-            pid: None,
-            cpu: Some(0.3),
-            rss: None,
+        let off = Show {
+            pid: false,
+            cpu: false,
+            memory: false,
+            annotate: true,
         };
-        assert_eq!(some.label().as_deref(), Some("0.3%"));
-        let none = Usage {
-            pid: None,
-            cpu: None,
-            rss: None,
+        assert_eq!(
+            usage.cells(off),
+            [Cell {
+                text: " 95.0%".into(),
+                hot: true
+            }]
+        );
+        let quiet = Show {
+            annotate: false,
+            ..off
         };
-        assert_eq!(none.label(), None);
+        assert!(usage.cells(quiet).is_empty());
+        let all = Show {
+            pid: true,
+            cpu: true,
+            memory: true,
+            annotate: true,
+        };
+        let texts: Vec<_> = usage
+            .cells(all)
+            .into_iter()
+            .map(|c| (c.text, c.hot))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("4821".to_string(), false),
+                (" 95.0%".to_string(), true),
+                ("  1.0 GB".to_string(), false)
+            ]
+        );
     }
 }

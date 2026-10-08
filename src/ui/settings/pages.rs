@@ -552,7 +552,9 @@ impl Tty7App {
         groups.push(self.settings_group(
             Some(t(L10nKey::SettingsTabs)),
             None,
-            self.group_header_settings(cx),
+            self.group_header_settings(cx)
+                .into_iter()
+                .chain(self.tab_usage_settings(cx)),
             cx,
         ));
         groups.push(self.render_window_section(cx));
