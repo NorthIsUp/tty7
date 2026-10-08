@@ -15,3 +15,4 @@ diff-one-sided	a new or deleted file's diff draws unified
 github-row-links	the GitHub panel's row links and pull request stacks	github-session
 github-recent-branches	the GitHub panel keeps the last five branches	github-session
 settings-themed-controls	Settings' controls take the theme's colour
+detached-replies	a pane no window shows still answers DA1
