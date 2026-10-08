@@ -15,3 +15,4 @@ copy-unwrap	copy rejoins lines Claude Code wrapped
 diff-one-sided	a new or deleted file's diff draws unified
 github-row-links	the GitHub panel's row links and pull request stacks
 github-recent-branches	the GitHub panel keeps the last five branches
+settings-themed-controls	Settings' controls take the theme's colour
