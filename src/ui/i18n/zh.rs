@@ -2232,7 +2232,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsTabUsageMemoryDesc => "标签页所有窗格中全部进程（含子进程）的常驻内存",
         L10nKey::SettingsTabUsageAnnotate => "标注高资源占用的标签页",
         L10nKey::SettingsTabUsageAnnotateDesc => {
-            "当 CPU 超过 80% 或内存超过 4 GB 时，即使已关闭显示，也以警告色显示该标签页的 CPU 或内存"
+            "当 CPU 超过 80% 或内存超过 4 GB 时，即使上面的开关已关闭，也以警告色显示该标签页的 CPU 或内存"
         }
         L10nKey::SearchHintBackground => "在后台打开",
         L10nKey::SettingsGroupOutline => "分组轮廓",

@@ -2393,7 +2393,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SettingsTabUsageAnnotate => "Annotate high-resource tabs",
         L10nKey::SettingsTabUsageAnnotateDesc => {
-            "Show a tab's CPU or memory in the warning colour while it passes 80% CPU or 4 GB, even with those switched off"
+            "Show a tab's CPU or memory in the warning colour while it passes 80% CPU or 4 GB, even with the above switched off"
         }
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",

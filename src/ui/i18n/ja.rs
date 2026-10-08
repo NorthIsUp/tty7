@@ -2466,7 +2466,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsTabUsageAnnotate => "リソースを多く使うタブを強調",
         L10nKey::SettingsTabUsageAnnotateDesc => {
-            "CPU 80% またはメモリ 4 GB を超えている間、オフでもそのタブの CPU・メモリを警告色で表示します"
+            "CPU 80% またはメモリ 4 GB を超えている間、上の設定がオフでもそのタブの CPU・メモリを警告色で表示します"
         }
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",

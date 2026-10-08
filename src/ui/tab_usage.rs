@@ -127,10 +127,19 @@ impl TabUsage {
     /// Replaces the panes the poll asks about, and starts the poll the first
     /// time anyone wants one.
     pub(crate) fn want(cx: &mut App, panes: impl IntoIterator<Item = (u64, Option<SharedHost>)>) {
+        let panes: HashMap<u64, Option<SharedHost>> = panes.into_iter().collect();
+        // Called from render: touching the global marks it changed, which
+        // draws another frame, so it is written only when the panes moved.
+        let same = cx.try_global::<Self>().is_some_and(|u| {
+            u.wanted.len() == panes.len() && panes.keys().all(|id| u.wanted.contains_key(id))
+        });
+        if same {
+            return;
+        }
         let usage = cx.default_global::<Self>();
-        usage.wanted = panes.into_iter().collect();
+        usage.wanted = panes;
         usage.panes.retain(|id, _| usage.wanted.contains_key(id));
-        if !usage.polling {
+        if !usage.polling && !usage.wanted.is_empty() {
             usage.polling = true;
             Self::poll(cx);
         }
@@ -179,7 +188,22 @@ impl TabUsage {
                     })
                     .await;
                 let now = Instant::now();
+                if answers.is_empty() {
+                    continue;
+                }
                 cx.update(|cx| {
+                    // An answer the same as the last costs no frame: a quiet
+                    // machine, or a test with no daemon, stays idle.
+                    let changed = {
+                        let usage = cx.global::<Self>();
+                        answers.iter().any(|(id, procs)| {
+                            usage.wanted.contains_key(id)
+                                && usage.panes.get(id).is_none_or(|p| p.procs != *procs)
+                        })
+                    };
+                    if !changed {
+                        return;
+                    }
                     let usage = cx.global_mut::<Self>();
                     for (id, procs) in answers {
                         if !usage.wanted.contains_key(&id) {
