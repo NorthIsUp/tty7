@@ -52,6 +52,7 @@ read when a sync stops on a conflict in that feature.
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 - [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 - [diff-one-sided](docs/fork/features/diff-one-sided.md): a new or deleted file's diff draws unified
+- [detached-replies](docs/fork/features/detached-replies.md): a pane no window shows still answers DA1
 
 ## Syncing
 
