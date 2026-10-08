@@ -15,4 +15,4 @@ github-recent-branches	the GitHub panel keeps the last five branches	github-sess
 detached-replies	a pane no window shows still answers DA1
 traffic-light-inset	the traffic lights sit as far in from the left as from the top
 handoff-modes	a pane keeps its private modes across a daemon handoff
-tab-usage	the sidebar shows each tab's pid, CPU and memory
+tab-usage	the sidebar shows each tab's pid, CPU and memory	sidebar-groups
