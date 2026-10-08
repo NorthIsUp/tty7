@@ -23,5 +23,5 @@
 | `src/ui/tab_sidebar.rs` | `tab_sidebar` section loop, `header_git` after `shared_git`; `SharedGit` `pub(crate)` | `group_header::header_git`: the header names the repo's default branch, not the rows' checkout |
 | `src/ui/tab_sidebar.rs` | test `folding_a_group_takes_its_rows_off_the_sidebar` | `animations = false`: it checks where a fold ends, not its slide |
 | `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
-| `src/ui/settings/pages.rs` | `render_tabs_group` | chain `group_header_settings` rows |
+| `src/ui/settings/pages.rs` | `render_settings_appearance` | a Tabs group of `group_header_settings` rows, before Window |
 | `docs/window/sidebar.mdx` | Group colours | `group_colors`, header outline/fill, default branch |

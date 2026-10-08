@@ -549,6 +549,12 @@ impl Tty7App {
                 cx,
             ),
         );
+        groups.push(self.settings_group(
+            Some(t(L10nKey::SettingsTabs)),
+            None,
+            self.group_header_settings(cx),
+            cx,
+        ));
         groups.push(self.render_window_section(cx));
         groups.extend(self.hotkey_window_settings(cx));
         Self::settings_page(groups)
@@ -1455,7 +1461,6 @@ impl Tty7App {
             cx,
             |this, on, _, cx| this.set_sidebar_auto_grouping(on, cx),
         );
-        let group_header = self.group_header_settings(cx);
         self.settings_group(
             Some(t(L10nKey::SettingsTabs)),
             None,
@@ -1485,9 +1490,7 @@ impl Tty7App {
                     cx,
                 ),
             ]
-            .map(IntoElement::into_any_element)
-            .into_iter()
-            .chain(group_header),
+            .map(IntoElement::into_any_element),
             cx,
         )
     }
