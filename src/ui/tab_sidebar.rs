@@ -521,8 +521,15 @@ impl Tty7App {
         let reveal = self.sidebar_reveal.get();
         let mut reveal_drawn = false;
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
+            // The rule rides on the first unpinned block, in the gap above
+            // it, so it never stands in the list's flow (see `sidebar_divider`).
+            // The drop zone does stand in it: it has text to make room for.
+            let mut rule_above = None;
             if n == first_unpinned && show_divider {
-                list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));
+                match divider_zone {
+                    true => list = list.child(self.sidebar_divider(divider_lit, true, false, cx)),
+                    false => rule_above = Some(self.sidebar_divider(divider_lit, false, true, cx)),
+                }
                 divider_drawn = true;
             }
             let section = &sections[group_ix];
@@ -1628,9 +1635,11 @@ impl Tty7App {
                         }))
                 });
             let block = v_flex()
+                .relative()
                 .w_full()
                 .gap(px(ROW_GAP))
                 .map(|b| deco.block(b))
+                .children(rule_above)
                 .when(preview.is_some_and(|p| Some(p.from) == slot), |b| {
                     b.opacity(0.75)
                 })
@@ -1696,7 +1705,7 @@ impl Tty7App {
             self.sidebar_reveal.set(None);
         }
         if show_divider && !divider_drawn {
-            list = list.child(self.sidebar_divider(divider_lit, divider_zone, cx));
+            list = list.child(self.sidebar_divider(divider_lit, divider_zone, false, cx));
         }
 
         // The room under the last row. Right-clicking a row opens that tab's
@@ -1985,7 +1994,15 @@ impl Tty7App {
     /// line at the very top of the list is not something anyone could aim
     /// above. `lit` while letting go would pin the header, or hand a kept tab
     /// back to auto grouping.
-    fn sidebar_divider(&self, lit: bool, zone: bool, cx: &Context<Self>) -> AnyElement {
+    /// `above_block`: drawn inside the block below it, filling the gap over
+    /// that block, rather than as an item of the list.
+    fn sidebar_divider(
+        &self,
+        lit: bool,
+        zone: bool,
+        above_block: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let bounds = self.sidebar_divider.clone();
         let ink = match (lit, zone) {
             (true, _) => cx.theme().drag_border,
@@ -2023,7 +2040,17 @@ impl Tty7App {
                 // adding one of its own: as a child of the list it would
                 // otherwise sit between two `GROUP_GAP`s, and kept groups
                 // stood more than twice as far from the rest as groups stand
-                // from each other.
+                // from each other. Negative margins to cancel the gaps lost
+                // one of them in the scrolling list, which left the first
+                // unpinned group touching the last pinned one, so it is drawn
+                // over its block's own gap instead.
+                false if above_block => d
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(-GROUP_GAP))
+                    .h(px(GROUP_GAP))
+                    .justify_center(),
                 false => d.h(px(GROUP_GAP)).my(px(-GROUP_GAP)).justify_center(),
             })
             .child(
