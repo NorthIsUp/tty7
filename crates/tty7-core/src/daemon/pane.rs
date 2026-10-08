@@ -2451,6 +2451,7 @@ impl DaemonPane {
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);
                             fan_out_output(&mut st, bytes, frames, &gate);
+                            answer_detached_queries(&mut st, &writer);
                             apply_signals(&mut st, signals);
                             if let Some(remote) = remote {
                                 apply_remote_context(&mut st, remote);
@@ -3373,6 +3374,28 @@ impl ReplayRing {
 fn record_output(st: &mut PaneState, bytes: &[u8]) {
     st.ring.append(bytes);
     st.modes.feed(bytes);
+}
+
+/// The primary device attributes a client's emulator answers with.
+const DA1_REPLY: &[u8] = b"\x1b[?6c";
+
+/// A pane with no client attached has nobody to answer its queries, and a
+/// replay drops replies, so one asked then is never answered. Programs that
+/// end a batch of queries with DA1 wait on that answer: Claude Code's OSC 11
+/// theme check hangs on it and then skips every later check, so the theme
+/// flips tty7 reports never reach it. Answering DA1 here lets the batch end;
+/// the colour report a client sends on attach then asks again, and is answered.
+fn answer_detached_queries(st: &mut PaneState, writer: &Mutex<Box<dyn Write + Send>>) {
+    let asked = st.modes.take_device_attribute_queries();
+    if asked == 0 || st.subscriber.is_some() {
+        return;
+    }
+    if let Ok(mut writer) = writer.lock() {
+        for _ in 0..asked {
+            let _ = writer.write_all(DA1_REPLY);
+        }
+        let _ = writer.flush();
+    }
 }
 
 /// Everything a client needs to rebuild the pane's screen and status, in the
@@ -6724,6 +6747,41 @@ mod tests {
         );
 
         withdraw_observations();
+    }
+
+    /// Claude Code ends its OSC 11 theme query with DA1 and waits for both.
+    /// Started in a pane no window shows (an agent woken at launch), it got
+    /// neither and never checked the theme again.
+    #[test]
+    fn a_detached_pane_answers_device_attributes_and_an_attached_one_leaves_it_to_the_client() {
+        #[derive(Clone, Default)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let sink = Sink::default();
+        let writer: Mutex<Box<dyn Write + Send>> = Mutex::new(Box::new(sink.clone()));
+        let mut st = test_state(true);
+
+        record_output(&mut st, b"\x1b]11;?\x07\x1b[c");
+        answer_detached_queries(&mut st, &writer);
+        assert_eq!(sink.0.lock().unwrap().as_slice(), DA1_REPLY);
+
+        let (tx, _rx) = mpsc::channel();
+        st.subscriber = Some(tx);
+        record_output(&mut st, b"\x1b[c");
+        answer_detached_queries(&mut st, &writer);
+        assert_eq!(
+            sink.0.lock().unwrap().as_slice(),
+            DA1_REPLY,
+            "the client answers"
+        );
     }
 
     #[test]
