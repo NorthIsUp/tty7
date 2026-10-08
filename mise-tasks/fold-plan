@@ -29,8 +29,8 @@ def read_tsv(path: str) -> list[tuple[str, str]]:
         for line in f:
             line = line.rstrip("\n")
             if line and not line.startswith("#"):
-                key, _, value = line.partition("\t")
-                rows.append((key.strip(), value.strip()))
+                key, _, rest = line.partition("\t")
+                rows.append((key.strip(), rest.partition("\t")[0].strip()))
     return rows
 
 

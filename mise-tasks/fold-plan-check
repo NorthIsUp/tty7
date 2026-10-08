@@ -25,7 +25,7 @@ subjects() { git log --reverse --format=%s "$(git rev-list --max-parents=0 HEAD)
 
 # sync mode: stack commits, a tagged tail, an unknown slug, an untagged commit
 repo
-printf 'a\tA feature\nb\tB feature\n' > order.tsv; order=$PWD/order.tsv
+printf 'a\tA feature\nb\tB feature\ta\n' > order.tsv; order=$PWD/order.tsv
 commit a.txt 1 "fork(a): A feature" "Fork-Feature: a"
 commit b.txt 1 "fork(b): B feature" "Fork-Feature: b"
 commit b.txt 2 "fix(b): tweak" "Fork-Feature: b"

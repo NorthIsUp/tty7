@@ -75,6 +75,14 @@ untagged commit that predates the stack.
 
 Between syncs, `main-niu` is the stack plus a tail of these squash commits.
 
+Every stack commit is a change that could go upstream as a pull request. A PR
+that fixes or extends a feature takes that feature's slug. A new slug is for a
+change upstream could take on its own; its `stack-order.tsv` row names, in a
+third column, the features it calls into or edits the lines of.
+`mise run upstreamable --build` checks that each feature, applied to upstream
+`main` with only the fork base (`fork-infra`, `fork-config`, `fork-docs`) and
+the features it needs, builds with no warning the stack's tip doesn't have.
+
 ## Sync
 
 `mise run sync-upstream` runs three phases, and stops at the first failure.
