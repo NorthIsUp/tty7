@@ -2446,7 +2446,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
         L10nKey::SettingsGroupOutline => "グループの枠線",
-        L10nKey::SettingsGroupOutlineDesc => "各グループ見出しの周りに細い枠線を引きます。",
+        L10nKey::SettingsGroupOutlineDesc => "各グループ（見出しとタブ）の周りに細い枠線を引きます。",
         L10nKey::SettingsGroupOutlineColor => "枠線の色",
         L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
         L10nKey::SettingsGroupBackground => "グループの背景",

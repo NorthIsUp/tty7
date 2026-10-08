@@ -2373,7 +2373,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",
-        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group header.",
+        L10nKey::SettingsGroupOutlineDesc => "A thin outline round each group, its header and its tabs.",
         L10nKey::SettingsGroupOutlineColor => "Outline colour",
         L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
         L10nKey::SettingsGroupBackground => "Group background",

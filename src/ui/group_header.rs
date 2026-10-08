@@ -144,19 +144,24 @@ impl Deco {
         folded && self.open <= 0.
     }
 
-    /// The header bar's fill and outline, when they cover the header alone.
+    /// The header bar's fill, when the fill covers the header alone.
     pub(crate) fn bar<E: Styled>(&self, el: E) -> E {
         match &self.style {
-            Some(style) if wears(style.scope, false) => paint(el, style),
-            _ => el,
+            Some(style) => paint(el, style.fill.filter(|_| wears(style.scope, false)), None),
+            None => el,
         }
     }
 
-    /// The group block's fill and outline, when they cover the whole group.
+    /// The group block's outline, always: it marks where the group ends, so
+    /// it goes round the rows too. Its fill, when the fill covers the group.
     pub(crate) fn block<E: Styled>(&self, el: E) -> E {
         match &self.style {
-            Some(style) if wears(style.scope, true) => paint(el, style),
-            _ => el,
+            Some(style) => paint(
+                el,
+                style.fill.filter(|_| wears(style.scope, true)),
+                style.outline,
+            ),
+            None => el,
         }
     }
 
@@ -187,16 +192,16 @@ impl Deco {
     }
 }
 
-fn paint<E: Styled>(el: E, style: &HeaderStyle) -> E {
-    let el = match style.fill.is_some() || style.outline.is_some() {
+fn paint<E: Styled>(el: E, fill: Option<Hsla>, outline: Option<Hsla>) -> E {
+    let el = match fill.is_some() || outline.is_some() {
         true => el.rounded(crate::ui::rounding::ROW_RADIUS),
         false => el,
     };
-    let el = match style.fill {
+    let el = match fill {
         Some(c) => el.bg(c),
         None => el,
     };
-    match style.outline {
+    match outline {
         Some(c) => el.border_1().border_color(c),
         None => el,
     }
