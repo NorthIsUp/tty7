@@ -16,3 +16,4 @@ github-row-links	the GitHub panel's row links and pull request stacks	github-ses
 github-recent-branches	the GitHub panel keeps the last five branches	github-session
 settings-themed-controls	Settings' controls take the theme's colour
 detached-replies	a pane no window shows still answers DA1
+traffic-light-inset	the traffic lights sit as far in from the left as from the top
