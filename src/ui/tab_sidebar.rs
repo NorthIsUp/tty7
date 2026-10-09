@@ -28,6 +28,7 @@ use crate::ui::tab_strip::{
     DragTab, REORDER_SLIDE_MS, abbreviate_home, elide_end_clusters, elide_label,
     elide_path_keep_tail, measure_text,
 };
+use crate::ui::tab_usage::TabUsage;
 
 pub(crate) const MIN_SIDEBAR_WIDTH: f32 = 180.;
 
@@ -520,25 +521,7 @@ impl Tty7App {
         // gone) is dropped, so it cannot fire when the row turns up later.
         let reveal = self.sidebar_reveal.get();
         let mut reveal_drawn = false;
-        let usage_panes: Vec<_> = self
-            .tabs
-            .iter()
-            .flat_map(|t| t.pane.terminals())
-            .map(|v| {
-                let v = v.read(cx);
-                let host = (!v.host_id().is_local()).then(|| v.host(cx)).flatten();
-                (v.pane_id, host)
-            })
-            .collect();
-        let usage_show = crate::ui::tab_usage::Show::of(&cx.global::<Config>().fork);
-        crate::ui::tab_usage::TabUsage::want(
-            cx,
-            usage_panes.into_iter().filter(|_| usage_show.any()),
-        );
-        let usage_font = gpui::Font {
-            family: cx.theme().mono_font_family.clone(),
-            ..meta_font.clone()
-        };
+        TabUsage::want(cx, &self.tabs);
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             // The rule rides on the first unpinned block, in the gap above
             // it, so it never stands in the list's flow (see `sidebar_divider`).
@@ -675,25 +658,7 @@ impl Tty7App {
                     true => None,
                     false => self.row_status_dot(agent_status, agent_unread, rail_fill),
                 };
-                let pane_ids: Vec<u64> = tab
-                    .pane
-                    .terminals()
-                    .iter()
-                    .map(|v| v.read(cx).pane_id)
-                    .collect();
-                let front = tab
-                    .pane
-                    .focused_or_first(window, cx)
-                    .map(|v| v.read(cx).pane_id);
-                let usage_cells = crate::ui::tab_usage::TabUsage::of(cx, &pane_ids, front)
-                    .map(|u| u.cells(usage_show))
-                    .filter(|cells| !cells.is_empty());
-                // A row with numbers keeps the dot's slot even without a dot,
-                // so the numbers stand in one column down the sidebar.
-                let status_slot = status_dot.is_none()
-                    && usage_cells.is_some()
-                    && !(show_badges && badge_pos < 9);
-                let status_extra = match status_dot.is_some() || status_slot {
+                let status_extra = match status_dot.is_some() {
                     true => row_metrics::STATUS + row_metrics::GAP,
                     false => 0.,
                 };
@@ -704,44 +669,16 @@ impl Tty7App {
                         .max(48.);
                 let title_size = 0.875 * rem;
                 let meta_size = META_REM * rem;
-                // Only where the title keeps a usable line beside it; a
-                // narrow sidebar drops the numbers before the name.
-                // Small, mono and padded to fixed widths, so a number that
-                // moves from 1.0 to 1.2 GB never nudges the row.
-                let usage_size = meta_size * 0.85;
-                let usage = usage_cells
-                    .map(|cells| {
-                        let w = cells
-                            .iter()
-                            .map(|c| {
-                                measure_text(
-                                    &window.text_system(),
-                                    &usage_font,
-                                    usage_size,
-                                    &c.text,
-                                ) + row_metrics::META_GAP
-                            })
-                            .sum::<f32>();
-                        (cells, w)
-                    })
-                    // Only where the title keeps a usable line beside it; a
-                    // narrow sidebar drops the numbers before the name.
-                    .filter(|(_, w)| label_avail - w >= 96.);
-                let label_avail = label_avail - usage.as_ref().map_or(0., |(_, w)| *w);
-                let usage_cell = |cells: Vec<crate::ui::tab_usage::Cell>, cx: &gpui::App| {
-                    let (muted, hot) = (cx.theme().muted_foreground, cx.theme().warning);
-                    h_flex()
-                        .flex_shrink_0()
-                        .gap(px(row_metrics::META_GAP))
-                        .text_size(px(usage_size))
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .children(cells.into_iter().map(|c| {
-                            div()
-                                .whitespace_nowrap()
-                                .text_color(if c.hot { hot } else { muted })
-                                .child(c.text)
-                        }))
+                // A row with numbers keeps a free status slot, so the numbers
+                // stand in one column down the sidebar.
+                let usage_slot = match status_dot.is_none() && !(show_badges && badge_pos < 9) {
+                    true => row_metrics::STATUS + row_metrics::GAP,
+                    false => 0.,
                 };
+                let mut usage =
+                    TabUsage::row(window, cx, &tab.pane, meta_size, label_avail - usage_slot);
+                let status_slot = usage_slot > 0. && usage.is_some();
+                let label_avail = label_avail - usage.as_ref().map_or(0., |u| u.w + usage_slot);
                 let title_font = if is_active { &title_font_active } else { &font };
                 // Title: the *full* label, elided further down once the
                 // working directory beside it has said how much of the line
@@ -849,10 +786,7 @@ impl Tty7App {
                         }
                         line = line.child(counts);
                     }
-                    if let Some((cells, _)) = usage.clone() {
-                        line = line.child(usage_cell(cells, cx));
-                    }
-                    line
+                    line.children(usage.take().map(|u| u.el))
                 });
                 // Outside a repo there is no branch line, and the working
                 // directory rides on the title's own line rather than growing
@@ -1084,9 +1018,7 @@ impl Tty7App {
                                             .child(cwd),
                                     )
                                 })
-                                .when_some(usage.filter(|_| !two_line), |line, (cells, _)| {
-                                    line.child(usage_cell(cells, cx))
-                                }),
+                                .children(usage.map(|u| u.el)),
                         )
                         .children(git_line)
                         .into_any_element(),

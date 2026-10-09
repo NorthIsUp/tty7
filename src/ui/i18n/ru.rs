@@ -2490,7 +2490,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsTabUsageAnnotate => "Отмечать ресурсоёмкие вкладки",
         L10nKey::SettingsTabUsageAnnotateDesc => {
-            "Показывать CPU или память вкладки цветом предупреждения, пока они выше 80% CPU или 4 ГБ, даже если переключатели выше выключены"
+            "Показывать CPU или память вкладки цветом предупреждения, пока они высоки"
         }
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",

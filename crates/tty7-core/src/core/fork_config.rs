@@ -63,8 +63,8 @@ pub struct ForkConfig {
     pub tab_usage_cpu: bool,
     /// …with their resident memory.
     pub tab_usage_memory: bool,
-    /// A tab past the high-use marks shows its CPU or memory in the warning
-    /// colour even with those switched off.
+    /// A tab past the high-use marks shows its CPU or memory, where shown, in
+    /// the warning colour.
     pub tab_usage_annotate: bool,
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
