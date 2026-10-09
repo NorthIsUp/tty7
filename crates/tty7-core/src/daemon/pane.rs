@@ -1436,11 +1436,11 @@ pub struct Carried {
     pub agent: Option<crate::core::cli_agent::CLIAgent>,
     pub agent_argv: Option<Vec<String>>,
     pub agent_session: Option<crate::core::cli_agent::AgentSessionState>,
-    /// The bytes that switch the pane's private modes back on. A program sets
-    /// them once at startup and the ring drops its front, so after an `exec`
-    /// a long-running TUI would otherwise lose its alternate screen, mouse
-    /// and 2031 for good.
-    pub modes: Option<Vec<u8>>,
+    /// The modes the ring dropped off its front, as bytes that switch them
+    /// back on. A program sets them once at startup, so after an `exec` a
+    /// long-running TUI would otherwise lose its alternate screen, mouse, 2031
+    /// and kitty keyboard flags for good.
+    pub head_modes: Option<Vec<u8>>,
 }
 
 /// A pty master this process inherited from its own previous image.
@@ -2030,7 +2030,7 @@ impl DaemonPane {
             agent: st.agent,
             agent_argv: st.agent_argv.clone(),
             agent_session: st.agent_session.clone(),
-            modes: st.modes.restore_bytes(),
+            head_modes: st.ring.head_modes.restore_bytes(),
         })
     }
 
@@ -2046,10 +2046,6 @@ impl DaemonPane {
         carried: crate::daemon::pane::Carried,
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
-        let mut carried_modes = TerminalModes::new();
-        if let Some(bytes) = &carried.modes {
-            carried_modes.feed(bytes);
-        }
         let master = AdoptedMaster::from_fd(carried.master_fd)?;
         let reader_handle = master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(master.take_writer()?));
@@ -2067,7 +2063,8 @@ impl DaemonPane {
             })
             .unwrap_or(carried.size);
 
-        let mut ring = ReplayRing::seeded(carried.ring, size);
+        let (mut ring, modes) =
+            ReplayRing::adopted(carried.ring, size, carried.head_modes.as_deref());
         // Not a restore banner: nothing was lost, so there is nothing to
         // announce and nothing to reset. The shell below these bytes is the
         // same shell that wrote them.
@@ -2110,7 +2107,7 @@ impl DaemonPane {
                 },
                 remote_prompt_seen: false,
                 ssh_phase: None,
-                modes: carried_modes,
+                modes,
                 remote: carried.remote,
                 agent: carried.agent,
                 agent_session: carried.agent_session,
@@ -3130,6 +3127,22 @@ impl ReplayRing {
         ring
     }
 
+    /// A ring carried across a handoff, with the pane's modes folded back
+    /// from it: `head` is the carried [`Self::head_modes`], and the pane's
+    /// modes are that plus every byte the ring still holds.
+    fn adopted(
+        segments: Vec<crate::daemon::scrollback::Segment>,
+        size: WinSize,
+        head: Option<&[u8]>,
+    ) -> (Self, TerminalModes) {
+        let mut ring = Self::seeded(segments, size);
+        if let Some(bytes) = head {
+            ring.head_modes.feed(bytes);
+        }
+        let modes = ring.modes_from(ring.head_modes.clone());
+        (ring, modes)
+    }
+
     /// The geometry new output would be recorded at.
     fn tail_size(&self) -> WinSize {
         self.segments
@@ -3260,7 +3273,11 @@ impl ReplayRing {
     /// [`Self::evict`]), and the answer here has to be the one the client's
     /// emulator will reach from what is left.
     fn modes(&self) -> TerminalModes {
-        let mut modes = TerminalModes::new();
+        self.modes_from(TerminalModes::new())
+    }
+
+    /// `start` with every byte the ring holds folded into it.
+    fn modes_from(&self, mut modes: TerminalModes) -> TerminalModes {
         for seg in &self.segments {
             // Both halves of the deque, in order: `feed` carries a sequence
             // across calls, so the split is invisible to the fold.
@@ -5134,6 +5151,33 @@ mod tests {
             ring.appended, 0,
             "the mark answers 'has this pane written anything since the last snapshot', and \
              bytes it was handed at birth are not an answer of yes"
+        );
+    }
+
+    #[test]
+    fn a_handoff_keeps_the_modes_the_ring_dropped_off_its_front() {
+        use crate::daemon::scrollback::Segment;
+
+        let mut head = TerminalModes::new();
+        head.feed(b"\x1b[?1049h\x1b[?2031h\x1b[>1u");
+        let (ring, modes) = ReplayRing::adopted(
+            vec![Segment {
+                size: ws(80, 24),
+                bytes: b"long after startup".to_vec(),
+            }],
+            ws(80, 24),
+            head.restore_bytes().as_deref(),
+        );
+
+        assert!(modes.is_on(crate::core::term_modes::COLOR_SCHEME_UPDATES));
+        let prelude = modes
+            .replay_prelude(&ring.head_modes, &ring.modes())
+            .expect("a prelude");
+        let has = |needle: &[u8]| prelude.windows(needle.len()).any(|w| w == needle);
+        assert!(has(b"\x1b[?2031h"));
+        assert!(
+            has(b"\x1b[>1u"),
+            "the keyboard flags come back from the head fold, so it has to cross the exec too"
         );
     }
 
