@@ -2379,6 +2379,22 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::NewTabPageTerminal => "Terminal",
         L10nKey::NewTabPagePlaceholder => "Directory…",
         L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
+        L10nKey::SettingsTabUsagePid => "Show each tab's pid",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "The front pane's shell process id, at the end of the tab's row in the sidebar"
+        }
+        L10nKey::SettingsTabUsageCpu => "Show each tab's CPU",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "CPU use of every process in the tab's panes, children included. 100% is one core"
+        }
+        L10nKey::SettingsTabUsageMemory => "Show each tab's memory",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "Resident memory of every process in the tab's panes, children included"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "Annotate high-resource tabs",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "Show a tab's CPU or memory in the warning colour while it runs high"
+        }
         L10nKey::SearchHintBackground => "Open in background",
         L10nKey::SettingsGroupOutline => "Group outline",
         L10nKey::SettingsGroupOutlineDesc => {
