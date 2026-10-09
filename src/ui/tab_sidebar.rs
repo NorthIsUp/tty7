@@ -28,6 +28,7 @@ use crate::ui::tab_strip::{
     DragTab, REORDER_SLIDE_MS, abbreviate_home, elide_end_clusters, elide_label,
     elide_path_keep_tail, measure_text,
 };
+use crate::ui::tab_usage::TabUsage;
 
 pub(crate) const MIN_SIDEBAR_WIDTH: f32 = 180.;
 
@@ -520,6 +521,7 @@ impl Tty7App {
         // gone) is dropped, so it cannot fire when the row turns up later.
         let reveal = self.sidebar_reveal.get();
         let mut reveal_drawn = false;
+        TabUsage::want(cx, &self.tabs);
         for (n, (group_slot, group_ix)) in blocks.into_iter().enumerate() {
             // The rule rides on the first unpinned block, in the gap above
             // it, so it never stands in the list's flow (see `sidebar_divider`).
@@ -667,6 +669,16 @@ impl Tty7App {
                         .max(48.);
                 let title_size = 0.875 * rem;
                 let meta_size = META_REM * rem;
+                // A row with numbers keeps a free status slot, so the numbers
+                // stand in one column down the sidebar.
+                let usage_slot = match status_dot.is_none() && !(show_badges && badge_pos < 9) {
+                    true => row_metrics::STATUS + row_metrics::GAP,
+                    false => 0.,
+                };
+                let mut usage =
+                    TabUsage::row(window, cx, &tab.pane, meta_size, label_avail - usage_slot);
+                let status_slot = usage_slot > 0. && usage.is_some();
+                let label_avail = label_avail - usage.as_ref().map_or(0., |u| u.w + usage_slot);
                 let title_font = if is_active { &title_font_active } else { &font };
                 // Title: the *full* label, elided further down once the
                 // working directory beside it has said how much of the line
@@ -774,7 +786,7 @@ impl Tty7App {
                         }
                         line = line.child(counts);
                     }
-                    line
+                    line.children(usage.take().map(|u| u.el))
                 });
                 // Outside a repo there is no branch line, and the working
                 // directory rides on the title's own line rather than growing
@@ -1005,7 +1017,8 @@ impl Tty7App {
                                             .text_color(cx.theme().muted_foreground)
                                             .child(cwd),
                                     )
-                                }),
+                                })
+                                .children(usage.map(|u| u.el)),
                         )
                         .children(git_line)
                         .into_any_element(),
@@ -1139,6 +1152,9 @@ impl Tty7App {
                     ))
                     .child(label_region)
                     .children(status_dot)
+                    .when(status_slot, |row| {
+                        row.child(div().flex_shrink_0().w(px(row_metrics::STATUS)))
+                    })
                     .when(show_badges && badge_pos < 9, |row| {
                         row.child(
                             div()
