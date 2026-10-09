@@ -549,12 +549,16 @@ impl Tty7App {
                 cx,
             ),
         );
-        groups.push(self.settings_group(
-            Some(t(L10nKey::SettingsTabs)),
-            None,
-            self.group_header_settings(cx),
-            cx,
-        ));
+        groups.push(
+            self.settings_group(
+                Some(t(L10nKey::SettingsTabs)),
+                None,
+                self.group_header_settings(cx)
+                    .into_iter()
+                    .chain(self.tab_usage_settings(cx)),
+                cx,
+            ),
+        );
         groups.push(self.render_window_section(cx));
         groups.extend(self.hotkey_window_settings(cx));
         Self::settings_page(groups)

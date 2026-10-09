@@ -2476,6 +2476,22 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::NewTabPageTerminal => "Терминал",
         L10nKey::NewTabPagePlaceholder => "Папка…",
         L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
+        L10nKey::SettingsTabUsagePid => "Показывать PID вкладки",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "Идентификатор процесса оболочки переднего окна в конце строки вкладки на боковой панели"
+        }
+        L10nKey::SettingsTabUsageCpu => "Показывать CPU вкладки",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "Загрузка CPU всеми процессами в панелях вкладки, включая дочерние. 100% — одно ядро"
+        }
+        L10nKey::SettingsTabUsageMemory => "Показывать память вкладки",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "Резидентная память всех процессов в панелях вкладки, включая дочерние"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "Отмечать ресурсоёмкие вкладки",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "Показывать CPU или память вкладки цветом предупреждения, пока они высоки"
+        }
         L10nKey::SearchHintBackground => "Открыть в фоне",
         L10nKey::SettingsGroupOutline => "Контур группы",
         L10nKey::SettingsGroupOutlineDesc => {
