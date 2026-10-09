@@ -5,35 +5,36 @@
 
 use std::collections::HashMap;
 
-use super::model::Item;
+use super::model::{Item, PullRefs};
 
-/// A pull request's branches, as `/pulls` reports them.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct PullRefs {
-    pub head_ref: String,
-    /// The owner of the repository the head branch lives in, from
-    /// `head.label` (`owner:branch`). Empty when GitHub left the label out.
-    pub head_owner: String,
-    pub base_ref: String,
-}
-
-/// Whether a row's stack continues into the row above it and the row below.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct StackLink {
-    pub above: bool,
-    pub below: bool,
+/// Where a row sits in its stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackPos<'a> {
+    /// In no stack.
+    Solo,
+    Top,
+    Middle,
+    /// The trunk-most pull request, and the branch the stack is based on.
+    Bottom {
+        base: &'a str,
+    },
 }
 
 /// `rows` with each stack gathered into one run where its first member
 /// sorted; rows in no stack keep their place. `owner` is the repository's:
 /// a base branch only names another pull request's head when that head lives
 /// in the same repository, never in a fork.
-pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackLink)> {
-    let refs = |i: usize| rows[i].pull.as_ref().filter(|_| rows[i].is_pr);
+pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackPos<'a>)> {
+    let refs = |i: usize| -> Option<&'a PullRefs> { rows[i].pull.as_ref() };
     let mut by_head: HashMap<&str, usize> = HashMap::new();
     for i in 0..rows.len() {
-        if let Some(r) = refs(i).filter(|r| r.head_owner.is_empty() || r.head_owner == owner) {
-            by_head.entry(r.head_ref.as_str()).or_insert(i);
+        let branch = refs(i).and_then(|r| {
+            r.head_label
+                .strip_prefix(owner)
+                .and_then(|b| b.strip_prefix(':'))
+        });
+        if let Some(branch) = branch {
+            by_head.entry(branch).or_insert(i);
         }
     }
     let parent: Vec<Option<usize>> = (0..rows.len())
@@ -80,11 +81,15 @@ pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackLi
     for group in groups {
         let last = group.len() - 1;
         for (k, i) in group.into_iter().enumerate() {
-            let link = StackLink {
-                above: k > 0,
-                below: k < last,
+            let pos = match k {
+                _ if last == 0 => StackPos::Solo,
+                0 => StackPos::Top,
+                k if k < last => StackPos::Middle,
+                _ => StackPos::Bottom {
+                    base: refs(i).map_or("", |r| r.base_ref.as_str()),
+                },
             };
-            out.push((rows[i], link));
+            out.push((rows[i], pos));
         }
     }
     out
@@ -97,6 +102,7 @@ pub fn graphite_url(owner: &str, repo: &str, number: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::StackPos::{Bottom, Middle, Solo, Top};
     use super::*;
     use crate::core::github::model::ItemState;
 
@@ -114,17 +120,17 @@ mod tests {
             html_url: String::new(),
             pull: Some(PullRefs {
                 head_ref: head.into(),
-                head_owner: "acme".into(),
+                head_label: format!("acme:{head}"),
                 base_ref: base.into(),
             }),
         }
     }
 
-    fn order(items: &[Item]) -> Vec<(u64, bool, bool)> {
+    fn order(items: &[Item]) -> Vec<(u64, StackPos<'_>)> {
         let rows: Vec<&Item> = items.iter().collect();
         stack_order(&rows, "acme")
             .into_iter()
-            .map(|(i, l)| (i.number, l.above, l.below))
+            .map(|(i, pos)| (i.number, pos))
             .collect()
     }
 
@@ -140,11 +146,11 @@ mod tests {
         assert_eq!(
             order(&items),
             [
-                (1, false, false),
-                (3, false, true),
-                (2, true, true),
-                (4, true, false),
-                (9, false, false),
+                (1, Solo),
+                (3, Top),
+                (2, Middle),
+                (4, Bottom { base: "main" }),
+                (9, Solo),
             ]
         );
     }
@@ -153,36 +159,30 @@ mod tests {
     fn issues_and_unstacked_rows_keep_their_order() {
         let mut issue = pr(5, "x", "y");
         issue.is_pr = false;
-        let mut bare = pr(6, "", "");
-        bare.pull = None;
-        let items = [pr(7, "y", "main"), issue, bare, pr(8, "z", "main")];
-        assert_eq!(
-            order(&items),
-            [
-                (7, false, false),
-                (5, false, false),
-                (6, false, false),
-                (8, false, false)
-            ]
-        );
+        issue.pull = None;
+        let items = [pr(7, "y", "main"), issue, pr(8, "z", "main")];
+        assert_eq!(order(&items), [(7, Solo), (5, Solo), (8, Solo)]);
     }
 
     #[test]
     fn a_fork_s_branch_is_not_a_base_in_this_repository() {
         let mut fork = pr(1, "feat", "main");
-        fork.pull.as_mut().unwrap().head_owner = "bob".into();
+        fork.pull.as_mut().unwrap().head_label = "bob:feat".into();
         let items = [fork, pr(2, "more", "feat")];
-        assert_eq!(order(&items), [(1, false, false), (2, false, false)]);
+        assert_eq!(order(&items), [(1, Solo), (2, Solo)]);
     }
 
     #[test]
     fn a_branching_stack_puts_each_pull_request_above_its_base() {
         let items = [pr(1, "a", "main"), pr(2, "b", "a"), pr(3, "c", "a")];
         let got = order(&items);
-        let pos = |n| got.iter().position(|r| r.0 == n).unwrap();
         assert_eq!(got.len(), 3);
-        assert_eq!(pos(1), 2, "the trunk-most at the bottom");
-        assert!(got[0].2 && got[1].1 && got[1].2 && got[2].1);
+        assert_eq!(
+            got[2],
+            (1, Bottom { base: "main" }),
+            "the trunk-most at the bottom"
+        );
+        assert_eq!((got[0].1, got[1].1), (Top, Middle));
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
         let mut numbers: Vec<u64> = got.iter().map(|r| r.0).collect();
         numbers.sort();
         assert_eq!(numbers, [1, 2, 3]);
-        assert_eq!(got[2], (3, false, false), "based on itself is no stack");
+        assert_eq!(got[2], (3, Solo), "based on itself is no stack");
     }
 
     #[test]

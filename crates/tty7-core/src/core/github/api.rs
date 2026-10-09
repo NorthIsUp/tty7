@@ -594,11 +594,11 @@ pub(crate) mod tests {
         let refs = page.items[0].pull.as_ref().unwrap();
         assert_eq!(
             (
-                refs.head_owner.as_str(),
+                refs.head_label.as_str(),
                 refs.head_ref.as_str(),
                 refs.base_ref.as_str()
             ),
-            ("bob", "feat/panel", "main")
+            ("bob:feat/panel", "feat/panel", "main")
         );
     }
 
@@ -690,7 +690,7 @@ pub(crate) mod tests {
         assert_eq!(d.item.labels[0].name, "ui", "labels come from the issue");
         let pull = d.pull.unwrap();
         assert_eq!(
-            (pull.head_ref.as_str(), pull.base_ref.as_str()),
+            (pull.refs.head_ref.as_str(), pull.refs.base_ref.as_str()),
             ("feat/panel", "main")
         );
         assert_eq!((pull.additions, pull.deletions, pull.commits), (120, 4, 3));

@@ -31,6 +31,7 @@ pub(crate) mod detail;
 pub(crate) mod merge;
 pub(crate) mod recent;
 pub(crate) mod review;
+pub(crate) mod rows;
 
 use std::collections::HashMap;
 use std::sync::Arc;

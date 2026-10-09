@@ -9,12 +9,13 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 
-use tty7_core::core::github::stack::{StackLink, graphite_url, stack_order};
+use tty7_core::core::github::stack::{StackPos, stack_order};
 use tty7_core::core::github::{
     ApiError, CheckState, GitHubRemote, Item, ItemState, Kind, Label, RepoSlug, StateFilter,
 };
 
 use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, Tty7App};
+use crate::ui::github::rows::{hovered_links, stack_glyph, stack_trunk};
 use crate::ui::github::{GhTarget, now_unix};
 use crate::ui::github_session::mentions_first;
 use crate::ui::host_ops::SharedHost;
@@ -24,7 +25,7 @@ use crate::ui::scm::path::relative_time;
 use crate::ui::scm::state::RepoKey;
 
 /// A list row: one line, the Source Control tab's row pitch.
-const ROW_H: f32 = 26.;
+pub(crate) const ROW_H: f32 = 26.;
 /// How many label chips a hovered row shows before the age.
 const MAX_ROW_LABELS: usize = 3;
 /// The widest a hovered row lets its author get before truncating it.
@@ -32,7 +33,7 @@ const AUTHOR_MAX_W: f32 = 96.;
 /// What a hovered row leaves of its title, however much meta it shows.
 const TITLE_MIN_W: f32 = 48.;
 /// The state glyph, and the column it sits in.
-const GLYPH: f32 = 14.;
+pub(crate) const GLYPH: f32 = 14.;
 /// The pinned rows' height — the Info tab's row pitch.
 const PINNED_ROW_H: f32 = 28.;
 /// The segmented switches' cells.
@@ -609,13 +610,9 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let mut out = Vec::new();
-        for (item, mut link) in stack_order(items, &slug.owner) {
-            let trunk = (link.above && !link.below)
-                .then(|| item.pull.as_ref().map(|p| p.base_ref.clone()))
-                .flatten();
-            link.below |= trunk.is_some();
-            out.push(self.github_item_row(slug, item, link, now, cx));
-            if let Some(base) = trunk {
+        for (item, pos) in stack_order(items, &slug.owner) {
+            out.push(self.github_item_row(slug, item, pos, now, cx));
+            if let StackPos::Bottom { base } = pos {
                 out.push(stack_trunk(base, cx));
             }
         }
@@ -626,7 +623,7 @@ impl Tty7App {
         &self,
         slug: &RepoSlug,
         item: &Item,
-        link: StackLink,
+        pos: StackPos,
         now: i64,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -634,7 +631,7 @@ impl Tty7App {
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
         let number = item.number;
-        let links = hovered_links(slug, item, self.github.hovered == Some(number), cx);
+        let links = (self.github.hovered == Some(number)).then(|| hovered_links(slug, item, cx));
         let slug = slug.clone();
         let hovered = self.github.hovered == Some(number);
         let title = SharedString::from(item.title.clone());
@@ -726,7 +723,7 @@ impl Tty7App {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.github_open_detail(slug.clone(), number, cx);
             }))
-            .child(stack_glyph(item, link, cx))
+            .child(stack_glyph(item, pos, cx))
             .child(
                 div()
                     .flex_none()
@@ -757,126 +754,6 @@ impl Tty7App {
             .as_ref()
             .is_none_or(|c| c.transport.authenticated())
     }
-}
-
-/// The state glyph, with a stacked pull request's connector running through
-/// it to the rows of its stack above and below.
-fn stack_glyph(item: &Item, link: StackLink, cx: &gpui::App) -> AnyElement {
-    let color = cx.theme().muted_foreground.opacity(0.5);
-    let gap = (ROW_H - GLYPH) / 2.;
-    let line = || {
-        div()
-            .absolute()
-            .left(px(GLYPH / 2. - 0.5))
-            .w(px(1.))
-            .h(px(gap))
-            .bg(color)
-    };
-    div()
-        .flex_none()
-        .relative()
-        .h(px(ROW_H))
-        .flex()
-        .items_center()
-        .child(state_glyph(item.state, item.is_pr, cx))
-        .when(link.above, |d| d.child(line().top_0()))
-        .when(link.below, |d| d.child(line().bottom_0()))
-        .into_any_element()
-}
-
-/// The branch a stack is based on, under its bottom row: the connector ends
-/// in a dot beside the branch's name.
-fn stack_trunk(base: String, cx: &gpui::App) -> AnyElement {
-    let theme = cx.theme();
-    let color = theme.muted_foreground.opacity(0.5);
-    const H: f32 = 18.;
-    const DOT: f32 = 5.;
-    h_flex()
-        .h(px(H))
-        .px(px(ROW_INSET))
-        .gap(px(8.))
-        .items_center()
-        .child(
-            div()
-                .flex_none()
-                .relative()
-                .w(px(GLYPH))
-                .h(px(H))
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left(px(GLYPH / 2. - 0.5))
-                        .w(px(1.))
-                        .h(px(H / 2.))
-                        .bg(color),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(px((H - DOT) / 2.))
-                        .left(px((GLYPH - DOT) / 2.))
-                        .size(px(DOT))
-                        .rounded_full()
-                        .bg(color),
-                ),
-        )
-        .child(
-            div()
-                .text_size(rems(META))
-                .font_family(theme.mono_font_family.clone())
-                .text_color(theme.muted_foreground)
-                .child(base),
-        )
-        .into_any_element()
-}
-
-/// A hovered row's way out to GitHub, and for a pull request to Graphite.
-/// The clicks stop at the tile, so the row does not open its detail too.
-fn hovered_links(
-    slug: &RepoSlug,
-    item: &Item,
-    hovered: bool,
-    cx: &gpui::App,
-) -> Option<AnyElement> {
-    if !hovered {
-        return None;
-    }
-    let number = item.number;
-    let url = item.html_url.clone();
-    let github = github_tile(
-        SharedString::from(format!("panel-github-row-gh-{number}")),
-        Icon::empty().path("icons/github.svg"),
-        t(L10nKey::GitHubOpenOnGitHub),
-        cx,
-    )
-    .cursor_pointer()
-    .on_click(move |_, _window, cx| {
-        cx.stop_propagation();
-        cx.open_url(&url);
-    });
-    let graphite = item.is_pr.then(|| {
-        let url = graphite_url(&slug.owner, &slug.name, number);
-        github_tile(
-            SharedString::from(format!("panel-github-row-gt-{number}")),
-            Icon::empty().path("icons/graphite.svg"),
-            t(L10nKey::GitHubOpenInGraphite),
-            cx,
-        )
-        .cursor_pointer()
-        .on_click(move |_, _window, cx| {
-            cx.stop_propagation();
-            cx.open_url(&url);
-        })
-    });
-    Some(
-        h_flex()
-            .flex_none()
-            .gap(px(2.))
-            .child(github)
-            .children(graphite)
-            .into_any_element(),
-    )
 }
 
 /// A 18px chrome tile, the Info rows' size.
