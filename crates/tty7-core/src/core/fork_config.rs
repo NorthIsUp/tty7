@@ -57,6 +57,15 @@ pub struct ForkConfig {
     pub group_background_scope: GroupBackgroundScope,
     /// Animate a sidebar group folding open and shut.
     pub animations: bool,
+    /// The sidebar row ends with the front pane's shell pid.
+    pub tab_usage_pid: bool,
+    /// …with the CPU% of every process in the tab's panes.
+    pub tab_usage_cpu: bool,
+    /// …with their resident memory.
+    pub tab_usage_memory: bool,
+    /// A tab past the high-use marks shows its CPU or memory, where shown, in
+    /// the warning colour.
+    pub tab_usage_annotate: bool,
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     pub nice: i32,
@@ -95,6 +104,10 @@ impl Default for ForkConfig {
             group_background_color: GroupColorSource::Hashed,
             group_background_scope: GroupBackgroundScope::Header,
             animations: true,
+            tab_usage_pid: false,
+            tab_usage_cpu: false,
+            tab_usage_memory: false,
+            tab_usage_annotate: true,
             nice: 5,
             github_panel_prefer_origin: true,
             global_hotkey: Some("alt-space".into()),
