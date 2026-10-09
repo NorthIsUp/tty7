@@ -1436,6 +1436,11 @@ pub struct Carried {
     pub agent: Option<crate::core::cli_agent::CLIAgent>,
     pub agent_argv: Option<Vec<String>>,
     pub agent_session: Option<crate::core::cli_agent::AgentSessionState>,
+    /// The bytes that switch the pane's private modes back on. A program sets
+    /// them once at startup and the ring drops its front, so after an `exec`
+    /// a long-running TUI would otherwise lose its alternate screen, mouse
+    /// and 2031 for good.
+    pub modes: Option<Vec<u8>>,
 }
 
 /// A pty master this process inherited from its own previous image.
@@ -2025,6 +2030,7 @@ impl DaemonPane {
             agent: st.agent,
             agent_argv: st.agent_argv.clone(),
             agent_session: st.agent_session.clone(),
+            modes: st.modes.restore_bytes(),
         })
     }
 
@@ -2040,6 +2046,10 @@ impl DaemonPane {
         carried: crate::daemon::pane::Carried,
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
+        let mut carried_modes = TerminalModes::new();
+        if let Some(bytes) = &carried.modes {
+            carried_modes.feed(bytes);
+        }
         let master = AdoptedMaster::from_fd(carried.master_fd)?;
         let reader_handle = master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(master.take_writer()?));
@@ -2100,7 +2110,7 @@ impl DaemonPane {
                 },
                 remote_prompt_seen: false,
                 ssh_phase: None,
-                modes: TerminalModes::default(),
+                modes: carried_modes,
                 remote: carried.remote,
                 agent: carried.agent,
                 agent_session: carried.agent_session,

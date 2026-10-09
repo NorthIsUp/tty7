@@ -50,6 +50,7 @@ read when a sync stops on a conflict in that feature.
 - [github-recent-branches](docs/fork/features/github-recent-branches.md): the GitHub panel keeps the last five branches
 - [settings-themed-controls](docs/fork/features/settings-themed-controls.md): Settings' controls take the theme's colour
 - [traffic-light-inset](docs/fork/features/traffic-light-inset.md): the traffic lights sit as far in from the left as from the top
+- [handoff-modes](docs/fork/features/handoff-modes.md): a pane keeps its private modes across a daemon handoff
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 - [copy-unwrap](docs/fork/features/copy-unwrap.md): copy rejoins lines Claude Code wrapped
 - [diff-one-sided](docs/fork/features/diff-one-sided.md): a new or deleted file's diff draws unified
