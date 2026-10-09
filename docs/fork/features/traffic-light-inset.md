@@ -10,4 +10,6 @@ from the left as from the top, so the fork does the same.
 
 | file | function / site | why |
 |---|---|---|
-| `src/ui/theme.rs` | `traffic_light_position`, its test | `x` is the derived top gap instead of 9 |
+| `src/ui/theme.rs` | `traffic_light_position`, `TRAFFIC_LIGHTS_LEAD`, their tests | `x` is the derived top gap instead of 9 |
+| `src/ui/app.rs` | `TITLE_BAR_LEAD` | on macOS, `TRAFFIC_LIGHTS_LEAD` instead of 80 |
+| `src/ui/tab_strip.rs` | macOS `strip_w`, search-band tests | `TITLE_BAR_LEAD` / `TRAFFIC_LIGHTS_LEAD` instead of a literal 80 |
