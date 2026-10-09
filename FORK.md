@@ -48,6 +48,7 @@ read when a sync stops on a conflict in that feature.
 - [github-merge](docs/fork/features/github-merge.md): the GitHub panel's pull request merge buttons and auto-merge
 - [github-row-links](docs/fork/features/github-row-links.md): the GitHub panel's row links and pull request stacks
 - [github-recent-branches](docs/fork/features/github-recent-branches.md): the GitHub panel keeps the last five branches
+- [tab-usage](docs/fork/features/tab-usage.md): the sidebar shows each tab's pid, CPU and memory
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 
 ## Syncing
