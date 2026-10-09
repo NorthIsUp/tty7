@@ -1821,6 +1821,7 @@ impl DaemonPane {
 
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
+        #[cfg(unix)]
         if let Some(pid) = shell_pid {
             super::nice::apply(pid);
         }
