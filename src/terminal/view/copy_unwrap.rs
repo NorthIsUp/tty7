@@ -7,14 +7,12 @@ use alacritty_terminal::Term;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::Flags;
-use gpui::{AnyElement, Context, IntoElement as _};
+use gpui::Context;
 use unicode_width::UnicodeWidthChar;
 
 use super::TerminalView;
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::Config;
-use crate::ui::app::Tty7App;
-use crate::ui::i18n::{L10nKey, t};
 
 /// One line as the copy sees it: the grid's rows up to the next one without
 /// WRAPLINE, read from column 0 whatever the selection's start.
@@ -247,26 +245,6 @@ impl TerminalView {
         }
         self.copy_selection_as(true, cx);
         true
-    }
-}
-
-impl Tty7App {
-    /// The Join wrapped lines row, after Selection & Clipboard's own.
-    pub(crate) fn copy_unwrap_settings(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> std::iter::Once<AnyElement> {
-        let on = cx.global::<Config>().copy_join_wrapped;
-        let switch = self.settings_switch("copy-join-wrapped", on, cx, |this, on, _, cx| {
-            this.update_config(cx, |c| c.copy_join_wrapped = on)
-        });
-        let row = self.settings_row(
-            t(L10nKey::SettingsCopyJoinWrapped),
-            t(L10nKey::SettingsCopyJoinWrappedDesc),
-            switch,
-            cx,
-        );
-        std::iter::once(row.into_any_element())
     }
 }
 

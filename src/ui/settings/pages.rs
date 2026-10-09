@@ -1233,6 +1233,11 @@ impl Tty7App {
         let trim = self.settings_switch("term-clip-trim", clip_trim, cx, |this, on, _, cx| {
             this.set_clipboard_trim(on, cx)
         });
+        let join_wrapped = cx.global::<Config>().copy_join_wrapped;
+        let join =
+            self.settings_switch("copy-join-wrapped", join_wrapped, cx, |this, on, _, cx| {
+                this.update_config(cx, |c| c.copy_join_wrapped = on)
+            });
         // Ctrl only earns a cell where it is a different key from the platform
         // modifier: off macOS the two are the same key. A config that names
         // `ctrl` there still highlights it, in the one cell that means it.
@@ -1335,10 +1340,14 @@ impl Tty7App {
                         trim,
                         cx,
                     ),
+                    self.settings_row(
+                        t(L10nKey::SettingsCopyJoinWrapped),
+                        t(L10nKey::SettingsCopyJoinWrappedDesc),
+                        join,
+                        cx,
+                    ),
                 ]
-                .map(IntoElement::into_any_element)
-                .into_iter()
-                .chain(self.copy_unwrap_settings(cx)),
+                .map(IntoElement::into_any_element),
                 cx,
             ),
         ];
