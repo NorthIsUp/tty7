@@ -115,6 +115,7 @@ actions!(
     terminal,
     [
         CopyText,
+        CopyRaw,
         CutText,
         PasteText,
         AlternatePaste,
@@ -2649,10 +2650,6 @@ impl TerminalView {
             return;
         }
 
-        if m.platform && m.alt && !m.control && ks.key == "c" && self.copy_raw(cx) {
-            cx.stop_propagation();
-            return;
-        }
         if m.platform && !m.control && !m.alt {
             match self.handle_cmd_shortcut(ks, window, cx) {
                 CmdKey::Consumed => {
@@ -2787,7 +2784,7 @@ impl TerminalView {
         let m = &ks.modifiers;
         match ks.key.as_str() {
             "c" => {
-                if self.copy_contextual(m.control, cx) {
+                if self.copy_contextual(m.control, false, cx) {
                     CmdKey::Consumed
                 } else {
                     CmdKey::FallThrough
@@ -3594,14 +3591,25 @@ impl TerminalView {
         }
     }
 
-    pub fn copy_selection(&mut self, cx: &mut Context<Self>) {
-        self.copy_selection_as(false, cx);
-    }
-
-    fn copy_selection_as(&mut self, raw: bool, cx: &mut Context<Self>) {
-        let text = copy_unwrap::selection_text(self, raw, cx);
+    /// `raw` copies the rows as the grid holds them. Otherwise, in a Claude
+    /// pane with `copy_join_wrapped` on, the rows Claude wrapped are joined;
+    /// other programs' output is never joined, since `ls` columns, separators
+    /// and an editor's own wraps all look like Claude's.
+    pub fn copy_selection(&mut self, raw: bool, cx: &mut Context<Self>) {
+        let cfg = cx.global::<Config>();
+        let join = !raw
+            && cfg.copy_join_wrapped
+            && self.terminal.foreground_agent() == Some(crate::core::cli_agent::CLIAgent::Claude);
+        let text = {
+            let term = self.terminal.term.lock();
+            if join {
+                copy_unwrap::joined(&term)
+            } else {
+                term.selection_to_string()
+            }
+        };
         if let Some(mut text) = text {
-            if cx.global::<Config>().clipboard_trim_trailing_spaces {
+            if cfg.clipboard_trim_trailing_spaces {
                 text = trim_trailing_spaces(&text);
             }
             if !text.is_empty() {
@@ -3610,7 +3618,12 @@ impl TerminalView {
         }
     }
 
-    pub fn copy_contextual(&mut self, clear_on_copy: bool, cx: &mut Context<Self>) -> bool {
+    pub fn copy_contextual(
+        &mut self,
+        clear_on_copy: bool,
+        raw: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if self.input_active() {
             if let Some(text) = self.cmd.selected_text() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -3622,7 +3635,7 @@ impl TerminalView {
             }
         }
         if self.has_selection() {
-            self.copy_selection(cx);
+            self.copy_selection(raw, cx);
             if clear_on_copy {
                 self.terminal.term.lock().selection = None;
                 cx.notify();
@@ -6055,7 +6068,7 @@ impl TerminalView {
         self.drag_scroll = None;
         match copy {
             SelectEndCopy::None => {}
-            SelectEndCopy::Grid => self.copy_selection(cx),
+            SelectEndCopy::Grid => self.copy_selection(false, cx),
             SelectEndCopy::Editor => {
                 if let Some(text) = self.cmd.selected_text() {
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -7723,7 +7736,13 @@ impl Render for TerminalView {
                 },
             ))
             .on_action(cx.listener(|this, _: &CopyText, _w, cx| {
-                this.copy_contextual(false, cx);
+                this.copy_contextual(false, false, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CopyRaw, _w, cx| {
+                // Nothing selected: let the chord reach the key handler.
+                if !this.copy_contextual(false, true, cx) {
+                    cx.propagate();
+                }
             }))
             .on_action(cx.listener(|this, _: &CutText, _w, cx| {
                 this.cut_contextual(cx);
