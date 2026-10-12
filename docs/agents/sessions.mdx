@@ -28,7 +28,9 @@ at launch. `restore_asleep: false` starts them all at once instead.
 
 **Continue All Agents** (Search Everywhere) wakes every sleeping agent tab and
 resumes each with `continue_prompt` as its next turn — `claude --resume <id>
-continue`. Only Claude Code and Codex take a prompt on resume; other agents are
+continue`. It also resumes, in place, every agent that died back to an idle
+shell prompt (a crash, or its runtime killed), from the session the pane last
+saw. Only Claude Code and Codex take a prompt on resume; other agents are
 woken without one.
 
 Every wake starts **Settings → General → Agents starting at once**
@@ -69,7 +71,7 @@ without a word.
 | on | Run as the tab | on | the same, and interrupted ones are told the Continue message |
 
 **Continue All Agents** always sends the Continue message, to every sleeping
-agent tab, whatever these settings say.
+agent tab and every agent that died to its shell, whatever these settings say.
 
 <Note>
   Resume needs the session id. Claude Code names it on its own command line —
