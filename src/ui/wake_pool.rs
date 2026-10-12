@@ -113,15 +113,16 @@ impl<T: Clone> Pool<T> {
     }
 
     /// Takes in what a tick saw of tab `id`; true when that ends its stay.
-    /// A queued tab leaves once it is gone or something else woke it; a
-    /// starting one once its agent is up or its time is out.
+    /// A queued tab leaves once it is gone or something else brought its
+    /// agent up (an awake one is queued to resume a dead agent); a starting
+    /// one once its agent is up or its time is out.
     fn observe(&mut self, id: TabId, seen: Seen, now: Instant) -> bool {
         let done = match (self.mark(id), seen) {
             (None, _) => return false,
             // Asleep while starting: its wake failed or it was put back to
             // sleep, and either way nothing is coming up.
             (_, Seen::Gone) | (Some(Mark::Starting), Seen::Session | Seen::Asleep) => true,
-            (Some(Mark::Queued), seen) => seen != Seen::Asleep,
+            (Some(Mark::Queued), seen) => matches!(seen, Seen::Foreground | Seen::Session),
             (Some(Mark::Starting), seen) => {
                 let slot = self.starting.get_mut(&id).expect("starting");
                 match seen {
@@ -277,7 +278,10 @@ fn start(id: TabId, (app, window): &Window, prompt: Option<&str>, cx: &mut App) 
     let woke = window.update(cx, |_, window, cx| {
         app.update(cx, |this, cx| {
             let i = this.tabs.iter().position(|t| t.tree_id.get() == id)?;
-            Some(this.wake_tab_with(i, prompt, window, cx))
+            Some(match this.tabs[i].is_asleep() {
+                true => this.wake_tab_with(i, prompt, window, cx),
+                false => crate::ui::agent_resume::resume_dead_agents(&this.tabs[i], prompt, cx),
+            })
         })
     });
     matches!(woke, Ok(Ok(Some(true))))
@@ -560,7 +564,11 @@ pub(super) mod tests {
         pool.enqueue([busy, woken, prompted], (), None);
         pool.admit(1, now);
         assert!(!pool.observe(woken, Seen::Asleep, now));
-        assert!(pool.observe(woken, Seen::Awake, now), "woken by hand");
+        assert!(
+            !pool.observe(woken, Seen::Awake, now),
+            "awake, nothing up yet"
+        );
+        assert!(pool.observe(woken, Seen::Foreground, now), "woken by hand");
 
         pool.enqueue([prompted, busy], (), Some("go".into()));
         pool.enqueue([prompted], (), None);

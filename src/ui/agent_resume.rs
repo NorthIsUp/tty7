@@ -16,7 +16,7 @@ use crate::core::config::Config;
 use crate::core::session::{SessionPane, SessionTab, WorkspaceId, WorkspaceStore};
 use crate::terminal::view::{ShellParts, TerminalView};
 use crate::terminal::{PaneRoute, PaneWorkspace};
-use crate::ui::app::Tty7App;
+use crate::ui::app::{Tab, Tty7App};
 use crate::ui::first_prompt::type_at_first_prompt;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingSpawn;
@@ -245,9 +245,13 @@ pub(crate) fn landed(
     if let Some(line) = spawn.run_on_land.clone() {
         return type_at_first_prompt(view, line, cx);
     }
-    let Some(resume) = typed(spawn) else {
-        return;
-    };
+    if let Some(resume) = typed(spawn) {
+        type_resume(view, resume, cx);
+    }
+}
+
+/// Type `resume`'s line into `view` at its prompt, once its plan is read.
+fn type_resume(view: &Entity<TerminalView>, resume: PaneResume, cx: &mut App) {
     let view = view.clone();
     // Typed once the plan lands, outside every update: typing reads the view,
     // which panics inside its own update (#67).
@@ -261,6 +265,53 @@ pub(crate) fn landed(
         }
     })
     .detach();
+}
+
+/// `tab`'s panes whose agent died back to an idle shell, each with its
+/// [`dead_agent`] resume.
+fn dead_agents(
+    tab: &Tab,
+    prompt: Option<&str>,
+    cx: &App,
+) -> Vec<(Entity<TerminalView>, PaneResume)> {
+    tab.pane
+        .terminals()
+        .into_iter()
+        .filter_map(|view| Some((view.clone(), dead_agent(view.read(cx), prompt, cx)?)))
+        .collect()
+}
+
+/// The resume of the session `view`'s record kept (`last_session`) after its
+/// agent died, told `prompt`; `None` while an agent or a command holds it.
+fn dead_agent(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<PaneResume> {
+    if view.agent().is_some() || !view.terminal.at_prompt() {
+        return None;
+    }
+    let (agent, session_id, argv) = sleeping_agent(view, cx);
+    let resume = Resume::restored(
+        &agent,
+        session_id.as_deref(),
+        argv.as_deref(),
+        prompt.map(str::to_string),
+        cx,
+    )?;
+    let shell = view.shell_spec().map_or_else(login_shell, |s| s.program);
+    Some(PaneResume {
+        local: view.pane_route().is_local() && !is_wsl(&shell),
+        resume,
+        shell,
+        run_once: false,
+    })
+}
+
+/// Resume `tab`'s dead agents where they died ([`dead_agents`]); false when
+/// it has none.
+pub(crate) fn resume_dead_agents(tab: &Tab, prompt: Option<&str>, cx: &mut App) -> bool {
+    let dead = dead_agents(tab, prompt, cx);
+    for (view, resume) in &dead {
+        type_resume(view, resume.clone(), cx);
+    }
+    !dead.is_empty()
 }
 
 /// The pending spawn a restored leaf takes when it held an agent that is no
@@ -365,11 +416,23 @@ impl Tty7App {
     }
 
     /// Continue All Agents: wake every sleeping agent tab, hibernated on
-    /// purpose or not, with `continue_prompt`.
+    /// purpose or not, and resume every agent that died back to its shell
+    /// (a crash, its runtime killed), with `continue_prompt`.
     pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = cx.global::<Config>().fork.continue_prompt.clone();
-        let ids = agent_tabs(self.asleep_layouts());
-        log::info!("waking {} agent tab(s) of {}", ids.len(), self.tabs.len());
+        let mut ids = agent_tabs(self.asleep_layouts());
+        let asleep = ids.len();
+        ids.extend(
+            self.tabs
+                .iter()
+                .filter(|t| !t.is_asleep() && !dead_agents(t, None, cx).is_empty())
+                .map(|t| t.tree_id.get()),
+        );
+        log::info!(
+            "waking {asleep} agent tab(s), resuming {} dead, of {}",
+            ids.len() - asleep,
+            self.tabs.len()
+        );
         self.wake_agent_tabs(ids, Some(prompt), window, cx);
     }
 
@@ -880,6 +943,61 @@ mod tests {
             read(&mut vcx),
             (Some(CLIAgent::Claude), Some("s-left".into()), None)
         );
+    }
+
+    #[gpui::test]
+    fn an_agent_that_died_to_an_idle_shell_resumes_its_last_session(cx: &mut gpui::TestAppContext) {
+        use crate::daemon::protocol::DaemonMsg;
+        use std::io::Write as _;
+        use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord};
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+        });
+        let mut vcx = cx.add_empty_window().clone();
+        let (view, mut daemon) = vcx.update(|window, cx| quiet_test_pane(42, window, cx));
+        vcx.update(|_, cx| {
+            let mut record = PaneRecord::new(42);
+            record.last_session = Some(AgentFacts {
+                agent: CLIAgent::Claude,
+                session_id: Some("s-died".into()),
+                launch_argv: None,
+                status: None,
+            });
+            let host = view.read(cx).host_id();
+            crate::ui::machine_mirror::MachineMirrors::install(
+                cx,
+                host,
+                Machine {
+                    panes: vec![record],
+                    ..Default::default()
+                },
+            );
+        });
+        let read = |vcx: &mut gpui::VisualTestContext| {
+            vcx.update(|_, cx| super::dead_agent(view.read(cx), Some("go"), cx).map(|r| r.resume))
+        };
+        assert_eq!(read(&mut vcx), None, "a shell not at its prompt is left be");
+
+        DaemonMsg::Prompt {
+            active: true,
+            at_prompt: true,
+            last_exit: None,
+        }
+        .encode(&mut daemon)
+        .unwrap();
+        daemon.flush().unwrap();
+        for _ in 0..400 {
+            if vcx.update(|_, cx| view.read(cx).terminal.at_prompt()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let resume = read(&mut vcx).expect("resumes at the prompt");
+        assert_eq!(resume.session_id, "s-died");
+        assert_eq!(resume.prompt.as_deref(), Some("go"));
     }
 
     #[test]
