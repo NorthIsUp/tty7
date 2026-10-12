@@ -449,6 +449,14 @@ fn run_daemon_inner() -> anyhow::Result<()> {
     // After the disclaim's re-exec, which needs it still set; before any
     // thread exists, since this takes it out of the environment.
     crate::daemon::dev_config_guard::opted_in();
+    // Before stderr is captured: its relay thread dies with the exit, and the
+    // refusal with it. An adopted handoff was checked by the server it left.
+    #[cfg(unix)]
+    if crate::daemon::handoff::requested().is_none() {
+        crate::daemon::dev_config_guard::enforce();
+    }
+    #[cfg(not(unix))]
+    crate::daemon::dev_config_guard::enforce();
 
     if let Err(e) = crate::core::logfile::capture_stderr() {
         log::warn!("could not capture daemon stderr: {e}");
@@ -459,7 +467,6 @@ fn run_daemon_inner() -> anyhow::Result<()> {
     if let Some(inheritance) = crate::daemon::handoff::requested() {
         return run_adopting(inheritance);
     }
-    crate::daemon::dev_config_guard::enforce();
 
     // Before either endpoint, and before the machine tree is opened. Whoever
     // holds this is the server; everyone else stands down while it lives.
