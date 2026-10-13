@@ -9,7 +9,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 
-use tty7_core::core::github::stack::{StackPos, stack_order};
+use tty7_core::core::github::stack::{StackShape, stack_order};
 use tty7_core::core::github::{
     ApiError, CheckState, GitHubRemote, Item, ItemState, Kind, Label, RepoSlug, StateFilter,
 };
@@ -610,11 +610,10 @@ impl Tty7App {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let mut out = Vec::new();
-        for (item, pos) in stack_order(items, &slug.owner) {
-            out.push(self.github_item_row(slug, item, pos, now, cx));
-            if let StackPos::Bottom { base } = pos {
-                out.push(stack_trunk(base, cx));
-            }
+        for (item, shape) in stack_order(items, &slug.owner) {
+            let trunk = shape.trunk.map(|base| stack_trunk(base, cx));
+            out.push(self.github_item_row(slug, item, &shape, now, cx));
+            out.extend(trunk);
         }
         out
     }
@@ -623,7 +622,7 @@ impl Tty7App {
         &self,
         slug: &RepoSlug,
         item: &Item,
-        pos: StackPos,
+        shape: &StackShape,
         now: i64,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -723,7 +722,7 @@ impl Tty7App {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.github_open_detail(slug.clone(), number, cx);
             }))
-            .child(stack_glyph(item, pos, cx))
+            .child(stack_glyph(item, shape, cx))
             .child(
                 div()
                     .flex_none()

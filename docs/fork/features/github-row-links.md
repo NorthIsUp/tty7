@@ -2,13 +2,13 @@
 
 `Fork-Feature: github-row-links`. The commit that carries this feature is `fork(github-row-links): …` on `main-niu`.
 
-A hovered row in the Session, Issues and Pull Requests lists shows an Open on GitHub tile and, for a pull request, Open in Graphite; both stop the click so the row does not also open its detail. Pull requests whose base branch is another listed pull request's head (in the same repository, not a fork) are gathered into one run, each above its base, with a connector through their glyphs that ends under the bottom one in a dot and the stack's base branch, so the run reads bottom-up. The branches come from `/pulls`, which the Pull Requests tab and the Session tab's `state=all` list already read; a row from `/issues` (a label-filtered list, a one-off Session lookup) has none and is never stacked.
+A hovered row in the Session, Issues and Pull Requests lists shows an Open on GitHub tile and, for a pull request, Open in Graphite; both stop the click so the row does not also open its detail. Pull requests whose base branch is another listed pull request's head (in the same repository, not a fork) are gathered into one run, each above its base (siblings on one base branch off it in lanes side by side), with a connector through their glyphs that ends under the bottom one in a dot and the stack's base branch, so the run reads bottom-up. The branches come from `/pulls`, which the Pull Requests tab and the Session tab's `state=all` list already read; a row from `/issues` (a label-filtered list, a one-off Session lookup) has none and is never stacked.
 
 ## Fork-owned files
 
 | file | what it holds |
 |---|---|
-| `crates/tty7-core/src/core/github/stack.rs` | `stack_order` (cycle-safe grouping and order, with each row's `StackPos`; the bottom row carries its base), `graphite_url` |
+| `crates/tty7-core/src/core/github/stack.rs` | `stack_order` (cycle-safe grouping and order, with each row's `StackShape`: its lane, connectors, and under a real root its trunk), `own_branch` (owner compared case-insensitively), `graphite_url` |
 | `src/ui/github/rows.rs` | `stack_glyph`, `stack_trunk`, `hovered_links`, `link_tile`, `connector` |
 | `assets/icons/graphite.svg` | Graphite's mark, from its web app's favicon, for the Open in Graphite tile |
 

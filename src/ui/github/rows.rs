@@ -4,40 +4,71 @@ use gpui::{AnyElement, Div, Hsla, SharedString, div, prelude::*, px, rems};
 use gpui_component::button::Button;
 use gpui_component::{ActiveTheme as _, Icon, h_flex};
 
-use tty7_core::core::github::stack::{StackPos, graphite_url};
+use tty7_core::core::github::stack::{StackShape, graphite_url};
 use tty7_core::core::github::{Item, RepoSlug};
 
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::panel_github::{GLYPH, ROW_H, github_tile, state_glyph};
 use crate::ui::right_panel::{META, ROW_INSET};
 
-/// The stack's line through the glyph column.
-fn connector(h: f32, color: Hsla) -> Div {
+/// A stack's line down lane `lane` of the glyph column.
+fn connector(lane: usize, h: f32, color: Hsla) -> Div {
     div()
         .absolute()
-        .left(px(GLYPH / 2. - 0.5))
+        .left(px(lane as f32 * GLYPH + GLYPH / 2. - 0.5))
         .w(px(1.))
         .h(px(h))
         .bg(color)
 }
 
-/// The state glyph, with a stacked pull request's connector running through
-/// it to the rows of its stack above and below.
-pub(crate) fn stack_glyph(item: &Item, pos: StackPos, cx: &gpui::App) -> AnyElement {
+/// The state glyph in its lane, with a stacked pull request's connectors:
+/// up and down its own lane, the side lanes passing it, and those ending in
+/// it from a fork.
+pub(crate) fn stack_glyph(item: &Item, shape: &StackShape, cx: &gpui::App) -> AnyElement {
     let color = cx.theme().muted_foreground.opacity(0.5);
     let gap = (ROW_H - GLYPH) / 2.;
-    let above = matches!(pos, StackPos::Middle | StackPos::Bottom { .. });
-    // The bottom row's line runs on into its trunk.
-    let below = !matches!(pos, StackPos::Solo);
+    let x = |lane: usize| lane as f32 * GLYPH + GLYPH / 2.;
+    let through = shape
+        .through
+        .iter()
+        .map(|&l| connector(l, ROW_H, color).top_0());
+    // A joining lane comes down half the gap, then across to the glyph's.
+    let joins = shape.joins.iter().flat_map(|&l| {
+        [
+            connector(l, gap / 2., color).top_0(),
+            div()
+                .absolute()
+                .top(px(gap / 2.))
+                .left(px(x(shape.lane) - 0.5))
+                .w(px(x(l) - x(shape.lane) + 1.))
+                .h(px(1.))
+                .bg(color),
+        ]
+    });
+    let joined = !shape.joins.is_empty();
     div()
         .flex_none()
         .relative()
+        .w(px(shape.lanes.max(1) as f32 * GLYPH))
         .h(px(ROW_H))
-        .flex()
-        .items_center()
-        .child(state_glyph(item.state, item.is_pr, cx))
-        .when(above, |d| d.child(connector(gap, color).top_0()))
-        .when(below, |d| d.child(connector(gap, color).bottom_0()))
+        .child(
+            div()
+                .absolute()
+                .top(px(gap))
+                .left(px(shape.lane as f32 * GLYPH))
+                .child(state_glyph(item.state, item.is_pr, cx)),
+        )
+        .when(shape.up, |d| {
+            d.child(connector(shape.lane, gap, color).top_0())
+        })
+        .when(joined && !shape.up, |d| {
+            d.child(connector(shape.lane, gap / 2., color).top(px(gap / 2.)))
+        })
+        .when(shape.down, |d| {
+            d.child(connector(shape.lane, gap, color).bottom_0())
+        })
+        .children(through)
+        .children(joins)
         .into_any_element()
 }
 
@@ -59,7 +90,7 @@ pub(crate) fn stack_trunk(base: &str, cx: &gpui::App) -> AnyElement {
                 .relative()
                 .w(px(GLYPH))
                 .h(px(H))
-                .child(connector(H / 2., color).top_0())
+                .child(connector(0, H / 2., color).top_0())
                 .child(
                     div()
                         .absolute()
