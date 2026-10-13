@@ -273,6 +273,11 @@ pub struct Config {
     /// [`Self::editor_soft_wrap`]. Files that are not Markdown ignore it.
     #[serde(default)]
     pub editor_markdown_preview: bool,
+    /// Whether a hovered pull request row in the GitHub panel also offers
+    /// Open in Graphite. Off by default: without a Graphite account the link
+    /// lands on a sign-in page.
+    #[serde(default)]
+    pub github_graphite_links: bool,
     /// Whether the code editor starts language servers (rust-analyzer,
     /// typescript-language-server, …) for the files it opens, for
     /// diagnostics, completion, hover and go to definition. On by default;
@@ -831,6 +836,7 @@ impl Default for Config {
             scm_changes_tree: false,
             editor_soft_wrap: false,
             editor_markdown_preview: false,
+            github_graphite_links: false,
             editor_lsp: true,
             editor_git_gutter: true,
             sidebar_auto_grouping: true,
