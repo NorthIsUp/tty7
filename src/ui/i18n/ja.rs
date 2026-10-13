@@ -1384,6 +1384,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsEditorMarkdownPreviewDesc => {
             "Markdown ファイルを開いたとき、ソースではなくレンダリングしたプレビューを表示します。"
         }
+        L10nKey::SettingsGitHubGraphiteLinks => "Graphite リンク",
+        L10nKey::SettingsGitHubGraphiteLinksDesc => {
+            "GitHub パネルでプルリクエストにポインタを合わせると、Graphite で開くボタンも表示します。"
+        }
         L10nKey::SettingsSearchEditorGitGutterKeywords => {
             "git 変更 マーカー 差分 ステージ 変更 追加 削除 gutter diff"
         }
@@ -1391,6 +1395,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchEditorSoftWrapKeywords => "折り返し 長い行 wrap",
         L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
             "markdown プレビュー レンダリング md"
+        }
+        L10nKey::SettingsSearchGitHubGraphiteLinksKeywords => {
+            "graphite github プルリクエスト スタック リンク"
         }
         L10nKey::EditorGoToLinePlaceholder => "行番号、または 行:列（1–{total}）",
         L10nKey::EditorGoToSymbolAction => "エディタ内のシンボルへ移動…",
@@ -2361,6 +2368,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNotPlanned => "対応予定なし",
         L10nKey::GitHubRefresh => "再読み込み",
         L10nKey::GitHubOpenOnGitHub => "GitHub で開く",
+        L10nKey::GitHubOpenInGraphite => "Graphite で開く",
         L10nKey::GitHubShowRemote => "表示するリモート",
         L10nKey::GitHubLoadMore => "さらに読み込む",
         L10nKey::GitHubNoRemote => "GitHub リモートがありません",

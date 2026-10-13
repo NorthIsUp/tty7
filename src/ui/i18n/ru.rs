@@ -1431,6 +1431,10 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsEditorMarkdownPreviewDesc => {
             "Открывать Markdown в режиме просмотра, а не как исходный текст."
         }
+        L10nKey::SettingsGitHubGraphiteLinks => "Ссылки на Graphite",
+        L10nKey::SettingsGitHubGraphiteLinksDesc => {
+            "При наведении на запрос на слияние в панели GitHub показывать и кнопку открытия в Graphite."
+        }
         L10nKey::SettingsSearchEditorGitGutterKeywords => {
             "поля различия изменения метки индекс изменено добавлено удалено git gutter diff changes markers staged index scm vcs modified added deleted"
         }
@@ -1442,6 +1446,9 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
             "просмотр разметка markdown preview rendered md readme"
+        }
+        L10nKey::SettingsSearchGitHubGraphiteLinksKeywords => {
+            "graphite github запрос слияния стек ссылка pull request"
         }
         L10nKey::EditorGoToLinePlaceholder => "Строка или строка:столбец (1-{total})",
         L10nKey::EditorGoToSymbolAction => "Перейти к символу в редакторе…",
@@ -2385,6 +2392,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNotPlanned => "Не запланировано",
         L10nKey::GitHubRefresh => "Обновить",
         L10nKey::GitHubOpenOnGitHub => "Открыть на GitHub",
+        L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
         L10nKey::GitHubShowRemote => "Задачи из",
         L10nKey::GitHubLoadMore => "Загрузить ещё",
         L10nKey::GitHubNoRemote => "Нет удалённого репозитория GitHub",
