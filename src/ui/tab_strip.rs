@@ -828,7 +828,7 @@ pub(crate) fn search_band(
 }
 
 /// How far the title bar's lead reaches before the tab strip starts: the room
-/// `TitleBar` leaves for the traffic lights on macOS, and the bar's own inset
+/// we have `TitleBar` leave for the traffic lights on macOS, and the bar's own inset
 /// that gpui-component adds to it in fullscreen, where the lights are gone but
 /// the room is not; `TITLE_BAR_LEAD` elsewhere, in both of the rows the strip
 /// can sit in.

@@ -9502,8 +9502,11 @@ impl Render for Tty7App {
         // the chrome tiles and the docked document's header.
         let title_bar =
             if window_controls_drawn(window.is_fullscreen()) || cfg!(target_os = "macos") {
+                // `TitleBar` pads its own fixed 80pt; the lead is ours, since
+                // it follows where the traffic lights are put.
                 TitleBar::new()
                     .h(px(TITLE_BAR_HEIGHT))
+                    .pl(px(TITLE_BAR_LEAD))
                     .bg(cx.theme().transparent)
                     .border_color(cx.theme().transparent)
                     .child(strip)
