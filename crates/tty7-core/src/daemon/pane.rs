@@ -2423,7 +2423,7 @@ impl DaemonPane {
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);
                             fan_out_output(&mut st, bytes, frames, &gate);
-                            answer_detached_queries(&mut st, &writer);
+                            let da1_owed = detached_device_attribute_queries(&mut st);
                             apply_signals(&mut st, signals);
                             if let Some(remote) = remote {
                                 apply_remote_context(&mut st, remote);
@@ -2445,6 +2445,7 @@ impl DaemonPane {
                             let alive = st.alive;
                             let facts_after = may_change_facts.then(|| observed_facts(&st));
                             drop(st);
+                            answer_device_attributes(&writer, da1_owed);
                             if !shutting_down.load(Ordering::SeqCst)
                                 && let (Some(before), Some(after)) = (facts_before, facts_after)
                                 && facts_changed(&before, &after)
@@ -3348,13 +3349,23 @@ const DA1_REPLY: &[u8] = b"\x1b[?6c";
 /// theme check hangs on it and then skips every later check, so the theme
 /// flips tty7 reports never reach it. Answering DA1 here lets the batch end;
 /// the colour report a client sends on attach then asks again, and is answered.
-fn answer_detached_queries(st: &mut PaneState, writer: &Mutex<Box<dyn Write + Send>>) {
+///
+/// Returns how many DA1 queries the daemon owes an answer to. With a client
+/// attached the client answers, so none are owed. Read under the state lock;
+/// the answers are written by [`answer_device_attributes`] after it is
+/// released, because a pty whose program is not reading its input blocks the
+/// write, and nothing else that needs this pane's state should wait on that.
+fn detached_device_attribute_queries(st: &mut PaneState) -> usize {
     let asked = st.modes.take_device_attribute_queries();
-    if asked == 0 || st.subscriber.is_some() {
+    if st.subscriber.is_some() { 0 } else { asked }
+}
+
+fn answer_device_attributes(writer: &Mutex<Box<dyn Write + Send>>, owed: usize) {
+    if owed == 0 {
         return;
     }
     if let Ok(mut writer) = writer.lock() {
-        for _ in 0..asked {
+        for _ in 0..owed {
             let _ = writer.write_all(DA1_REPLY);
         }
         let _ = writer.flush();
@@ -6598,13 +6609,13 @@ mod tests {
         let mut st = test_state(true);
 
         record_output(&mut st, b"\x1b]11;?\x07\x1b[c");
-        answer_detached_queries(&mut st, &writer);
+        answer_device_attributes(&writer, detached_device_attribute_queries(&mut st));
         assert_eq!(sink.0.lock().unwrap().as_slice(), DA1_REPLY);
 
         let (tx, _rx) = mpsc::channel();
         st.subscriber = Some(tx);
         record_output(&mut st, b"\x1b[c");
-        answer_detached_queries(&mut st, &writer);
+        answer_device_attributes(&writer, detached_device_attribute_queries(&mut st));
         assert_eq!(
             sink.0.lock().unwrap().as_slice(),
             DA1_REPLY,
