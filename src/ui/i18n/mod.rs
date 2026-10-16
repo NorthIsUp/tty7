@@ -1992,6 +1992,11 @@ l10n_keys! {
     GitHubMergeConfirm,
     GitHubAutoMergeConfirm,
     GitHubOpenInGraphite,
+    SettingsShellStartup,
+    SettingsShellStartupDesc,
+    SettingsShellStartupUser,
+    SettingsShellStartupNoRcs,
+    SettingsShellStartupEnvlibs,
 }
 
 /// The source control strings that are translated but not yet displayed.
