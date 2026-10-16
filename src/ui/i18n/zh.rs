@@ -2314,6 +2314,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubMergeConfirm => "将 #{number} 合并到 {base}？",
         L10nKey::GitHubAutoMergeConfirm => "在满足要求后将 #{number} 合并到 {base}（{method}）？",
         L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
+        L10nKey::SettingsShellStartup => "Shell 启动",
+        L10nKey::SettingsShellStartupDesc => {
+            "新的 zsh、bash 或 fish 启动时读取的内容。不读取 rc 文件时，你的别名、提示符主题和其他 rc 文件中的设置都不会加载；tty7 的 shell 集成仍会加载。环境工具：找到 mise 时只用 mise，否则用 asdf、direnv 和 .env。"
+        }
+        L10nKey::SettingsShellStartupUser => "你的 rc 文件",
+        L10nKey::SettingsShellStartupNoRcs => "不读取 rc 文件",
+        L10nKey::SettingsShellStartupEnvlibs => "不读取 rc 文件 + 环境工具",
     })
 }
 

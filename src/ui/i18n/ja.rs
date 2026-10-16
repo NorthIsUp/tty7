@@ -2562,6 +2562,13 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "要件を満たしたら #{number} を {base} にマージしますか（{method}）？"
         }
         L10nKey::GitHubOpenInGraphite => "Graphite で開く",
+        L10nKey::SettingsShellStartup => "シェルの起動",
+        L10nKey::SettingsShellStartupDesc => {
+            "新しい zsh・bash・fish が最初に読み込むもの。rc ファイルなしでは、エイリアス、プロンプトテーマ、その他の rc ファイルの設定は読み込まれません。tty7 のシェル統合は読み込まれます。環境ツール: mise があれば mise、なければ asdf・direnv・.env。"
+        }
+        L10nKey::SettingsShellStartupUser => "自分の rc ファイル",
+        L10nKey::SettingsShellStartupNoRcs => "rc ファイルなし",
+        L10nKey::SettingsShellStartupEnvlibs => "rc ファイルなし + 環境ツール",
     })
 }
 

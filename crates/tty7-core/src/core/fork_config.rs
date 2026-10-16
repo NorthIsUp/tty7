@@ -69,6 +69,9 @@ pub struct ForkConfig {
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     pub nice: i32,
+    /// Which startup files a pane's zsh, bash or fish reads.
+    #[serde(deserialize_with = "de_lenient")]
+    pub shell_startup: ShellStartup,
     /// The GitHub panel shows `origin` (the fork) until a remote is picked,
     /// instead of `upstream`.
     pub github_panel_prefer_origin: bool,
@@ -109,6 +112,7 @@ impl Default for ForkConfig {
             tab_usage_memory: false,
             tab_usage_annotate: true,
             nice: 5,
+            shell_startup: ShellStartup::User,
             github_panel_prefer_origin: true,
             global_hotkey: Some("alt-space".into()),
             global_hotkey_fullscreen: false,
@@ -139,6 +143,19 @@ pub enum AgentResumeMode {
     /// The new shell runs it itself, once, as the tab's program. Only for
     /// sh, bash, zsh, dash, ksh and fish; any other shell is typed into.
     Program,
+}
+
+/// Which startup files a pane's zsh, bash or fish reads. Other shells always
+/// read the user's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellStartup {
+    #[default]
+    User,
+    /// None of the user's rc files; tty7's integration still loads.
+    NoRcs,
+    /// As `NoRcs`, then mise, or else asdf, direnv and `.env`, activated.
+    NoRcsEnvlibs,
 }
 
 /// How much of a sidebar group its fill and outline cover.
@@ -176,6 +193,7 @@ mod tests {
         "group_background_scope": "group",
         "animations": false,
         "nice": 0,
+        "shell_startup": "no_rcs_envlibs",
         "github_panel_prefer_origin": false,
         "global_hotkey": "cmd-shift-t",
         "global_hotkey_fullscreen": true,
@@ -194,6 +212,7 @@ mod tests {
         assert_eq!(cfg.fork.continue_prompt, "go on");
         assert_eq!(cfg.fork.dir_frecency["/Users/me/src/x"].count, 2);
         assert_eq!(cfg.fork.nice, 0);
+        assert_eq!(cfg.fork.shell_startup, super::ShellStartup::NoRcsEnvlibs);
         assert_eq!(cfg.font_size, 15.0, "upstream's keys are untouched");
 
         let saved = serde_json::to_value(&cfg).unwrap();
