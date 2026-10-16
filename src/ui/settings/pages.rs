@@ -867,6 +867,7 @@ impl Tty7App {
                 cx,
             )
             .into_any_element(),
+            self.shell_startup_row(cx),
             self.settings_row(
                 t(L10nKey::SettingsStartIn),
                 t(L10nKey::SettingsStartInDesc),

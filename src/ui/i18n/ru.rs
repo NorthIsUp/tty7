@@ -2605,6 +2605,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
             "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
         }
         L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
+        L10nKey::SettingsShellStartup => "Запуск оболочки",
+        L10nKey::SettingsShellStartupDesc => {
+            "Что новая zsh, bash или fish читает при запуске. Без rc-файлов не загружаются ваши алиасы, тема приглашения и прочие настройки из rc-файлов; интеграция tty7 с оболочкой загружается. Инструменты окружения: mise, если найден, иначе asdf, direnv и .env."
+        }
+        L10nKey::SettingsShellStartupUser => "Ваши rc-файлы",
+        L10nKey::SettingsShellStartupNoRcs => "Без rc-файлов",
+        L10nKey::SettingsShellStartupEnvlibs => "Без rc-файлов + инструменты окружения",
     })
 }
 

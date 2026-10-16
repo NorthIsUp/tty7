@@ -2504,6 +2504,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "Merge #{number} into {base} once its requirements pass ({method})?"
         }
         L10nKey::GitHubOpenInGraphite => "Open in Graphite",
+        L10nKey::SettingsShellStartup => "Shell startup",
+        L10nKey::SettingsShellStartupDesc => {
+            "What a new zsh, bash or fish reads first. Without rc files, your aliases, prompt theme and other rc-file setup are not loaded; tty7's shell integration still is. Env tools: mise if found, else asdf, direnv and .env."
+        }
+        L10nKey::SettingsShellStartupUser => "Your rc files",
+        L10nKey::SettingsShellStartupNoRcs => "No rc files",
+        L10nKey::SettingsShellStartupEnvlibs => "No rc files + env tools",
     }
 }
 
