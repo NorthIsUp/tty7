@@ -59,6 +59,7 @@ pub mod settings;
 pub mod settings_window;
 pub mod sftp;
 pub mod sftp_host;
+pub(crate) mod shell_startup;
 pub mod ssh_connect;
 pub mod ssh_prompt;
 pub mod switcher;
