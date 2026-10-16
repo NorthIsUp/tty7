@@ -50,6 +50,7 @@ read when a sync stops on a conflict in that feature.
 - [github-recent-branches](docs/fork/features/github-recent-branches.md): the GitHub panel keeps the last five branches
 - [tab-usage](docs/fork/features/tab-usage.md): the sidebar shows each tab's pid, CPU and memory
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
+- [shell-startup](docs/fork/features/shell-startup.md): pane shells can start without the user's rc files
 
 ## Syncing
 
