@@ -10,8 +10,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App, AsyncApp, Context, Global,
-    IntoElement as _, ParentElement as _, Styled as _, WeakEntity, div, px,
+    Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App, AsyncApp, Context, EntityId,
+    Global, IntoElement as _, ParentElement as _, Styled as _, WeakEntity, div, px,
 };
 use gpui_component::{Icon, IconName};
 
@@ -49,17 +49,35 @@ enum Seen {
     Session,
 }
 
+/// What a tab in the pool is started with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Job {
+    /// Wake it from sleep.
+    Wake,
+    /// Resume the agents that died to their shell in these panes.
+    ResumeDead(Vec<EntityId>),
+}
+
+impl Job {
+    fn covers(&self, pane: EntityId) -> bool {
+        match self {
+            Job::Wake => true,
+            Job::ResumeDead(panes) => panes.contains(&pane),
+        }
+    }
+}
+
 struct Slot {
     since: Instant,
     foreground: Option<Instant>,
 }
 
-/// The queue, the slots, and what each tab is woken with (`T`, the window it
-/// lives in, and its prompt).
+/// The queue, the slots, and what each tab is started with (`T`, the window
+/// it lives in, its job, and its prompt).
 struct Pool<T> {
     queue: VecDeque<TabId>,
     starting: HashMap<TabId, Slot>,
-    jobs: HashMap<TabId, (T, Option<String>)>,
+    jobs: HashMap<TabId, (T, Job, Option<String>)>,
 }
 
 impl<T> Default for Pool<T> {
@@ -75,29 +93,34 @@ impl<T> Default for Pool<T> {
 impl<T: Clone> Pool<T> {
     /// A tab already queued keeps its place, and takes `prompt` when it brings
     /// one; a starting tab is left alone.
-    fn enqueue(&mut self, ids: impl IntoIterator<Item = TabId>, at: T, prompt: Option<String>) {
-        for id in ids {
+    fn enqueue(
+        &mut self,
+        jobs: impl IntoIterator<Item = (TabId, Job)>,
+        at: T,
+        prompt: Option<String>,
+    ) {
+        for (id, job) in jobs {
             match self.mark(id) {
                 Some(Mark::Starting) => {}
                 Some(Mark::Queued) if prompt.is_none() => {}
                 Some(Mark::Queued) => {
-                    self.jobs.insert(id, (at.clone(), prompt.clone()));
+                    self.jobs.insert(id, (at.clone(), job, prompt.clone()));
                 }
                 None => {
                     self.queue.push_back(id);
-                    self.jobs.insert(id, (at.clone(), prompt.clone()));
+                    self.jobs.insert(id, (at.clone(), job, prompt.clone()));
                 }
             }
         }
     }
 
     /// Moves queued tabs into the free slots, and returns them to be started.
-    fn admit(&mut self, cap: usize, now: Instant) -> Vec<(TabId, T, Option<String>)> {
+    fn admit(&mut self, cap: usize, now: Instant) -> Vec<(TabId, T, Job, Option<String>)> {
         let mut admitted = Vec::new();
         while self.starting.len() < cap
             && let Some(id) = self.queue.pop_front()
         {
-            let Some((at, prompt)) = self.jobs.get(&id).cloned() else {
+            let Some((at, job, prompt)) = self.jobs.get(&id).cloned() else {
                 continue;
             };
             self.starting.insert(
@@ -107,22 +130,28 @@ impl<T: Clone> Pool<T> {
                     foreground: None,
                 },
             );
-            admitted.push((id, at, prompt));
+            admitted.push((id, at, job, prompt));
         }
         admitted
     }
 
     /// Takes in what a tick saw of tab `id`; true when that ends its stay.
-    /// A queued tab leaves once it is gone or something else brought its
-    /// agent up (an awake one is queued to resume a dead agent); a starting
-    /// one once its agent is up or its time is out.
+    /// A queued tab leaves once it is gone or something else did its job: woke
+    /// it, or brought its dead agent up; a starting one once its agent is up
+    /// or its time is out.
     fn observe(&mut self, id: TabId, seen: Seen, now: Instant) -> bool {
         let done = match (self.mark(id), seen) {
             (None, _) => return false,
             // Asleep while starting: its wake failed or it was put back to
             // sleep, and either way nothing is coming up.
             (_, Seen::Gone) | (Some(Mark::Starting), Seen::Session | Seen::Asleep) => true,
-            (Some(Mark::Queued), seen) => matches!(seen, Seen::Foreground | Seen::Session),
+            (Some(Mark::Queued), seen) => match self.jobs.get(&id) {
+                // Awake from the start, so only its agent coming up counts.
+                Some((_, Job::ResumeDead(_), _)) => {
+                    matches!(seen, Seen::Foreground | Seen::Session)
+                }
+                _ => seen != Seen::Asleep,
+            },
             (Some(Mark::Starting), seen) => {
                 let slot = self.starting.get_mut(&id).expect("starting");
                 match seen {
@@ -166,7 +195,7 @@ impl<T: Clone> Pool<T> {
 
 type Window = (WeakEntity<Tty7App>, AnyWindowHandle);
 
-type Start = fn(TabId, &Window, Option<&str>, &mut App) -> bool;
+type Start = fn(TabId, &Window, &Job, Option<&str>, &mut App) -> bool;
 
 struct WakePool {
     pool: Pool<Window>,
@@ -198,19 +227,19 @@ fn concurrency_for(set: Option<u8>, cores: usize) -> usize {
     set.map_or(cores / 4, usize::from).clamp(1, MAX.into())
 }
 
-/// Queue `ids` of the window `app` draws in to be woken with `prompt`. Safe
-/// inside that window's own update: nothing starts until it is over.
+/// Queue `jobs` of the window `app` draws in to be started with `prompt`.
+/// Safe inside that window's own update: nothing starts until it is over.
 pub(crate) fn queue(
-    ids: Vec<TabId>,
+    jobs: Vec<(TabId, Job)>,
     prompt: Option<String>,
     window: AnyWindowHandle,
     cx: &mut Context<Tty7App>,
 ) {
     let at = (cx.entity().downgrade(), window);
-    log::info!("wake pool: queueing {} tab(s)", ids.len());
+    log::info!("wake pool: queueing {} tab(s)", jobs.len());
     cx.default_global::<WakePool>()
         .pool
-        .enqueue(ids, at, prompt);
+        .enqueue(jobs, at, prompt);
     cx.defer(pump);
 }
 
@@ -243,14 +272,14 @@ fn pump(cx: &mut App) {
         .admit(cap, Instant::now());
     let changed = !admitted.is_empty();
     let start = cx.global::<WakePool>().start;
-    for (id, at, prompt) in admitted {
+    for (id, at, job, prompt) in admitted {
         let pool = &cx.global::<WakePool>().pool;
         log::info!(
             "wake pool: starting {id} ({}/{cap} starting, {} queued)",
             pool.starting.len(),
             pool.queue.len()
         );
-        if !start(id, &at, prompt.as_deref(), cx) {
+        if !start(id, &at, &job, prompt.as_deref(), cx) {
             cx.default_global::<WakePool>().pool.finish(id);
         }
     }
@@ -273,15 +302,12 @@ fn pump(cx: &mut App) {
     .detach();
 }
 
-/// Wakes tab `id`; false when it is gone or could not be started.
-fn start(id: TabId, (app, window): &Window, prompt: Option<&str>, cx: &mut App) -> bool {
+/// Starts tab `id`'s job; false when it is gone or could not be started.
+fn start(id: TabId, (app, window): &Window, job: &Job, prompt: Option<&str>, cx: &mut App) -> bool {
     let woke = window.update(cx, |_, window, cx| {
         app.update(cx, |this, cx| {
             let i = this.tabs.iter().position(|t| t.tree_id.get() == id)?;
-            Some(match this.tabs[i].is_asleep() {
-                true => this.wake_tab_with(i, prompt, window, cx),
-                false => crate::ui::agent_resume::resume_dead_agents(&this.tabs[i], prompt, cx),
-            })
+            Some(this.start_job(i, job, prompt, window, cx))
         })
     });
     matches!(woke, Ok(Ok(Some(true))))
@@ -295,7 +321,7 @@ fn tick(cx: &mut App) -> bool {
     let seen: Vec<(TabId, Seen)> = pool
         .jobs
         .iter()
-        .map(|(id, ((app, _), _))| (*id, see(*id, app, cx)))
+        .map(|(id, ((app, _), job, _))| (*id, see(*id, app, job, cx)))
         .collect();
     let pool = &mut cx.global_mut::<WakePool>().pool;
     let mut changed = false;
@@ -318,17 +344,23 @@ fn tick(cx: &mut App) -> bool {
     state.polling
 }
 
-fn see(id: TabId, app: &WeakEntity<Tty7App>, cx: &App) -> Seen {
+/// Tab `id` as `job` sees it: a resume looks only at its own panes, so a live
+/// agent in a split beside them does not count as theirs.
+fn see(id: TabId, app: &WeakEntity<Tty7App>, job: &Job, cx: &App) -> Seen {
     let Some(app) = app.upgrade() else {
         return Seen::Gone;
     };
     let Some(tab) = app.read(cx).tabs.iter().find(|t| t.tree_id.get() == id) else {
         return Seen::Gone;
     };
-    let leaves = tab.pane.terminals().into_iter().map(|view| {
-        let view = view.read(cx);
-        (view.agent().is_some(), view.agent_session().is_some())
-    });
+    let terminals = tab.pane.terminals();
+    let leaves = terminals
+        .iter()
+        .filter(|v| job.covers(v.entity_id()))
+        .map(|view| {
+            let view = view.read(cx);
+            (view.agent().is_some(), view.agent_session().is_some())
+        });
     classify(tab.is_asleep(), leaves)
 }
 
@@ -410,7 +442,7 @@ pub(super) mod tests {
     use gpui::Global;
 
     use super::{
-        FOREGROUND_UP, Mark, Pool, START_TIMEOUT, Seen, WakePool, Window, classify,
+        FOREGROUND_UP, Job, Mark, Pool, START_TIMEOUT, Seen, WakePool, Window, classify,
         concurrency_for, is_waking, queue, tick,
     };
     use crate::core::config::Config;
@@ -426,7 +458,7 @@ pub(super) mod tests {
 
     impl Global for Started {}
 
-    fn record(id: TabId, _: &Window, prompt: Option<&str>, cx: &mut gpui::App) -> bool {
+    fn record(id: TabId, _: &Window, _: &Job, prompt: Option<&str>, cx: &mut gpui::App) -> bool {
         let started = &mut cx.default_global::<Started>().0;
         started.push((id, prompt.map(str::to_string)));
         true
@@ -437,8 +469,12 @@ pub(super) mod tests {
         cx.set_global(Started::default());
     }
 
-    fn ids(admitted: Vec<(TabId, (), Option<String>)>) -> Vec<TabId> {
-        admitted.into_iter().map(|(id, _, _)| id).collect()
+    fn ids(admitted: Vec<(TabId, (), Job, Option<String>)>) -> Vec<TabId> {
+        admitted.into_iter().map(|(id, ..)| id).collect()
+    }
+
+    fn wake(ids: impl IntoIterator<Item = TabId>) -> Vec<(TabId, Job)> {
+        ids.into_iter().map(|id| (id, Job::Wake)).collect()
     }
 
     #[test]
@@ -460,7 +496,7 @@ pub(super) mod tests {
     fn a_starting_tab_put_back_to_sleep_frees_its_slot() {
         let tab = TabId::new();
         let mut pool = Pool::default();
-        pool.enqueue([tab], (), None);
+        pool.enqueue(wake([tab]), (), None);
         pool.admit(1, Instant::now());
         assert!(pool.observe(tab, Seen::Asleep, Instant::now()));
         assert!(pool.is_empty());
@@ -517,8 +553,8 @@ pub(super) mod tests {
         let tabs: Vec<TabId> = (0..5).map(|_| TabId::new()).collect();
         let mut pool = Pool::default();
         let now = Instant::now();
-        pool.enqueue(tabs.clone(), (), None);
-        pool.enqueue([tabs[0]], (), None);
+        pool.enqueue(wake(tabs.clone()), (), None);
+        pool.enqueue(wake([tabs[0]]), (), None);
         let first = pool.admit(2, now);
         assert_eq!(ids(first), tabs[..2]);
         assert!(pool.admit(2, now).is_empty(), "both slots are held");
@@ -537,7 +573,7 @@ pub(super) mod tests {
         let (quiet, stuck, next) = (TabId::new(), TabId::new(), TabId::new());
         let mut pool = Pool::default();
         let then = Instant::now();
-        pool.enqueue([quiet, stuck, next], (), None);
+        pool.enqueue(wake([quiet, stuck, next]), (), None);
         pool.admit(2, then);
 
         assert!(!pool.observe(quiet, Seen::Foreground, then));
@@ -557,23 +593,41 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_queued_tab_woken_by_hand_leaves_the_queue_and_a_requeue_keeps_its_prompt() {
-        let (busy, woken, prompted) = (TabId::new(), TabId::new(), TabId::new());
+    fn a_queued_tab_leaves_once_something_else_did_its_job_and_a_requeue_keeps_its_prompt() {
+        let (busy, woken, dead, prompted) =
+            (TabId::new(), TabId::new(), TabId::new(), TabId::new());
         let mut pool = Pool::default();
         let now = Instant::now();
-        pool.enqueue([busy, woken, prompted], (), None);
+        pool.enqueue(wake([busy, woken, prompted]), (), None);
+        pool.enqueue([(dead, Job::ResumeDead(Vec::new()))], (), None);
         pool.admit(1, now);
         assert!(!pool.observe(woken, Seen::Asleep, now));
+        assert!(pool.observe(woken, Seen::Awake, now), "woken by hand");
         assert!(
-            !pool.observe(woken, Seen::Awake, now),
+            !pool.observe(dead, Seen::Awake, now),
             "awake, nothing up yet"
         );
-        assert!(pool.observe(woken, Seen::Foreground, now), "woken by hand");
+        assert!(pool.observe(dead, Seen::Foreground, now), "resumed by hand");
 
-        pool.enqueue([prompted, busy], (), Some("go".into()));
-        pool.enqueue([prompted], (), None);
-        assert_eq!(pool.jobs[&prompted].1.as_deref(), Some("go"));
-        assert_eq!(pool.jobs[&busy].1, None, "a starting tab is left alone");
+        pool.enqueue(wake([prompted, busy]), (), Some("go".into()));
+        pool.enqueue(wake([prompted]), (), None);
+        assert_eq!(pool.jobs[&prompted].2.as_deref(), Some("go"));
+        assert_eq!(pool.jobs[&busy].2, None, "a starting tab is left alone");
+    }
+
+    #[test]
+    fn a_queued_asleep_tab_woken_by_hand_is_not_resumed_on_its_turn() {
+        let (busy, woken) = (TabId::new(), TabId::new());
+        let mut pool = Pool::default();
+        let now = Instant::now();
+        pool.enqueue(wake([busy, woken]), (), None);
+        pool.admit(1, now);
+        assert!(pool.observe(woken, Seen::Awake, now), "woken by hand");
+        assert!(pool.observe(busy, Seen::Session, now));
+        assert!(
+            pool.admit(1, now).is_empty(),
+            "its resume is not typed twice"
+        );
     }
 
     #[test]
@@ -601,7 +655,7 @@ pub(super) mod tests {
                 app.put_to_sleep(i, window, cx);
             }
             let tabs: Vec<TabId> = app.tabs[1..].iter().map(|t| t.tree_id.get()).collect();
-            queue(tabs.clone(), None, window.window_handle(), cx);
+            queue(wake(tabs.clone()), None, window.window_handle(), cx);
             tabs
         });
         vcx.run_until_parked();
@@ -614,7 +668,12 @@ pub(super) mod tests {
         });
 
         app.update_in(&mut vcx, |_, window, cx| {
-            queue(vec![tabs[2]], Some("go".into()), window.window_handle(), cx)
+            queue(
+                wake([tabs[2]]),
+                Some("go".into()),
+                window.window_handle(),
+                cx,
+            )
         });
         vcx.run_until_parked();
         for (closing, now_started) in [(1, tabs[1]), (1, tabs[2])] {
