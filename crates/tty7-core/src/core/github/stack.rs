@@ -9,27 +9,33 @@ use std::collections::HashMap;
 
 use super::model::{Item, PullRefs};
 
-/// How a row is drawn in its stack. Each lane is a column of the connector;
-/// a pull request shares its base's lane when it is the first one based on
-/// it, and a sibling gets a lane of its own, so a fork never reads as one
-/// pull request based on the other. A row in no stack is the default.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct StackShape<'a> {
-    /// How many lanes the row's stack uses.
-    pub lanes: usize,
-    /// The lane the row's glyph sits in.
-    pub lane: usize,
-    /// A line leaves the glyph upward, to the row just above.
-    pub up: bool,
-    /// A line leaves the glyph downward, to its base or to the trunk.
-    pub down: bool,
-    /// Lanes whose line runs through this row to a base further down.
-    pub through: Vec<usize>,
-    /// Lanes whose line ends in this row's glyph, coming in from the side.
-    pub joins: Vec<usize>,
-    /// Under the stack's bottom row: the branch the stack is based on. `None`
-    /// when that branch is another listed pull request's, as in a cycle.
-    pub trunk: Option<&'a str>,
+/// One lane of a stacked row's connector column. Each lane is a column of
+/// the connector; a pull request shares its base's lane when it is the first
+/// one based on it, and a sibling gets a lane of its own, so a fork never
+/// reads as one pull request based on the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cell {
+    Empty,
+    /// A side lane's line passing the row, to a base further down.
+    Pipe,
+    /// The row's glyph. `up` joins it to the row just above; `down` to its
+    /// base or to the trunk.
+    Node {
+        up: bool,
+        down: bool,
+    },
+    /// A side lane's line ending in the row's glyph, coming in from the right.
+    Join,
+}
+
+/// A line of the list as a stack draws it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StackRow<'a> {
+    /// An issue or pull request; a row in no stack is one lone `Node`.
+    Item { item: &'a Item, cells: Vec<Cell> },
+    /// Under a stack's bottom row: the branch the stack is based on. A stack
+    /// based on another listed pull request's branch, as in a cycle, has none.
+    Trunk(&'a str),
 }
 
 /// The branch of a head label `owner:branch` when it lives in `owner`'s
@@ -44,7 +50,7 @@ fn own_branch<'a>(head_label: &'a str, owner: &str) -> Option<&'a str> {
 /// sorted; rows in no stack keep their place. `owner` is the repository's:
 /// a base branch only names another pull request's head when that head lives
 /// in the same repository, never in a fork.
-pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackShape<'a>)> {
+pub fn stack_order<'a>(rows: &'a [Item], owner: &str) -> Vec<StackRow<'a>> {
     let refs = |i: usize| -> Option<&'a PullRefs> { rows[i].pull.as_ref() };
     let mut by_head: HashMap<&str, usize> = HashMap::new();
     for i in 0..rows.len() {
@@ -68,10 +74,12 @@ pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackSh
 
     // Roots first, then whatever a cycle left unvisited, each from its
     // earliest member. `from` is the row a walk reached each row by, which in
-    // a cycle is not always its `parent`.
+    // a cycle is not always its `parent`; `heir_taken` marks a row whose
+    // lane was handed on, which is also a line up out of its glyph.
     let mut seen = vec![false; rows.len()];
     let mut from: Vec<Option<usize>> = vec![None; rows.len()];
     let mut lane = vec![0; rows.len()];
+    let mut heir_taken = vec![false; rows.len()];
     let mut groups: Vec<(Vec<usize>, usize)> = Vec::new();
     let starts = (0..rows.len())
         .filter(|&i| parent[i].is_none())
@@ -82,7 +90,6 @@ pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackSh
         }
         let mut group = Vec::new();
         let mut lanes = 1;
-        let mut heir_taken = vec![false; rows.len()];
         let mut todo = vec![(start, None)];
         while let Some((i, via)) = todo.pop() {
             if std::mem::replace(&mut seen[i], true) {
@@ -90,7 +97,9 @@ pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackSh
             }
             from[i] = via;
             // Lanes are handed out in walk order, so a lane's line never
-            // crosses the side branch of a row it passes.
+            // crosses the side branch of a row it passes. Every lane right of
+            // a row's own opened after it and runs through a row between it
+            // and its next side branch, so a fresh lane is never wasted.
             lane[i] = match via {
                 Some(p) if !std::mem::replace(&mut heir_taken[p], true) => lane[p],
                 Some(_) => {
@@ -110,36 +119,34 @@ pub fn stack_order<'a>(rows: &[&'a Item], owner: &str) -> Vec<(&'a Item, StackSh
     groups.sort_by_key(|(g, _)| g.iter().min().copied());
 
     let mut out = Vec::with_capacity(rows.len());
+    let mut row_of = vec![0; rows.len()];
     for (group, lanes) in groups {
-        let start = out.len();
-        let solo = group.len() == 1;
-        let mut row_of = HashMap::new();
+        let bottom = group[group.len() - 1];
+        let trunk = (group.len() > 1 && parent[bottom].is_none())
+            .then(|| refs(bottom).map(|r| r.base_ref.as_str()))
+            .flatten();
+        let mut cells = vec![vec![Cell::Empty; lanes]; group.len()];
         for (k, &i) in group.iter().enumerate() {
-            row_of.insert(i, start + k);
-            let mut shape = StackShape::default();
-            if !solo {
-                shape.lanes = lanes;
-                shape.lane = lane[i];
-                shape.down = from[i].is_some();
-            }
-            if !solo && from[i].is_none() && parent[i].is_none() {
-                shape.trunk = refs(i).map(|r| r.base_ref.as_str());
-                shape.down = shape.trunk.is_some();
-            }
-            out.push((rows[i], shape));
+            row_of[i] = k;
+            cells[k][lane[i]] = Cell::Node {
+                up: heir_taken[i],
+                down: from[i].is_some() || trunk.is_some(),
+            };
         }
-        for &i in &group {
-            let Some(p) = from[i] else { continue };
-            let (r, rp) = (row_of[&i], row_of[&p]);
-            if lane[i] == lane[p] {
-                out[rp].1.up = true;
-            } else {
-                for (_, shape) in &mut out[r + 1..rp] {
-                    shape.through.push(lane[i]);
-                }
-                out[rp].1.joins.push(lane[i]);
+        for (k, &i) in group.iter().enumerate() {
+            let Some(p) = from[i].filter(|&p| lane[p] != lane[i]) else {
+                continue;
+            };
+            for row in &mut cells[k + 1..row_of[p]] {
+                row[lane[i]] = Cell::Pipe;
             }
+            cells[row_of[p]][lane[i]] = Cell::Join;
         }
+        out.extend(group.iter().zip(cells).map(|(&i, cells)| StackRow::Item {
+            item: &rows[i],
+            cells,
+        }));
+        out.extend(trunk.map(StackRow::Trunk));
     }
     out
 }
@@ -170,10 +177,12 @@ mod tests {
     }
 
     fn order_as(items: &[Item], owner: &str) -> Vec<u64> {
-        let rows: Vec<&Item> = items.iter().collect();
-        stack_order(&rows, owner)
+        stack_order(items, owner)
             .into_iter()
-            .map(|(i, _)| i.number)
+            .filter_map(|row| match row {
+                StackRow::Item { item, .. } => Some(item.number),
+                StackRow::Trunk(_) => None,
+            })
             .collect()
     }
 
@@ -181,37 +190,39 @@ mod tests {
         order_as(items, "acme")
     }
 
-    /// The list as the panel draws it, one line per row and one between
-    /// rows for the connectors that cross the gap: `●` a glyph, `│` a line,
-    /// `╯` a side lane's line ending in the glyph left of it, `•` a trunk.
+    /// The list as text, one line per row and one between rows for the
+    /// lines that cross the gap: `●` a glyph, `│` a line, `╯` a side lane's
+    /// line ending in the glyph left of it, `•` a trunk.
     fn drawn(items: &[Item]) -> Vec<String> {
-        let rows: Vec<&Item> = items.iter().collect();
         let mut out = Vec::new();
-        let mut first = true;
-        for (item, s) in stack_order(&rows, "acme") {
-            let lanes = s.lanes.max(1);
-            if !std::mem::replace(&mut first, false) {
-                let gap: String = (0..lanes)
-                    .map(|c| {
-                        let line =
-                            (c == s.lane && s.up) || s.through.contains(&c) || s.joins.contains(&c);
-                        if line { '│' } else { ' ' }
+        for row in stack_order(items, "acme") {
+            let (number, cells) = match row {
+                StackRow::Item { item, cells } => (item.number, cells),
+                StackRow::Trunk(base) => {
+                    out.push(format!("• {base}"));
+                    continue;
+                }
+            };
+            if !out.is_empty() {
+                let gap: String = cells
+                    .iter()
+                    .map(|c| match c {
+                        Cell::Pipe | Cell::Join | Cell::Node { up: true, .. } => '│',
+                        Cell::Empty | Cell::Node { up: false, .. } => ' ',
                     })
                     .collect();
                 out.push(gap.trim_end().to_string());
             }
-            let row: String = (0..lanes)
+            let line: String = cells
+                .iter()
                 .map(|c| match c {
-                    _ if c == s.lane => '●',
-                    _ if s.joins.contains(&c) => '╯',
-                    _ if s.through.contains(&c) => '│',
-                    _ => ' ',
+                    Cell::Empty => ' ',
+                    Cell::Pipe => '│',
+                    Cell::Node { .. } => '●',
+                    Cell::Join => '╯',
                 })
                 .collect();
-            out.push(format!("{row} #{}", item.number));
-            if let Some(trunk) = s.trunk {
-                out.push(format!("• {trunk}"));
-            }
+            out.push(format!("{line} #{number}"));
         }
         out
     }

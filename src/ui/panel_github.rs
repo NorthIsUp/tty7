@@ -9,29 +9,25 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 
-use tty7_core::core::github::stack::{StackShape, stack_order};
+use tty7_core::core::github::stack::{Cell, StackRow, stack_order};
 use tty7_core::core::github::{
     ApiError, CheckState, GitHubRemote, Item, ItemState, Kind, Label, RepoSlug, StateFilter,
 };
 
 use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, Tty7App};
-use crate::ui::github::rows::{hovered_links, stack_glyph, stack_trunk};
+use crate::ui::github::rows::{GLYPH, ROW_H, stack_glyph, stack_trunk};
 use crate::ui::github::{GhTarget, now_unix};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::right_panel::{META, ROW_FILL_RADIUS, ROW_INSET, TAB_TEXT, TEXT, TEXT_INSET};
 use crate::ui::scm::path::relative_time;
 use crate::ui::scm::state::RepoKey;
 
-/// A list row: one line, the Source Control tab's row pitch.
-pub(crate) const ROW_H: f32 = 26.;
 /// How many label chips a hovered row shows before the age.
 const MAX_ROW_LABELS: usize = 3;
 /// The widest a hovered row lets its author get before truncating it.
 const AUTHOR_MAX_W: f32 = 96.;
 /// What a hovered row leaves of its title, however much meta it shows.
 const TITLE_MIN_W: f32 = 48.;
-/// The state glyph, and the column it sits in.
-pub(crate) const GLYPH: f32 = 14.;
 /// The pinned rows' height — the Info tab's row pitch.
 const PINNED_ROW_H: f32 = 28.;
 /// The segmented switches' cells.
@@ -518,7 +514,6 @@ impl Tty7App {
         }
         let now = now_unix();
         let mut rows = v_flex().px(px(CONTENT_INSET));
-        let items: Vec<&Item> = items.iter().collect();
         for row in self.github_stack_rows(slug, &items, now, cx) {
             rows = rows.child(row);
         }
@@ -547,17 +542,17 @@ impl Tty7App {
     fn github_stack_rows(
         &self,
         slug: &RepoSlug,
-        items: &[&Item],
+        items: &[Item],
         now: i64,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let mut out = Vec::new();
-        for (item, shape) in stack_order(items, &slug.owner) {
-            let trunk = shape.trunk.map(|base| stack_trunk(base, cx));
-            out.push(self.github_item_row(slug, item, &shape, now, cx));
-            out.extend(trunk);
-        }
-        out
+        stack_order(items, &slug.owner)
+            .into_iter()
+            .map(|row| match row {
+                StackRow::Item { item, cells } => self.github_item_row(slug, item, &cells, now, cx),
+                StackRow::Trunk(base) => stack_trunk(base, cx),
+            })
+            .collect()
     }
 
     /// One line per item: state glyph, `#number`, title. The labels, the
@@ -569,7 +564,7 @@ impl Tty7App {
         &self,
         slug: &RepoSlug,
         item: &Item,
-        shape: &StackShape,
+        cells: &[Cell],
         now: i64,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -669,7 +664,11 @@ impl Tty7App {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.github_open_detail(slug.clone(), number, cx);
             }))
-            .child(stack_glyph(item, shape, cx))
+            .child(stack_glyph(
+                state_glyph(item.state, item.is_pr, cx),
+                cells,
+                cx,
+            ))
             .child(
                 div()
                     .flex_none()
@@ -700,6 +699,24 @@ impl Tty7App {
             .as_ref()
             .is_none_or(|c| c.transport.authenticated())
     }
+}
+
+/// A hovered row's way out to GitHub. The click stops at the tile, so the
+/// row does not open its detail too.
+fn hovered_links(item: &Item, cx: &gpui::App) -> AnyElement {
+    let url = item.html_url.clone();
+    github_tile(
+        SharedString::from(format!("panel-github-row-gh-{}", item.number)),
+        Icon::empty().path("icons/github.svg"),
+        t(L10nKey::GitHubOpenOnGitHub),
+        cx,
+    )
+    .cursor_pointer()
+    .on_click(move |_, _window, cx| {
+        cx.stop_propagation();
+        cx.open_url(&url);
+    })
+    .into_any_element()
 }
 
 /// A 18px chrome tile, the Info rows' size.

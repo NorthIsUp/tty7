@@ -1,15 +1,16 @@
-//! The list rows' stack connectors and hover links.
+//! The list rows' stack connectors.
 
-use gpui::{AnyElement, Div, Hsla, SharedString, div, prelude::*, px, rems};
-use gpui_component::button::Button;
-use gpui_component::{ActiveTheme as _, Icon, h_flex};
+use gpui::{AnyElement, Div, Hsla, div, prelude::*, px, rems};
+use gpui_component::{ActiveTheme as _, h_flex};
 
-use tty7_core::core::github::Item;
-use tty7_core::core::github::stack::StackShape;
+use tty7_core::core::github::stack::Cell;
 
-use crate::ui::i18n::{L10nKey, t};
-use crate::ui::panel_github::{GLYPH, ROW_H, github_tile, state_glyph};
 use crate::ui::right_panel::{META, ROW_INSET};
+
+/// A list row: one line, the Source Control tab's row pitch.
+pub(crate) const ROW_H: f32 = 26.;
+/// The state glyph, and the column it sits in.
+pub(crate) const GLYPH: f32 = 14.;
 
 /// A stack's line down lane `lane` of the glyph column.
 fn connector(lane: usize, h: f32, color: Hsla) -> Div {
@@ -21,55 +22,49 @@ fn connector(lane: usize, h: f32, color: Hsla) -> Div {
         .bg(color)
 }
 
-/// The state glyph in its lane, with a stacked pull request's connectors:
-/// up and down its own lane, the side lanes passing it, and those ending in
-/// it from a fork.
-pub(crate) fn stack_glyph(item: &Item, shape: &StackShape, cx: &gpui::App) -> AnyElement {
+/// `glyph` in its row's node lane, and each lane's connector piece.
+pub(crate) fn stack_glyph(glyph: AnyElement, cells: &[Cell], cx: &gpui::App) -> AnyElement {
     let color = cx.theme().muted_foreground.opacity(0.5);
     let gap = (ROW_H - GLYPH) / 2.;
     let x = |lane: usize| lane as f32 * GLYPH + GLYPH / 2.;
-    let through = shape
-        .through
+    let node = cells
         .iter()
-        .map(|&l| connector(l, ROW_H, color).top_0());
-    // A joining lane comes down half the gap, then across to the glyph's.
-    let joins = shape.joins.iter().flat_map(|&l| {
-        [
-            connector(l, gap / 2., color).top_0(),
-            div()
-                .absolute()
-                .top(px(gap / 2.))
-                .left(px(x(shape.lane) - 0.5))
-                .w(px(x(l) - x(shape.lane) + 1.))
-                .h(px(1.))
-                .bg(color),
-        ]
-    });
-    let joined = !shape.joins.is_empty();
-    div()
+        .position(|c| matches!(c, Cell::Node { .. }))
+        .unwrap_or(0);
+    let mut column = div()
         .flex_none()
         .relative()
-        .w(px(shape.lanes.max(1) as f32 * GLYPH))
+        .w(px(cells.len().max(1) as f32 * GLYPH))
         .h(px(ROW_H))
         .child(
             div()
                 .absolute()
                 .top(px(gap))
-                .left(px(shape.lane as f32 * GLYPH))
-                .child(state_glyph(item.state, item.is_pr, cx)),
-        )
-        .when(shape.up, |d| {
-            d.child(connector(shape.lane, gap, color).top_0())
-        })
-        .when(joined && !shape.up, |d| {
-            d.child(connector(shape.lane, gap / 2., color).top(px(gap / 2.)))
-        })
-        .when(shape.down, |d| {
-            d.child(connector(shape.lane, gap, color).bottom_0())
-        })
-        .children(through)
-        .children(joins)
-        .into_any_element()
+                .left(px(node as f32 * GLYPH))
+                .child(glyph),
+        );
+    for (lane, &cell) in cells.iter().enumerate() {
+        column = match cell {
+            Cell::Empty => column,
+            Cell::Pipe => column.child(connector(lane, ROW_H, color).top_0()),
+            Cell::Node { up, down } => column
+                .when(up, |d| d.child(connector(lane, gap, color).top_0()))
+                .when(down, |d| d.child(connector(lane, gap, color).bottom_0())),
+            // Down half the gap, then across to the glyph's lane.
+            Cell::Join => column
+                .child(connector(lane, gap / 2., color).top_0())
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(gap / 2.))
+                        .left(px(x(node) - 0.5))
+                        .w(px(x(lane) - x(node) + 1.))
+                        .h(px(1.))
+                        .bg(color),
+                ),
+        };
+    }
+    column.into_any_element()
 }
 
 /// The branch a stack is based on, under its bottom row: the connector ends
@@ -109,33 +104,4 @@ pub(crate) fn stack_trunk(base: &str, cx: &gpui::App) -> AnyElement {
                 .child(base.to_string()),
         )
         .into_any_element()
-}
-
-/// A hovered row's way out to GitHub.
-pub(crate) fn hovered_links(item: &Item, cx: &gpui::App) -> AnyElement {
-    link_tile(
-        SharedString::from(format!("panel-github-row-gh-{}", item.number)),
-        Icon::empty().path("icons/github.svg"),
-        t(L10nKey::GitHubOpenOnGitHub),
-        item.html_url.clone(),
-        cx,
-    )
-    .into_any_element()
-}
-
-/// A tile that opens `url`. The click stops at the tile, so the row does not
-/// open its detail too.
-fn link_tile(
-    id: SharedString,
-    icon: Icon,
-    tooltip: &'static str,
-    url: String,
-    cx: &gpui::App,
-) -> Button {
-    github_tile(id, icon, tooltip, cx)
-        .cursor_pointer()
-        .on_click(move |_, _window, cx| {
-            cx.stop_propagation();
-            cx.open_url(&url);
-        })
 }
