@@ -936,6 +936,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn graphite_url_names_the_repo_and_the_number() {
+        let slug = RepoSlug {
+            owner: "l0ng-ai".into(),
+            name: "tty7".into(),
+        };
+        assert_eq!(
+            graphite_url(&slug, 1177),
+            "https://app.graphite.dev/github/pr/l0ng-ai/tty7/1177"
+        );
+    }
+
+    #[test]
     fn a_signed_out_rate_limit_says_when_and_how_to_raise_it() {
         crate::ui::i18n::set_locale("en");
         let reset = now_unix() + 10 * 60;

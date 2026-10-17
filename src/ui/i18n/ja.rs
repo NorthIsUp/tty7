@@ -1384,10 +1384,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsEditorMarkdownPreviewDesc => {
             "Markdown ファイルを開いたとき、ソースではなくレンダリングしたプレビューを表示します。"
         }
-        L10nKey::SettingsGitHubGraphiteLinks => "Graphite リンク",
-        L10nKey::SettingsGitHubGraphiteLinksDesc => {
-            "GitHub パネルでプルリクエストにポインタを合わせると、Graphite で開くボタンも表示します。"
-        }
         L10nKey::SettingsSearchEditorGitGutterKeywords => {
             "git 変更 マーカー 差分 ステージ 変更 追加 削除 gutter diff"
         }
@@ -1395,6 +1391,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchEditorSoftWrapKeywords => "折り返し 長い行 wrap",
         L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
             "markdown プレビュー レンダリング md"
+        }
+        L10nKey::SettingsGitHubGraphiteLinks => "Graphite リンク",
+        L10nKey::SettingsGitHubGraphiteLinksDesc => {
+            "GitHub パネルでプルリクエストにポインタを合わせると、Graphite で開くボタンも表示します。"
         }
         L10nKey::SettingsSearchGitHubGraphiteLinksKeywords => {
             "graphite github プルリクエスト スタック リンク"

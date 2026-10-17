@@ -1318,10 +1318,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsEditorMarkdownPreviewDesc => {
             "Show Markdown files as a rendered preview rather than as source when they open."
         }
-        L10nKey::SettingsGitHubGraphiteLinks => "Graphite links",
-        L10nKey::SettingsGitHubGraphiteLinksDesc => {
-            "Hovering a pull request in the GitHub panel also offers to open it in Graphite."
-        }
         L10nKey::SettingsSearchEditorGitGutterKeywords => {
             "git gutter diff changes markers staged index scm vcs modified added deleted"
         }
@@ -1331,6 +1327,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchEditorSoftWrapKeywords => "wrap soft wrap long lines editor",
         L10nKey::SettingsSearchEditorMarkdownPreviewKeywords => {
             "markdown preview rendered md readme"
+        }
+        L10nKey::SettingsGitHubGraphiteLinks => "Graphite links",
+        L10nKey::SettingsGitHubGraphiteLinksDesc => {
+            "Hovering a pull request in the GitHub panel also offers to open it in Graphite."
         }
         L10nKey::SettingsSearchGitHubGraphiteLinksKeywords => {
             "graphite github pull request stack link"
