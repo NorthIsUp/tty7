@@ -33,6 +33,7 @@ use crate::ui::presets;
 
 mod agents;
 mod editor;
+mod github;
 mod hosts;
 pub(crate) mod kit;
 pub(crate) mod mobile;

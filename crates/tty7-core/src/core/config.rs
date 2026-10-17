@@ -273,11 +273,6 @@ pub struct Config {
     /// [`Self::editor_soft_wrap`]. Files that are not Markdown ignore it.
     #[serde(default)]
     pub editor_markdown_preview: bool,
-    /// Whether a hovered pull request row in the GitHub panel also offers
-    /// Open in Graphite. Off by default: without a Graphite account the link
-    /// lands on a sign-in page.
-    #[serde(default)]
-    pub github_graphite_links: bool,
     /// Whether the code editor starts language servers (rust-analyzer,
     /// typescript-language-server, …) for the files it opens, for
     /// diagnostics, completion, hover and go to definition. On by default;
@@ -290,6 +285,11 @@ pub struct Config {
     /// [`Self::editor_soft_wrap`].
     #[serde(default = "default_true")]
     pub editor_git_gutter: bool,
+    /// Whether a hovered pull request row in the GitHub panel also offers
+    /// Open in Graphite. Off by default: without a Graphite account the link
+    /// lands on a sign-in page.
+    #[serde(default)]
+    pub github_graphite_links: bool,
     /// Whether the sidebar files tabs nobody pinned into groups of its own —
     /// by repository, and by host for an SSH pane. Off, those tabs sit in one
     /// flat list below the pinned groups, which are the user's and show
@@ -836,9 +836,9 @@ impl Default for Config {
             scm_changes_tree: false,
             editor_soft_wrap: false,
             editor_markdown_preview: false,
-            github_graphite_links: false,
             editor_lsp: true,
             editor_git_gutter: true,
+            github_graphite_links: false,
             sidebar_auto_grouping: true,
             notify_on_command_finish: NotifyMode::Unfocused,
             check_for_updates: true,
