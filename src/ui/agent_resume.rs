@@ -7,19 +7,21 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, Global, IntoElement as _, Subscription,
-    Window,
+    AnyElement, App, AppContext as _, Context, Entity, EntityId, Global, IntoElement as _,
+    Subscription, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 
 use crate::core::config::Config;
 use crate::core::session::{SessionPane, SessionTab, WorkspaceId, WorkspaceStore};
+use crate::daemon::protocol::ShellSpec;
 use crate::terminal::view::{ShellParts, TerminalView};
 use crate::terminal::{PaneRoute, PaneWorkspace};
 use crate::ui::app::{Tab, Tty7App};
 use crate::ui::first_prompt::type_at_first_prompt;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingSpawn;
+use crate::ui::wake_pool::Job;
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::agent_history::Roots;
 use tty7_core::core::claude_background::{self, ResumePlan};
@@ -155,24 +157,34 @@ impl PaneResume {
             spawn.agent_prompt.clone(),
             cx,
         )?;
-        let cfg = cx.global::<Config>();
-        let shell = spawn
-            .shell
-            .as_ref()
+        let route = PaneRoute::for_workspace(spawn.workspace.as_ref());
+        let mut pane = PaneResume::typed(resume, spawn.shell.as_ref(), &route, cx);
+        let mode = cx.global::<Config>().fork.agent_resume_mode;
+        pane.run_once =
+            daemon_runs_once && runs_as_program(mode, pane.local, spawn.restore_pane, &pane.shell);
+        Some(pane)
+    }
+
+    /// `resume`, typed into a pane running `shell` (else the configured
+    /// shell, else the login one) over `route`.
+    fn typed(resume: Resume, shell: Option<&ShellSpec>, route: &PaneRoute, cx: &App) -> PaneResume {
+        let shell = shell
             .map(|s| s.program.clone())
-            .or_else(|| cfg.shell.as_ref().map(|s| s.program.clone()))
+            .or_else(|| {
+                cx.global::<Config>()
+                    .shell
+                    .as_ref()
+                    .map(|s| s.program.clone())
+            })
             .unwrap_or_else(login_shell);
-        // `first_prompt`'s "on this machine": a local route and not WSL,
-        // whose sessions keep their files on the other side.
-        let local =
-            PaneRoute::for_workspace(spawn.workspace.as_ref()).is_local() && !is_wsl(&shell);
-        let mode = cfg.fork.agent_resume_mode;
-        Some(PaneResume {
-            run_once: daemon_runs_once && runs_as_program(mode, local, spawn.restore_pane, &shell),
+        PaneResume {
+            // `first_prompt`'s "on this machine": a local route and not WSL,
+            // whose sessions keep their files on the other side.
+            local: route.is_local() && !is_wsl(&shell),
             resume,
             shell,
-            local,
-        })
+            run_once: false,
+        }
     }
 
     /// Off the UI thread.
@@ -267,51 +279,42 @@ fn type_resume(view: &Entity<TerminalView>, resume: PaneResume, cx: &mut App) {
     .detach();
 }
 
-/// `tab`'s panes whose agent died back to an idle shell, each with its
-/// [`dead_agent`] resume.
-fn dead_agents(
-    tab: &Tab,
-    prompt: Option<&str>,
-    cx: &App,
-) -> Vec<(Entity<TerminalView>, PaneResume)> {
-    tab.pane
-        .terminals()
-        .into_iter()
-        .filter_map(|view| Some((view.clone(), dead_agent(view.read(cx), prompt, cx)?)))
-        .collect()
-}
-
-/// The resume of the session `view`'s record kept (`last_session`) after its
-/// agent died, told `prompt`; `None` while an agent or a command holds it.
-fn dead_agent(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<PaneResume> {
+/// The session `view`'s record kept (`last_session`) after its agent died,
+/// told `prompt`; `None` while an agent or a command holds it.
+fn dead_session(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<Resume> {
     if view.agent().is_some() || !view.terminal.at_prompt() {
         return None;
     }
     let (agent, session_id, argv) = sleeping_agent(view, cx);
-    let resume = Resume::restored(
+    Resume::restored(
         &agent,
         session_id.as_deref(),
         argv.as_deref(),
         prompt.map(str::to_string),
         cx,
-    )?;
-    let shell = view.shell_spec().map_or_else(login_shell, |s| s.program);
-    Some(PaneResume {
-        local: view.pane_route().is_local() && !is_wsl(&shell),
-        resume,
-        shell,
-        run_once: false,
-    })
+    )
 }
 
-/// Resume `tab`'s dead agents where they died ([`dead_agents`]); false when
-/// it has none.
-pub(crate) fn resume_dead_agents(tab: &Tab, prompt: Option<&str>, cx: &mut App) -> bool {
-    let dead = dead_agents(tab, prompt, cx);
-    for (view, resume) in &dead {
-        type_resume(view, resume.clone(), cx);
-    }
-    !dead.is_empty()
+/// `tab`'s panes whose agent died back to an idle shell.
+fn dead_panes(tab: &Tab, cx: &App) -> Vec<EntityId> {
+    tab.pane
+        .terminals()
+        .into_iter()
+        .filter(|view| dead_session(view.read(cx), None, cx).is_some())
+        .map(|view| view.entity_id())
+        .collect()
+}
+
+/// [`dead_session`]'s resume, typed into `view`.
+fn dead_agent(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<PaneResume> {
+    let resume = dead_session(view, prompt, cx)?;
+    let shell = view.shell_spec();
+    Some(PaneResume::typed(
+        resume,
+        shell.as_ref(),
+        &view.pane_route(),
+        cx,
+    ))
 }
 
 /// The pending spawn a restored leaf takes when it held an agent that is no
@@ -388,7 +391,7 @@ pub(crate) fn with_minted_session(agent: CLIAgent, line: String) -> String {
 }
 
 /// The prompt a wake in progress sends each agent it resumes, set only for
-/// the length of [`Tty7App::wake_tab_with`] (as `in_background` is).
+/// the length of [`Tty7App::start_job`]'s wake (as `in_background` is).
 struct WakePrompt(Option<String>);
 
 impl Global for WakePrompt {}
@@ -399,8 +402,34 @@ pub(crate) fn wake_prompt(cx: &App) -> Option<String> {
 }
 
 impl Tty7App {
+    /// Start tab `index`'s wake pool `job`, with `prompt` sent to each agent
+    /// it resumes; false when nothing could be started.
+    pub(crate) fn start_job(
+        &mut self,
+        index: usize,
+        job: &Job,
+        prompt: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Job::ResumeDead(panes) = job else {
+            return self.wake_tab_with(index, prompt, window, cx);
+        };
+        let mut resumed = false;
+        for view in self.tabs[index].pane.terminals() {
+            if !panes.contains(&view.entity_id()) {
+                continue;
+            }
+            if let Some(resume) = dead_agent(view.read(cx), prompt, cx) {
+                type_resume(&view, resume, cx);
+                resumed = true;
+            }
+        }
+        resumed
+    }
+
     /// [`Self::wake_tab`], with `prompt` sent to each agent it resumes.
-    pub(crate) fn wake_tab_with(
+    fn wake_tab_with(
         &mut self,
         index: usize,
         prompt: Option<&str>,
@@ -420,20 +449,20 @@ impl Tty7App {
     /// (a crash, its runtime killed), with `continue_prompt`.
     pub(crate) fn continue_all_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = cx.global::<Config>().fork.continue_prompt.clone();
-        let mut ids = agent_tabs(self.asleep_layouts());
-        let asleep = ids.len();
-        ids.extend(
-            self.tabs
-                .iter()
-                .filter(|t| !t.is_asleep() && !dead_agents(t, None, cx).is_empty())
-                .map(|t| t.tree_id.get()),
-        );
+        let mut jobs = wakes(agent_tabs(self.asleep_layouts()));
+        let asleep = jobs.len();
+        for tab in self.tabs.iter().filter(|t| !t.is_asleep()) {
+            let dead = dead_panes(tab, cx);
+            if !dead.is_empty() {
+                jobs.push((tab.tree_id.get(), Job::ResumeDead(dead)));
+            }
+        }
         log::info!(
             "waking {asleep} agent tab(s), resuming {} dead, of {}",
-            ids.len() - asleep,
+            jobs.len() - asleep,
             self.tabs.len()
         );
-        self.wake_agent_tabs(ids, Some(prompt), window, cx);
+        self.wake_agent_tabs(jobs, Some(prompt), window, cx);
     }
 
     /// Launch's and Restart Server's wake: only the agent tabs restore put to
@@ -455,7 +484,7 @@ impl Tty7App {
             ids.len(),
             self.tabs.len()
         );
-        self.wake_agent_tabs(ids, None, window, cx);
+        self.wake_agent_tabs(wakes(ids), None, window, cx);
     }
 
     fn asleep_layouts(&self) -> Vec<(TabId, Option<&SessionPane>)> {
@@ -465,19 +494,23 @@ impl Tty7App {
             .collect()
     }
 
-    /// Wake `ids` through the wake pool, a few at a time, and tell each
+    /// Start `jobs` through the wake pool, a few at a time, and tell each
     /// agent `prompt` — the morning after a reboot, in one step. Tabs are
     /// found by id in this window when their turn comes: one closed or
     /// dragged to another window meanwhile counts as gone, and stays asleep.
     fn wake_agent_tabs(
         &mut self,
-        ids: Vec<TabId>,
+        jobs: Vec<(TabId, Job)>,
         prompt: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        crate::ui::wake_pool::queue(ids, prompt, window.window_handle(), cx);
+        crate::ui::wake_pool::queue(jobs, prompt, window.window_handle(), cx);
     }
+}
+
+fn wakes(ids: Vec<TabId>) -> Vec<(TabId, Job)> {
+    ids.into_iter().map(|id| (id, Job::Wake)).collect()
 }
 
 /// An automatic wake (launch, Restart Server): the agent tabs restore found
@@ -888,11 +921,17 @@ mod tests {
         remove_restored_file, restart_wakes, runs_as_program, take_launch_wake, take_restored,
         with_minted_session,
     };
+    use gpui::Entity;
+
     use crate::core::config::Config;
     use crate::core::session::SessionPane;
-    use crate::terminal::view::quiet_test_pane;
+    use crate::terminal::view::{TerminalView, quiet_test_pane};
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::first_prompt::tests::report_prompt;
+    use crate::ui::machine_mirror::MachineMirrors;
+    use crate::ui::wake_pool::Job;
     use tty7_core::core::cli_agent::CLIAgent;
-    use tty7_core::core::machine::TabId;
+    use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord, TabId};
 
     fn agent_leaf(session: Option<&str>) -> SessionPane {
         SessionPane::Leaf {
@@ -906,9 +945,27 @@ mod tests {
         }
     }
 
+    /// `view`'s record keeps `session` as the one its agent left.
+    fn left_session(view: &Entity<TerminalView>, session: &str, vcx: &mut gpui::VisualTestContext) {
+        vcx.update(|_, cx| {
+            let view = view.read(cx);
+            let mut record = PaneRecord::new(view.pane_id);
+            record.last_session = Some(AgentFacts {
+                agent: CLIAgent::Claude,
+                session_id: Some(session.into()),
+                launch_argv: None,
+                status: None,
+            });
+            let machine = Machine {
+                panes: vec![record],
+                ..Default::default()
+            };
+            MachineMirrors::install(cx, view.host_id(), machine);
+        });
+    }
+
     #[gpui::test]
     fn a_pane_put_to_sleep_keeps_the_session_its_agent_left(cx: &mut gpui::TestAppContext) {
-        use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord};
         crate::core::config::pin_test_config_dir();
         cx.executor().allow_parking();
         cx.update(|cx| {
@@ -921,24 +978,7 @@ mod tests {
             vcx.update(|_, cx| super::sleeping_agent(view.read(cx), cx))
         };
         assert_eq!(read(&mut vcx), (None, None, None));
-        vcx.update(|_, cx| {
-            let mut record = PaneRecord::new(41);
-            record.last_session = Some(AgentFacts {
-                agent: CLIAgent::Claude,
-                session_id: Some("s-left".into()),
-                launch_argv: None,
-                status: None,
-            });
-            let host = view.read(cx).host_id();
-            crate::ui::machine_mirror::MachineMirrors::install(
-                cx,
-                host,
-                Machine {
-                    panes: vec![record],
-                    ..Default::default()
-                },
-            );
-        });
+        left_session(&view, "s-left", &mut vcx);
         assert_eq!(
             read(&mut vcx),
             (Some(CLIAgent::Claude), Some("s-left".into()), None)
@@ -947,9 +987,6 @@ mod tests {
 
     #[gpui::test]
     fn an_agent_that_died_to_an_idle_shell_resumes_its_last_session(cx: &mut gpui::TestAppContext) {
-        use crate::daemon::protocol::DaemonMsg;
-        use std::io::Write as _;
-        use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord};
         crate::core::config::pin_test_config_dir();
         cx.executor().allow_parking();
         cx.update(|cx| {
@@ -958,46 +995,45 @@ mod tests {
         });
         let mut vcx = cx.add_empty_window().clone();
         let (view, mut daemon) = vcx.update(|window, cx| quiet_test_pane(42, window, cx));
-        vcx.update(|_, cx| {
-            let mut record = PaneRecord::new(42);
-            record.last_session = Some(AgentFacts {
-                agent: CLIAgent::Claude,
-                session_id: Some("s-died".into()),
-                launch_argv: None,
-                status: None,
-            });
-            let host = view.read(cx).host_id();
-            crate::ui::machine_mirror::MachineMirrors::install(
-                cx,
-                host,
-                Machine {
-                    panes: vec![record],
-                    ..Default::default()
-                },
-            );
-        });
+        left_session(&view, "s-died", &mut vcx);
         let read = |vcx: &mut gpui::VisualTestContext| {
             vcx.update(|_, cx| super::dead_agent(view.read(cx), Some("go"), cx).map(|r| r.resume))
         };
         assert_eq!(read(&mut vcx), None, "a shell not at its prompt is left be");
 
-        DaemonMsg::Prompt {
-            active: true,
-            at_prompt: true,
-            last_exit: None,
-        }
-        .encode(&mut daemon)
-        .unwrap();
-        daemon.flush().unwrap();
-        for _ in 0..400 {
-            if vcx.update(|_, cx| view.read(cx).terminal.at_prompt()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        report_prompt(&view, &mut vcx, &mut daemon);
         let resume = read(&mut vcx).expect("resumes at the prompt");
         assert_eq!(resume.session_id, "s-died");
         assert_eq!(resume.prompt.as_deref(), Some("go"));
+    }
+
+    #[gpui::test]
+    fn a_job_resumes_only_its_own_dead_panes_and_a_wake_goes_to_the_wake(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (app, mut vcx, mut streams) = harness_with_tabs(cx, 2);
+        let views = app.update(&mut vcx, |app, _| {
+            app.tabs
+                .iter()
+                .map(|t| t.pane.terminals()[0].clone())
+                .collect::<Vec<_>>()
+        });
+        left_session(&views[0], "s-died", &mut vcx);
+        report_prompt(&views[0], &mut vcx, &mut streams[0]);
+        let (dead, other) = (views[0].entity_id(), views[1].entity_id());
+        app.update_in(&mut vcx, |app, window, cx| {
+            let other = Job::ResumeDead(vec![other]);
+            assert!(!app.start_job(0, &other, None, window, cx), "not its pane");
+            let own = Job::ResumeDead(vec![dead]);
+            assert!(app.start_job(0, &own, None, window, cx));
+
+            let live = Job::ResumeDead(vec![views[1].entity_id()]);
+            assert!(!app.start_job(1, &live, None, window, cx), "nothing dead");
+            assert!(
+                app.start_job(1, &Job::Wake, None, window, cx),
+                "already awake"
+            );
+        });
     }
 
     #[test]

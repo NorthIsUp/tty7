@@ -69,7 +69,7 @@ fn type_within(view: &Entity<TerminalView>, line: String, patience: Duration, cx
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::Write as _;
 
     use gpui::{TestAppContext, VisualTestContext};
@@ -118,7 +118,7 @@ mod tests {
         }
     }
 
-    fn report_prompt(
+    pub(crate) fn report_prompt(
         view: &Entity<TerminalView>,
         vcx: &mut VisualTestContext,
         daemon: &mut Stream,
