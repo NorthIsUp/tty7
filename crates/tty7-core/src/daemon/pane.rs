@@ -1814,7 +1814,7 @@ impl DaemonPane {
         log::info!("pane {id} child started; child_pid={shell_pid:?}");
         #[cfg(unix)]
         if let Some(pid) = shell_pid {
-            super::nice::apply(pid);
+            super::nice::apply(pid, crate::core::config::Config::load().nice);
         }
         let child = Arc::new(Mutex::new(child));
 

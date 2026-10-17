@@ -1,28 +1,18 @@
 //! Lowering a pane's shell priority (`nice` in the config), so agents and
 //! builds typed into it yield the CPU to the GUI and to each other.
 
-use std::sync::Once;
-
-use crate::core::config::Config;
-
-/// The value to hand `setpriority`, or `None` when there is nothing to do.
-/// Negative values would need root to raise priority, so they turn it off.
-fn niceness(n: i32) -> Option<i32> {
-    if !(0..=19).contains(&n) {
-        static WARNED: Once = Once::new();
-        WARNED.call_once(|| log::warn!("nice = {n} is outside 0..=19; using {}", n.clamp(0, 19)));
+/// Applies `n` (already clamped by `Config::sanitize`) to a freshly spawned
+/// shell, off the spawning thread since macOS has to wait out the exec first.
+/// A failure is logged, never fatal: a pane at normal priority beats no pane.
+pub(crate) fn apply(pid: u32, n: i32) {
+    if n == 0 {
+        return;
     }
-    match n.clamp(0, 19) {
-        0 => None,
-        n => Some(n),
-    }
-}
-
-/// Applies the configured nice to a freshly spawned shell. A failure is
-/// logged, never fatal: a pane at normal priority beats no pane.
-pub(crate) fn apply(pid: u32) {
-    if let Some(n) = niceness(Config::load().nice) {
-        apply_n(pid, n);
+    if let Err(e) = std::thread::Builder::new()
+        .name("tty7-daemon-pane-nice".to_string())
+        .spawn(move || apply_n(pid, n))
+    {
+        log::warn!("could not nice pane shell {pid}: {e}");
     }
 }
 
@@ -76,47 +66,41 @@ mod tests {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    use super::*;
+    use super::apply_n;
 
     fn priority(pid: u32) -> i32 {
         // SAFETY: plain integers in, a plain integer out.
         unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t) }
     }
 
-    #[test]
-    fn niceness_turns_zero_and_negatives_off_and_caps_at_nineteen() {
-        for (input, want) in [(0, None), (5, Some(5)), (-3, None), (40, Some(19))] {
-            assert_eq!(niceness(input), want, "niceness({input})");
-        }
-    }
-
     /// Like portable_pty, close the exec-status pipe early so spawn returns
-    /// before the exec; the exec then waits a little longer to come.
+    /// before the exec. Without the wait about one renice in six lands inside
+    /// `execve` and is lost, so fifty spawns all but always catch a regression.
     #[cfg(target_os = "macos")]
     #[test]
-    fn apply_n_waits_for_the_exec_portable_pty_does_not() {
-        let mut cmd = Command::new("/bin/sleep");
-        cmd.arg("5");
-        // SAFETY: close is async-signal-safe and usleep is a nanosleep.
-        unsafe {
-            cmd.pre_exec(|| {
-                for fd in 3..256 {
-                    libc::close(fd);
-                }
-                libc::usleep(200_000);
-                Ok(())
-            });
+    fn apply_n_survives_the_exec_portable_pty_does_not_wait_for() {
+        let want = (priority(0) + 1).min(19);
+        for _ in 0..50 {
+            let mut cmd = Command::new("/bin/sleep");
+            cmd.arg("5").process_group(0);
+            // SAFETY: close is async-signal-safe.
+            unsafe {
+                cmd.pre_exec(|| {
+                    for fd in 3..256 {
+                        libc::close(fd);
+                    }
+                    Ok(())
+                });
+            }
+            let mut child = cmd.spawn().unwrap();
+            apply_n(child.id(), want);
+            // Read back after the exec, which is what drops a renice.
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let got = priority(child.id());
+            child.kill().ok();
+            child.wait().ok();
+            assert_eq!(got, want);
         }
-        let mut child = cmd.spawn().unwrap();
-        let start = std::time::Instant::now();
-        apply_n(child.id(), (priority(0) + 1).min(19));
-        let waited = start.elapsed();
-        child.kill().ok();
-        child.wait().ok();
-        assert!(
-            waited >= std::time::Duration::from_millis(150),
-            "{waited:?}"
-        );
     }
 
     #[test]
