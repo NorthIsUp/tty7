@@ -2590,6 +2590,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
         }
+        L10nKey::SettingsSplitPage => "Разделение спрашивает, что открыть",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D и ⌘⇧D открывают выбор новой вкладки: в разделённой панели можно открыть терминал или агента в любой папке."
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "разделить панель выбор агент терминал split pane picker agent terminal claude codex cmd d"
+        }
         L10nKey::GitHubSortRecent => "Недавние",
         L10nKey::GitHubSortNumber => "Номер",
         L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",

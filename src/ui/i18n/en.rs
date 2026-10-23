@@ -2489,6 +2489,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "agents new tab page offer hide claude codex pi"
         }
+        L10nKey::SettingsSplitPage => "Split asks what to open",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D and ⌘⇧D open the New Tab picker, so the split can be a terminal or an agent in any directory."
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "split pane picker agent terminal claude codex cmd d"
+        }
         L10nKey::GitHubSortRecent => "Recent",
         L10nKey::GitHubSortNumber => "Number",
         L10nKey::GitHubReviewPlaceholder => "Leave a review…",
