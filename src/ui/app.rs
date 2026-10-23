@@ -6909,7 +6909,7 @@ impl Tty7App {
         cx.notify();
     }
 
-    fn focused_leaf(&self, window: &Window, cx: &App) -> Option<Entity<TerminalView>> {
+    pub(crate) fn focused_leaf(&self, window: &Window, cx: &App) -> Option<Entity<TerminalView>> {
         self.tabs
             .get(self.active)
             .and_then(|t| t.pane.focused_or_first(window, cx))

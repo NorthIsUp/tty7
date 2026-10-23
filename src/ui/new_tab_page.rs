@@ -590,14 +590,10 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let remote = self
-            .tabs
-            .get(self.active)
-            .and_then(|t| t.pane.focused_or_first(window, cx))
-            .is_some_and(|leaf| {
-                let leaf = leaf.read(cx);
-                leaf.ssh_spec().is_some() || leaf.remote_context().is_some()
-            });
+        let remote = self.focused_leaf(window, cx).is_some_and(|leaf| {
+            let leaf = leaf.read(cx);
+            leaf.ssh_spec().is_some() || leaf.remote_context().is_some()
+        });
         if !cx.global::<Config>().fork.split_page || remote {
             return false;
         }
@@ -686,13 +682,16 @@ impl Tty7App {
                 Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
                 Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
             }),
-            Target::Split(axis) => {
-                let shell = Some(SpawnAs::Shell(None));
-                let slot = self.split_slot_in(axis, shell, Some(dir.clone()), window, cx);
-                if let Kind::Agent(agent) = kind {
-                    self.start_agent_in(agent, slot, cx);
+            // No background split: a split lands in the tab already in front.
+            Target::Split(axis) => match kind {
+                Kind::Terminal => {
+                    let shell = Some(SpawnAs::Shell(None));
+                    self.split_slot_in(axis, shell, Some(dir.clone()), window, cx);
                 }
-            }
+                Kind::Agent(agent) => {
+                    self.split_agent_in(agent, axis, Some(dir.clone()), window, cx)
+                }
+            },
         }
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }

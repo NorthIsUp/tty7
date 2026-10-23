@@ -26,7 +26,8 @@ New Tab opens a picker for what to open and where, drawn as Search Everywhere's 
 | `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsNewTabAgents`(`Desc`), `SettingsSearchNewTabAgentsKeywords`; `SettingsSplitPage`(`Desc`), `SettingsSearchSplitPageKeywords` |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
 | `src/ui/app.rs` | `split`, `split_slot_in` (`split_slot` with a start directory) | ⌘D/⌘⇧D open the page with a split as its target when `split_page` is on |
-| `src/ui/agent_launch.rs` | `start_agent_in` `pub(crate)` | an agent picked for a split starts in the pane the split placed |
+| `src/ui/agent_launch.rs` | `split_agent_in`, which `launch_agent`'s split also goes through | an agent picked for a split starts in the pane the split placed, in the picked directory |
+| `src/ui/app.rs` | `focused_leaf` `pub(crate)` | `open_split_page` asks whether the focused pane is remote |
 | `crates/tty7-core/src/core/fork_config.rs` | `split_page` | the split picker's switch |
 | `src/ui/settings/agents.rs`, `src/ui/settings.rs`, `src/ui/app.rs` | the Split asks what to open row; search entry, config key, description, modified check, reset | a setting like any other |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |

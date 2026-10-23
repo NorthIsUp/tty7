@@ -192,19 +192,30 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let slot = match at {
+        match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
                     t.pane
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                return self.launch_agent_in(agent, cwd, window, cx);
+                self.launch_agent_in(agent, cwd, window, cx)
             }
-            SpawnWhere::Split => {
-                self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
-            }
-        };
+            SpawnWhere::Split => self.split_agent_in(agent, Axis::Horizontal, None, window, cx),
+        }
+    }
+
+    /// Split the focused pane on `axis` for `agent` and start it there, in
+    /// `dir`, or where the split pane is when that is `None`.
+    pub(crate) fn split_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        axis: Axis,
+        dir: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.split_slot_in(axis, Some(SpawnAs::Shell(None)), dir, window, cx);
         self.start_agent_in(agent, slot, cx);
     }
 
@@ -220,12 +231,7 @@ impl Tty7App {
         self.start_agent_in(agent, slot, cx);
     }
 
-    pub(crate) fn start_agent_in(
-        &mut self,
-        agent: CLIAgent,
-        slot: Option<PaneSlot>,
-        cx: &mut Context<Self>,
-    ) {
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
         let command = crate::ui::agent_resume::with_minted_session(
             agent,
             agent.launch_command(&cx.global::<Config>().agent_launch),
