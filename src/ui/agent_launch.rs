@@ -220,7 +220,12 @@ impl Tty7App {
         self.start_agent_in(agent, slot, cx);
     }
 
-    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+    pub(crate) fn start_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        slot: Option<PaneSlot>,
+        cx: &mut Context<Self>,
+    ) {
         let command = crate::ui::agent_resume::with_minted_session(
             agent,
             agent.launch_command(&cx.global::<Config>().agent_launch),

@@ -2,7 +2,7 @@
 
 `Fork-Feature: palette-tabs`. The commit that carries this feature is `fork(palette-tabs): …` on `main-niu`.
 
-New Tab opens a picker for what to open and where, drawn as Search Everywhere's New Tab tab; Search Everywhere gains Text and History tabs, and ⌘K opens Sessions with open sessions first. One feature because the New Tab tab and the Text, History and Agents tabs share `SearchTab`, the palette's chords and its card.
+New Tab opens a picker for what to open and where, drawn as Search Everywhere's New Tab tab, and with `split_page` on ⌘D/⌘⇧D open it to pick a split; Search Everywhere gains Text and History tabs, and ⌘K opens Sessions with open sessions first. One feature because the New Tab tab and the Text, History and Agents tabs share `SearchTab`, the palette's chords and its card.
 
 ## Fork-owned files
 
@@ -23,8 +23,12 @@ New Tab opens a picker for what to open and where, drawn as Search Everywhere's 
 | `crates/tty7-core/src/core/fork_config.rs` | `new_tab_hidden_agents` | the agents the page leaves out |
 | `src/ui/settings/agents.rs` | `render_new_tab_agents_rows` | Agents in New Tab: a switch per agent on `PATH` |
 | `src/ui/settings.rs`, `src/ui/app.rs` | search entries, config key, description, modified check; reset | Agents in New Tab as a setting like any other |
-| `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsNewTabAgents`(`Desc`), `SettingsSearchNewTabAgentsKeywords` |
+| `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsNewTabAgents`(`Desc`), `SettingsSearchNewTabAgentsKeywords`; `SettingsSplitPage`(`Desc`), `SettingsSearchSplitPageKeywords` |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
+| `src/ui/app.rs` | `split`, `split_slot_in` (`split_slot` with a start directory) | ⌘D/⌘⇧D open the page with a split as its target when `split_page` is on |
+| `src/ui/agent_launch.rs` | `start_agent_in` `pub(crate)` | an agent picked for a split starts in the pane the split placed |
+| `crates/tty7-core/src/core/fork_config.rs` | `split_page` | the split picker's switch |
+| `src/ui/settings/agents.rs`, `src/ui/settings.rs`, `src/ui/app.rs` | the Split asks what to open row; search entry, config key, description, modified check, reset | a setting like any other |
 | `src/ui/tab_sidebar.rs` | `new_tab_in_group` | `new_tab_with_shell(None, ..)` so a group's New Tab skips the page |
 | `src/ui/palette.rs` | module doc, imports; `chord_tab` (was `is_palette_chord`) and its two call sites, the new tab page's keys in `intercept`, then `SearchView::on_arrow` (+ tests); `recording_a_shortcut` is upstream's, unchanged | upstream's since #1026, for ⌘P; the fork adds ⌘T (New Tab) and ⌘K (Sessions) as tabs the same chord logic opens, and the new tab page's own keys ahead of the modal rule |
 | `src/ui/search/mod.rs` | `SearchTab`, `ORDER`, `title`, `placeholder`, module list, `CARD_MAX_W` re-export (+ test) | the `Text` tab, on the row between Hosts and Actions; the `History` tab, after Sessions; the `NewTab` tab, off the row |

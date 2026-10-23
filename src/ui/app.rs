@@ -4635,6 +4635,9 @@ impl Tty7App {
     }
 
     pub(crate) fn split(&mut self, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_split_page(axis, window, cx) {
+            return;
+        }
         self.split_into(axis, None, window, cx);
     }
 
@@ -4658,6 +4661,19 @@ impl Tty7App {
         &mut self,
         axis: Axis,
         spawn: Option<SpawnAs>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PaneSlot> {
+        self.split_slot_in(axis, spawn, None, window, cx)
+    }
+
+    /// [`Self::split_slot`] starting in `dir` rather than where the split
+    /// pane is.
+    pub(crate) fn split_slot_in(
+        &mut self,
+        axis: Axis,
+        spawn: Option<SpawnAs>,
+        dir: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PaneSlot> {
@@ -4690,10 +4706,10 @@ impl Tty7App {
                 ),
             },
         };
-        let cwd = {
+        let cwd = dir.or_else(|| {
             let target = target.read(cx);
             inherited_start_dir(opened, target.cwd(), target.remote_context().is_some())
-        };
+        });
         let new = match spawn {
             SpawnAs::Ssh(spec) => {
                 match new_terminal_native(
@@ -7328,6 +7344,9 @@ impl Tty7App {
             L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
                 c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
             }),
+            L10nKey::SettingsSplitPage => {
+                self.update_config(cx, |c| c.fork.split_page = defaults.fork.split_page)
+            }
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
             L10nKey::SettingsPromptEditor => self.set_prompt_editor(defaults.prompt_editor, cx),

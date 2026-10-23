@@ -2312,6 +2312,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
         }
+        L10nKey::SettingsSplitPage => "拆分时选择打开什么",
+        L10nKey::SettingsSplitPageDesc => {
+            "⌘D 和 ⌘⇧D 打开新标签页选择器，拆分出的窗格可以是终端或 Agent，并可选择任意目录。"
+        }
+        L10nKey::SettingsSearchSplitPageKeywords => {
+            "拆分 窗格 选择器 Agent 终端 split pane picker agent terminal claude codex cmd d"
+        }
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "编号",
         L10nKey::GitHubReviewPlaceholder => "留下审查意见…",

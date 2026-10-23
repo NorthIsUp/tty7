@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::ClickEvent;
 use gpui::{
-    App, Context, Entity, Keystroke, ScrollHandle, SharedString, StyledText, Subscription,
+    App, Axis, Context, Entity, Keystroke, ScrollHandle, SharedString, StyledText, Subscription,
     WeakEntity, Window, div, prelude::*, px,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -19,7 +19,7 @@ use gpui_component::{ActiveTheme as _, Icon, IconName, v_flex};
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
 use crate::ui::agent_launch::most_recent;
-use crate::ui::app::Tty7App;
+use crate::ui::app::{SpawnAs, Tty7App};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, keycap};
 use crate::ui::home::display_path;
 use crate::ui::host_ops::HostOps;
@@ -63,8 +63,17 @@ impl Kind {
     }
 }
 
+/// Where the page's pick opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Target {
+    Tab,
+    /// Beside the focused pane (`split_page`), on ⌘D's or ⌘⇧D's axis.
+    Split(Axis),
+}
+
 pub(crate) struct NewTabPage {
     app: WeakEntity<Tty7App>,
+    target: Target,
     query: Entity<InputState>,
     kinds: Vec<Kind>,
     kind: usize,
@@ -288,6 +297,7 @@ impl NewTabPage {
     #[allow(clippy::too_many_arguments)]
     fn new(
         app: WeakEntity<Tty7App>,
+        target: Target,
         dirs: Vec<Dir>,
         listing: impl FnOnce(&dyn Host) -> Vec<Dir> + Send + 'static,
         kinds: Vec<Kind>,
@@ -334,6 +344,7 @@ impl NewTabPage {
         )];
         Self {
             app,
+            target,
             query,
             kinds,
             kind,
@@ -378,11 +389,11 @@ impl NewTabPage {
         let Some(dir) = self.rows.get(self.selected).cloned() else {
             return;
         };
-        let kind = self.kinds[self.kind];
+        let (kind, target) = (self.kinds[self.kind], self.target);
         let app = self.app.clone();
         window.defer(cx, move |window, cx| {
             let _ = app.update(cx, |app, cx| {
-                app.open_from_new_tab_page(kind, dir, background, window, cx)
+                app.open_from_new_tab_page(kind, dir, target, background, window, cx)
             });
         });
     }
@@ -564,7 +575,37 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !cx.global::<Config>().fork.new_tab_page || !self.can_spawn_locally(cx) {
+        if !cx.global::<Config>().fork.new_tab_page {
+            return false;
+        }
+        self.open_page(Target::Tab, window, cx)
+    }
+
+    /// ⌘D's and ⌘⇧D's first stop when `split_page` is on. False leaves the
+    /// split to upstream: off, or the pane is a remote one, which a split
+    /// dials again rather than opening a local pick beside it.
+    pub(crate) fn open_split_page(
+        &mut self,
+        axis: Axis,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let remote = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.pane.focused_or_first(window, cx))
+            .is_some_and(|leaf| {
+                let leaf = leaf.read(cx);
+                leaf.ssh_spec().is_some() || leaf.remote_context().is_some()
+            });
+        if !cx.global::<Config>().fork.split_page || remote {
+            return false;
+        }
+        self.open_page(Target::Split(axis), window, cx)
+    }
+
+    fn open_page(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.can_spawn_locally(cx) {
             return false;
         }
         if let Some(search) = &self.search {
@@ -619,7 +660,8 @@ impl Tty7App {
             .chain(offered.into_iter().map(Kind::Agent))
             .collect();
         let app = cx.entity().downgrade();
-        let page = cx.new(|cx| NewTabPage::new(app, dirs, listing, kinds, kind, home, window, cx));
+        let page =
+            cx.new(|cx| NewTabPage::new(app, target, dirs, listing, kinds, kind, home, window, cx));
         self.open_search(SearchTab::NewTab, "", window, cx);
         if let Some(search) = &self.search {
             search.update(cx, |search, cx| {
@@ -633,15 +675,25 @@ impl Tty7App {
         &mut self,
         kind: Kind,
         dir: PathBuf,
+        target: Target,
         background: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.close_search(window, cx);
-        self.in_background(background, |this| match kind {
-            Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
-            Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
-        });
+        match target {
+            Target::Tab => self.in_background(background, |this| match kind {
+                Kind::Terminal => this.new_tab_at(dir.clone(), window, cx),
+                Kind::Agent(agent) => this.launch_agent_in(agent, Some(dir.clone()), window, cx),
+            }),
+            Target::Split(axis) => {
+                let shell = Some(SpawnAs::Shell(None));
+                let slot = self.split_slot_in(axis, shell, Some(dir.clone()), window, cx);
+                if let Kind::Agent(agent) = kind {
+                    self.start_agent_in(agent, slot, cx);
+                }
+            }
+        }
         self.update_config(cx, |cfg| bump_frecency(cfg, &dir, unix_now()));
     }
 }

@@ -75,17 +75,29 @@ impl Tty7App {
             .gap(px(12.))
             .children(switches)
             .into_any_element();
+        let split_page = cx.global::<Config>().fork.split_page;
+        let split_switch = self.settings_switch("split-page", split_page, cx, |this, on, _, cx| {
+            this.update_config(cx, |c| c.fork.split_page = on)
+        });
         self.settings_group(
             None,
             None,
-            [self
-                .settings_row(
+            [
+                self.settings_row(
                     t(L10nKey::SettingsNewTabAgents),
                     t(L10nKey::SettingsNewTabAgentsDesc),
                     control,
                     cx,
                 )
-                .into_any_element()],
+                .into_any_element(),
+                self.settings_row(
+                    t(L10nKey::SettingsSplitPage),
+                    t(L10nKey::SettingsSplitPageDesc),
+                    split_switch,
+                    cx,
+                )
+                .into_any_element(),
+            ],
             cx,
         )
     }

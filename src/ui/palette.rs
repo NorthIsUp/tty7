@@ -242,6 +242,34 @@ mod tests {
     }
 
     #[gpui::test]
+    fn split_opens_the_new_tab_page_only_when_split_page_is_on(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let opened = app.update_in(&mut vcx, |app, window, cx| {
+            app.open_split_page(gpui::Axis::Horizontal, window, cx)
+        });
+        assert!(
+            !opened,
+            "off by default: ⌘D copies the pane as upstream does"
+        );
+
+        vcx.update(|_, cx| cx.global_mut::<Config>().fork.split_page = true);
+        let leaves = |app: &Entity<Tty7App>, vcx: &mut VisualTestContext| {
+            app.read_with(vcx, |app, _| app.tabs[app.active].pane.leaves().len())
+        };
+        let before = leaves(&app, &mut vcx);
+        let split = key("SplitRight", &mut vcx);
+        vcx.simulate_keystrokes(&split);
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), Some(SearchTab::NewTab));
+        assert_eq!(leaves(&app, &mut vcx), before, "nothing split until a pick");
+
+        vcx.simulate_keystrokes("escape");
+        vcx.run_until_parked();
+        assert_eq!(showing(&app, &mut vcx), None);
+        assert_eq!(leaves(&app, &mut vcx), before, "Esc splits nothing");
+    }
+
+    #[gpui::test]
     fn the_chords_open_the_palette_from_the_side_panel_and_settings(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         app.update(&mut vcx, |app, cx| {
