@@ -372,9 +372,17 @@ impl CLIAgent {
 
     /// The session `argv` names by itself, so a resume needs no hook to learn
     /// it: Claude's `--session-id <uuid>` (which quick launch mints) or
-    /// `--resume <uuid>`. A fork starts an id only a hook can report, and a
-    /// bare `--resume` opens the picker, so neither counts.
+    /// `--resume <uuid>`, and Codex's `resume <uuid>`, which reports no
+    /// session until its first turn. A fork starts an id only a hook can
+    /// report, and a bare `--resume` opens the picker, so neither counts.
     pub fn session_id_in_argv(self, argv: &[String]) -> Option<String> {
+        if self == CLIAgent::Codex {
+            let at = argv.iter().position(|t| t == "resume")?;
+            return argv[at + 1..]
+                .iter()
+                .find(|t| uuid::Uuid::parse_str(t).is_ok())
+                .cloned();
+        }
         if self != CLIAgent::Claude || argv.iter().any(|t| t == "--fork-session") {
             return None;
         }
@@ -1427,8 +1435,22 @@ mod tests {
             c.session_id_in_argv(&argv(&["claude", "-r", ID, "--fork-session"])),
             None
         );
+        let x = CLIAgent::Codex;
+        for named in [
+            &["node", "/bin/codex", "resume", ID][..],
+            &["codex", "--yolo", "resume", "-m", "o3", ID, "continue"],
+        ] {
+            assert_eq!(x.session_id_in_argv(&argv(named)).as_deref(), Some(ID));
+        }
+        for unnamed in [
+            &["codex", "resume", "--last"][..],
+            &["codex", "fork", ID],
+            &["codex", ID],
+        ] {
+            assert_eq!(x.session_id_in_argv(&argv(unnamed)), None, "{unnamed:?}");
+        }
         assert_eq!(
-            CLIAgent::Codex.session_id_in_argv(&argv(&["codex", "resume", ID])),
+            CLIAgent::Gemini.session_id_in_argv(&argv(&["gemini", "--resume", ID])),
             None
         );
     }
