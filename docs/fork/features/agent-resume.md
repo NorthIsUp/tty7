@@ -19,7 +19,7 @@
 | file | function / site | why |
 |---|---|---|
 | `src/terminal/remote.rs` | `mod fork_pane`; the `replay_tests` spawns pass `None` for `run_once` | `fork_pane::laid_out_grid` (see background-tabs); `run_once` is `DaemonPane::spawn`'s added argument |
-| `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's session id off its argv |
+| `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::resume_takes_prompt`, `CLIAgent::session_id_in_argv` (+ test) | which agents take a prompt on resume; read Claude's or Codex's session id off its argv |
 | `crates/tty7-core/src/core/machine.rs` | `PaneRecord::last_session` (serde default; `None` in `new`, `into_record` and three test literals in `tab_view.rs`, `tree_sync.rs`, `testbed.rs`), kept by `register_pane` | the session a pane's agent left behind |
 | `crates/tty7-core/src/daemon/pane.rs` | the reader: `closed_on_leaving`, then `note_session` after `p.agent` is observed; the read's OSC 133 C command → `note_command` when no agent is in front (+ test) | `last_session` set and cleared |
 | `crates/tty7-core/src/core/agent_history.rs` | `ends`, `records`, `str_field` made `pub(crate)` | `resume_plan` reads a transcript's tail for `/exit` |
