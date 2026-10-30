@@ -364,12 +364,12 @@ impl Tty7App {
             weight: Default::default(),
             style: Default::default(),
         };
-        // The active row renders its title at `FontWeight::MEDIUM`, which is
+        // The active row renders its title bold, which is
         // wider than the regular weight in any proportional face. Measuring
         // it as regular would let the one row the user is looking at overflow
         // into the truncation this is here to avoid.
         let title_font_active = gpui::Font {
-            weight: FontWeight::MEDIUM,
+            weight: FontWeight::BOLD,
             ..font.clone()
         };
         let rem = window.rem_size().as_f32();
@@ -552,6 +552,8 @@ impl Tty7App {
                 window,
                 cx,
             );
+            let (selected, text_selected) =
+                sf.selected_on(crate::ui::app::hsla_to_u32(deco.rows_under()));
             let mut rows_h = 0.;
             let mut rows: Vec<ContextMenu<Stateful<Div>>> = Vec::new();
             // The header keeps counting every row the group has; folding only
@@ -1002,7 +1004,7 @@ impl Tty7App {
                                         .min_w_0()
                                         .truncate()
                                         .text_sm()
-                                        .when(is_active, |d| d.font_weight(FontWeight::MEDIUM))
+                                        .when(is_active, |d| d.font_weight(FontWeight::BOLD))
                                         .child(shown_title),
                                 )
                                 // The path is elided to the room the title
@@ -1063,8 +1065,8 @@ impl Tty7App {
                     .px_2()
                     .rounded(crate::ui::rounding::ROW_RADIUS)
                     .when(is_active, |s| {
-                        s.bg(gpui::rgb(sf.selected))
-                            .text_color(gpui::rgb(sf.text_selected))
+                        s.bg(gpui::rgb(selected))
+                            .text_color(gpui::rgb(text_selected))
                     })
                     .when(!is_active, |s| {
                         s.text_color(gpui::rgb(sf.text_resting))
@@ -1166,7 +1168,7 @@ impl Tty7App {
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(if is_active {
-                                    gpui::rgb(sf.text_selected).into()
+                                    gpui::rgb(text_selected).into()
                                 } else {
                                     cx.theme().muted_foreground
                                 })
@@ -1175,7 +1177,7 @@ impl Tty7App {
                     })
                     .when(!(show_badges && badge_pos < 9), |row| {
                         let backing: gpui::Hsla = if is_active {
-                            gpui::rgb(sf.selected).into()
+                            gpui::rgb(selected).into()
                         } else {
                             gpui::rgb(sf.hover).into()
                         };
