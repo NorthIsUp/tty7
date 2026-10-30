@@ -94,7 +94,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
           # Off for CI speed while the fork is macOS-only; uncomment to build
           # them again (and re-add their required checks). Releases still build
