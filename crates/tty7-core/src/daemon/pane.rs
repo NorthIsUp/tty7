@@ -1865,6 +1865,7 @@ impl DaemonPane {
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
         log::info!("pane {id} child started; child_pid={shell_pid:?}");
+        crate::core::spawn_trace::parked_stage(id, crate::core::spawn_trace::Stage::ChildStarted);
         #[cfg(unix)]
         if let Some(pid) = shell_pid {
             super::nice::apply(pid);
@@ -2348,6 +2349,8 @@ impl DaemonPane {
                 // the same remote-context poll below. Seed it from the pane's
                 // current context so the first probe answers correctly.
                 let starts_local = state.lock().unwrap().remote.is_none();
+                // Fork (spawn-trace): only a pane spawned by a Spawn request has one.
+                let mut spawn_trace = crate::core::spawn_trace::unpark(state.lock().unwrap().id);
                 let mut graphics = GraphicsSniffer::new_local(starts_local);
                 let mut buf = [0u8; 65536];
 
@@ -2419,6 +2422,15 @@ impl DaemonPane {
                             // and most reads carry no prompt mark at all.
                             if signals.shell.iter().any(|s| s.at_prompt) && foreground_running() {
                                 suppress_relayed_prompt_marks(&mut signals.shell);
+                            }
+                            // Fork (spawn-trace): stamped before the foreground probes below.
+                            if let Some(t) = &mut spawn_trace
+                                && !t.read(
+                                    signals.shell.iter().any(|s| s.mark_at_prompt),
+                                    signals.shell.iter().any(|s| s.active && !s.mark_at_prompt),
+                                )
+                            {
+                                spawn_trace = None;
                             }
 
                             // A prompt mark that survived the suppression above

@@ -119,6 +119,8 @@ struct ReaderSignals {
     local_conpty: Arc<AtomicBool>,
     /// Whether the program in the pane switched on DEC mode 2031.
     color_scheme_updates: Arc<AtomicBool>,
+    /// Fork (spawn-trace): the pane has sent bytes, not just an empty replay.
+    saw_output: Arc<AtomicBool>,
 }
 
 /// What kind of pty is at the far end of a pane's link, which is what decides
@@ -655,6 +657,8 @@ pub struct RemoteTerminal {
     local_conpty: Arc<AtomicBool>,
     /// Whether the program in the pane switched on DEC mode 2031.
     color_scheme_updates: Arc<AtomicBool>,
+    /// Fork (spawn-trace): the pane has sent bytes, not just an empty replay.
+    saw_output: Arc<AtomicBool>,
 }
 
 /// The workspace id a spawn carries, so the pane's shell gets `$TTY7_WS` and a
@@ -992,6 +996,7 @@ impl RemoteTerminal {
                 // remembers what a `RemoteContext` taught the old reader.
                 local_conpty: self.local_conpty.clone(),
                 color_scheme_updates: self.color_scheme_updates.clone(),
+                saw_output: self.saw_output.clone(),
             },
         );
         self.reader_thread = Some(reader);
@@ -1095,6 +1100,7 @@ impl RemoteTerminal {
         let reader_quit = Arc::new(AtomicBool::new(false));
         let local_conpty = Arc::new(AtomicBool::new(pty == PtySource::LocalConpty));
         let color_scheme_updates = Arc::new(AtomicBool::new(false));
+        let saw_output = Arc::new(AtomicBool::new(false));
         let reader_thread = Self::spawn_reader(
             term.clone(),
             proxy.clone(),
@@ -1122,6 +1128,7 @@ impl RemoteTerminal {
                 lease: lease.clone(),
                 local_conpty: local_conpty.clone(),
                 color_scheme_updates: color_scheme_updates.clone(),
+                saw_output: saw_output.clone(),
             },
         );
 
@@ -1168,6 +1175,7 @@ impl RemoteTerminal {
             reader_quit,
             local_conpty,
             color_scheme_updates,
+            saw_output,
         })
     }
 
@@ -1242,6 +1250,7 @@ impl RemoteTerminal {
                     lease,
                     local_conpty,
                     color_scheme_updates,
+                    saw_output,
                 } = signals;
                 let mut awaiting_replay = awaiting_replay;
                 crate::core::threads::promote_to_user_interactive();
@@ -1515,6 +1524,10 @@ impl RemoteTerminal {
                             }
                             DaemonMsg::Snapshot(bytes) => {
                                 flush_batch!();
+                                // A new pane's attach replays one empty segment.
+                                if !bytes.is_empty() {
+                                    saw_output.store(true, Ordering::Relaxed);
+                                }
                                 cursor_scan.reset();
                                 parked_cursor.reset();
                                 proxy.replaying.store(true, Ordering::Relaxed);
@@ -1595,6 +1608,9 @@ impl RemoteTerminal {
                                 // time, and that report would be discounted.
                                 awaiting_replay = false;
                                 replaying_state = false;
+                                if !bytes.is_empty() {
+                                    saw_output.store(true, Ordering::Relaxed);
+                                }
                                 super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
                                 if std::mem::take(&mut report_scheme)
                                     && modes.is_on(COLOR_SCHEME_UPDATES)
@@ -1914,6 +1930,11 @@ impl RemoteTerminal {
 
     pub fn child_exited(&self) -> bool {
         self.child_exited.load(Ordering::SeqCst)
+    }
+
+    /// Fork (spawn-trace): any pane bytes have arrived on this terminal.
+    pub fn saw_output(&self) -> bool {
+        self.saw_output.load(Ordering::Relaxed)
     }
 
     pub(super) fn is_local_conpty(&self) -> bool {
@@ -4051,6 +4072,39 @@ mod replay_tests {
             "the geometry each segment was recorded at never reached the grid, \
              so it is still at the attach size"
         );
+        drop(daemon);
+    }
+
+    #[test]
+    fn a_new_panes_empty_replay_is_not_its_first_output() {
+        crate::core::config::pin_test_config_dir();
+        let (client_side, mut daemon) = socket_pair();
+        let term = RemoteTerminal::from_stream(client_side, TermSize::new(80, 24)).unwrap();
+        DaemonMsg::Size(ws(80, 24)).encode(&mut daemon).unwrap();
+        DaemonMsg::Snapshot(Vec::new()).encode(&mut daemon).unwrap();
+        DaemonMsg::Cwd(PathBuf::from("/tmp/sentinel"))
+            .encode(&mut daemon)
+            .unwrap();
+        let wait = |done: &dyn Fn() -> bool| {
+            for _ in 0..200 {
+                if done() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        wait(&|| term.foreground_cwd().is_some());
+        assert!(
+            term.foreground_cwd().is_some(),
+            "reader never got the frames"
+        );
+        assert!(!term.saw_output());
+
+        DaemonMsg::Output(b"$ ".to_vec())
+            .encode(&mut daemon)
+            .unwrap();
+        wait(&|| term.saw_output());
+        assert!(term.saw_output());
         drop(daemon);
     }
 
