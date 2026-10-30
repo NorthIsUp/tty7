@@ -2785,6 +2785,7 @@ impl DaemonPane {
             runs_codex: st.alive && st.agent == Some(agent),
             cwd: st.cwd.clone(),
             session: st.agent_session.as_ref().and_then(|s| s.session_id.clone()),
+            entered: st.fork.entered_at.map(|at| at.elapsed()),
         }
     }
 
@@ -2796,7 +2797,13 @@ impl DaemonPane {
         if bytes.is_empty() {
             return;
         }
-        let agent = self.state.lock().unwrap().agent;
+        let agent = {
+            let mut st = self.state.lock().unwrap();
+            if enters(bytes) {
+                st.fork.entered_at = Some(std::time::Instant::now());
+            }
+            st.agent
+        };
         if interrupts(agent, bytes) {
             arm_interrupt(&self.state);
         }
@@ -4029,6 +4036,37 @@ pub struct CodexCandidate {
     pub runs_codex: bool,
     pub cwd: Option<PathBuf>,
     pub session: Option<String>,
+    /// How long ago Enter was last typed into it.
+    pub entered: Option<Duration>,
+}
+
+/// How soon after a prompt is entered its turn's first report arrives, at
+/// most, for [`codex_report_target`] to take the prompt's pane as its own.
+const ENTERED_WITHIN: Duration = Duration::from_secs(15);
+
+/// Whether `bytes` press Enter: a bare `\r`, or the kitty keyboard
+/// protocol's `CSI 13 u` / `CSI 13 ; mods u` a TUI that asked for it gets.
+fn enters(bytes: &[u8]) -> bool {
+    bytes.contains(&b'\r')
+        || bytes.windows(4).enumerate().any(|(i, w)| {
+            w[..3] == *b"[13"
+                && (w[3] == b'u'
+                    || (w[3] == b';'
+                        && bytes[i + 4..]
+                            .iter()
+                            .find(|b| !(b.is_ascii_digit() || **b == b':'))
+                            == Some(&b'u')))
+        })
+}
+
+/// Of `several` panes, the one a prompt was entered into last, if one was
+/// entered into lately.
+fn entered_last<'a>(several: &[&'a CodexCandidate]) -> Option<&'a CodexCandidate> {
+    several
+        .iter()
+        .copied()
+        .filter(|p| p.entered.is_some_and(|e| e <= ENTERED_WITHIN))
+        .min_by_key(|p| p.entered)
 }
 
 /// The pane a Codex hook's report belongs to.
@@ -4043,8 +4081,12 @@ pub struct CodexCandidate {
 /// Codex in that directory, or among every Codex pane when none runs there
 /// (`codex -C` leaves the shell elsewhere). Of several, a session `/new`
 /// started (`cleared`) goes to one that had a session before and any other to
-/// one yet to report, and the named pane breaks a tie that still stands.
-/// `None` is no pane, or no telling which.
+/// one yet to report; a tie goes to the pane a prompt was entered into last,
+/// since a report follows the prompt that began its turn, and the named pane
+/// breaks a tie that still stands, or
+/// takes one it was left out of while running Codex in the report's
+/// directory. `None` is no pane, or no telling which, and the report is
+/// dropped: the named pane is only the app-server's first.
 ///
 /// jcode is built the same way — its sessions share one background server
 /// that runs every session's hooks with the environment of whichever client
@@ -4069,6 +4111,7 @@ pub fn codex_report_target(
                 .is_some_and(|(cwd, c)| same_dir(c, cwd))
         })
         .collect();
+    let named_here = here.iter().any(|p| p.pane == named).then_some(named);
     let pool = if here.is_empty() {
         codex().collect()
     } else {
@@ -4083,7 +4126,10 @@ pub fn codex_report_target(
     match pool.as_slice() {
         [only] => Some(only.pane),
         [] => None,
-        several => several.iter().find(|p| p.pane == named).map(|p| p.pane),
+        several => entered_last(several)
+            .or_else(|| several.iter().copied().find(|p| p.pane == named))
+            .map(|p| p.pane)
+            .or(named_here),
     }
 }
 
@@ -4700,6 +4746,7 @@ mod tests {
             runs_codex: codex,
             cwd: Some(PathBuf::from(cwd)),
             session: session.map(str::to_string),
+            entered: None,
         };
         let panes = [
             pane(1, true, "/work/a", Some("s-a")),
@@ -4769,6 +4816,74 @@ mod tests {
         };
         assert_eq!(twin(7), Some(7), "a tie goes to the pane the hook named");
         assert_eq!(twin(1), None, "and is no one's otherwise");
+
+        // The app-server started in pane 8, which has a session of its own,
+        // and a fresh session reports from a directory two panes share.
+        let shared = [
+            pane(8, true, "/work/home", Some("s-h")),
+            pane(9, true, "/work/e", None),
+            pane(10, true, "/work/e", None),
+            pane(11, true, "/work/e", Some("s-e")),
+        ];
+        let from = |named| {
+            codex_report_target(
+                &shared,
+                named,
+                Some("s-x"),
+                Some(Path::new("/work/e")),
+                false,
+            )
+        };
+        assert_eq!(
+            from(8),
+            None,
+            "never the app-server's pane in another directory"
+        );
+        assert_eq!(
+            from(11),
+            Some(11),
+            "but a pane running Codex where the report comes from keeps it"
+        );
+
+        assert!(enters(b"fix it\r") && enters(b"\x1b[13u") && enters(b"\x1b[13;2u"));
+        assert!(!enters(b"fix it") && !enters(b"\x1b[13~") && !enters(b"\x1b[13;2~"));
+
+        let typed = |pane: u64, ago: Option<u64>| CodexCandidate {
+            entered: ago.map(Duration::from_secs),
+            ..CodexCandidate {
+                pane,
+                runs_codex: true,
+                cwd: Some(PathBuf::from("/work/f")),
+                session: None,
+                entered: None,
+            }
+        };
+        let fresh = [
+            typed(12, Some(40)),
+            typed(13, Some(2)),
+            typed(14, Some(5)),
+            typed(15, None),
+        ];
+        let first_turn = |named| {
+            codex_report_target(
+                &fresh,
+                named,
+                Some("s-f"),
+                Some(Path::new("/work/f")),
+                false,
+            )
+        };
+        assert_eq!(
+            first_turn(8),
+            Some(13),
+            "the pane a prompt was entered into last"
+        );
+        let stale = [typed(12, Some(40)), typed(15, None)];
+        assert_eq!(
+            codex_report_target(&stale, 8, Some("s-f"), Some(Path::new("/work/f")), false),
+            None,
+            "a prompt from long before is no evidence"
+        );
     }
 
     #[test]
