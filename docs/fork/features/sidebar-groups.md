@@ -29,3 +29,5 @@
 | `src/ui/tab_sidebar.rs` | `row_metrics::header_budget` doc | the chevron is always drawn now |
 | `src/ui/settings/pages.rs` | `render_settings_appearance` | a Tabs group of `group_header_settings` rows, before Window |
 | `docs/window/sidebar.mdx` | Group colours | `group_colors`, header outline/fill, default branch |
+| `src/ui/tab_sidebar.rs` | after `Deco::new`, `sf.selected_on(deco.rows_under())` replaces `sf.selected` / `sf.text_selected` on the active row; active title `FontWeight::BOLD` | the current tab steps off the group's wash, not the rail, so it stays visible inside a filled group |
+| `src/ui/presets.rs` | `Surface::selected_on`, `PANEL_SELECTED` 1.12 → 1.22; `src/ui/app.rs` `hsla_to_u32` `pub(crate)` | the selected rung measured from the fill under the row, and a stronger rung |

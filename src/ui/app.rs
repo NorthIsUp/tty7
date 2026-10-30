@@ -149,7 +149,7 @@ pub(crate) fn theme_edit_label(edit: ThemeEdit) -> &'static str {
     })
 }
 
-fn hsla_to_u32(color: gpui::Hsla) -> u32 {
+pub(crate) fn hsla_to_u32(color: gpui::Hsla) -> u32 {
     let rgba: gpui::Rgba = color.into();
     let to = |f: f32| (f.clamp(0.0, 1.0) * 255.0).round() as u32;
     (to(rgba.r) << 16) | (to(rgba.g) << 8) | to(rgba.b)

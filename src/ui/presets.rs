@@ -105,10 +105,10 @@ pub mod state {
     pub const CURSOR: f32 = 1.70;
     /// The side panels' own, lighter rungs (see `Theme::panel_surface`).
     /// A panel lists many rows at once, and at the window's 1.30 the current
-    /// one read as a dark slab; these land on #ededec / #e8e8e7 on the
-    /// default light rail (#f5f5f4).
+    /// one read as a dark slab; the current tab's rung still has to stand
+    /// clear of a group's wash, so it sits well above hover.
     pub const PANEL_HOVER: f32 = 1.07;
-    pub const PANEL_SELECTED: f32 = 1.12;
+    pub const PANEL_SELECTED: f32 = 1.22;
     pub const TEXT_RESTING: f32 = 4.6;
     pub const TEXT_STEP: f32 = 1.4;
 }
@@ -125,6 +125,26 @@ pub struct Surface {
     pub cursor: u32,
     pub text_resting: u32,
     pub text_selected: u32,
+}
+
+impl Surface {
+    /// The selected fill and its ink, stepped off `under`: the fill a row
+    /// actually sits on. A group's wash is darker than the rail, so a rung
+    /// taken from the rail came out lighter than the rows around it.
+    pub(crate) fn selected_on(&self, under: u32) -> (u32, u32) {
+        if under == self.base {
+            return (self.selected, self.text_selected);
+        }
+        let fill = raise(
+            under,
+            shade_of(under, self.text_selected),
+            state::PANEL_SELECTED,
+        );
+        (
+            fill,
+            stepped_ink(fill, under, self.text_selected, self.text_resting),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
