@@ -99,7 +99,9 @@ impl Resume {
             return None;
         }
         let agent = agent.as_ref()?;
-        let Some(session_id) = session_id else {
+        // A record an older daemon wrote has the id only in the argv it saved.
+        let named = launch_argv.and_then(|argv| agent.session_id_in_argv(argv));
+        let Some(session_id) = session_id.or(named.as_deref()) else {
             log::info!(
                 "{}'s pane had no captured session id; it comes back as a plain shell",
                 agent.display_name()
@@ -983,6 +985,28 @@ mod tests {
             read(&mut vcx),
             (Some(CLIAgent::Claude), Some("s-left".into()), None)
         );
+    }
+
+    #[gpui::test]
+    fn a_record_with_no_session_resumes_the_one_its_argv_names(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.set_global(Config::default()));
+        let id = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let argv: Vec<String> = ["node", "/bin/codex", "resume", id]
+            .map(str::to_string)
+            .into();
+        let codex = Some(CLIAgent::Codex);
+        cx.update(|cx| {
+            let resumed = |session: Option<&str>, argv: &[String]| {
+                Resume::restored(&codex, session, Some(argv), None, cx).map(|r| r.session_id)
+            };
+            assert_eq!(resumed(None, &argv).as_deref(), Some(id));
+            assert_eq!(
+                resumed(Some("01a00000-0000-7000-8000-000000000000"), &argv).as_deref(),
+                Some("01a00000-0000-7000-8000-000000000000"),
+                "a captured session wins over the argv's"
+            );
+            assert_eq!(resumed(None, &argv[..2]), None, "a fresh `codex` has none");
+        });
     }
 
     #[gpui::test]
