@@ -2337,6 +2337,7 @@ impl Tty7App {
             return;
         };
         tab.group.set(group);
+        self.hold_tab_group(index, group.is_some(), cx);
         // Carries the move to the daemon as a `TabSetGroup`, so another
         // window on the same workspace sees it too.
         self.save_session(cx);
@@ -2349,7 +2350,10 @@ impl Tty7App {
     pub(crate) fn move_tab_to(&mut self, index: usize, key: GroupKey, cx: &mut Context<Self>) {
         match key {
             GroupKey::Pinned(id) => self.set_tab_group(index, Some(id), cx),
-            GroupKey::Auto(auto) => self.pin_auto_group_with(auto, Some(index), cx),
+            GroupKey::Auto(auto) => {
+                self.pin_auto_group_with(auto, Some(index), cx);
+                self.hold_tab_group(index, true, cx);
+            }
         }
     }
 
@@ -2773,13 +2777,15 @@ impl Tty7App {
                 continue;
             };
             let inside = self.sidebar_groups.folder_for(Some(cwd), home.as_deref());
-            let before = tab.folder_watch.get();
-            let mut watch = before;
+            let mut watch = tab.folder_watch.get();
             let entered = watch.observe(inside);
             tab.folder_watch.set(watch);
+            if crate::ui::group_follow::held(&self.sidebar_groups, tab) {
+                continue;
+            }
             let kept = tab.group.get().filter(|&g| self.sidebar_groups.contains(g));
             if let Some(to) =
-                crate::ui::group_follow::walked_out(&self.sidebar_groups, kept, before, inside)
+                crate::ui::group_follow::walked_out(&self.sidebar_groups, kept, inside)
             {
                 tab.group.set(to);
                 joined = true;
@@ -2812,7 +2818,9 @@ impl Tty7App {
             });
             auto_key(host.as_deref(), known)
         });
-        if let Some(key) = resolved {
+        if let Some(key) = resolved
+            && !crate::ui::group_follow::frozen(&self.sidebar_groups, tab)
+        {
             *tab.auto_group.borrow_mut() = key;
         }
         tab.auto_group.borrow().clone()

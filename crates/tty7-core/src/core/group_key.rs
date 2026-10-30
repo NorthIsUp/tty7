@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::machine::TabId;
+
 /// The identity of a pinned group. A name cannot be one — two groups may share
 /// a name, and a rename must not orphan every tab filed under the old one —
 /// so tabs point at this instead.
@@ -188,6 +190,10 @@ pub struct WorkspaceGroups {
     pub auto_collapsed: Vec<AutoKey>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ungrouped_collapsed: bool,
+    /// Tabs pinned to the group they are in now, which automatic regrouping
+    /// leaves be (fork: `ui::group_follow`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<TabId>,
 }
 
 impl WorkspaceGroups {
@@ -358,11 +364,6 @@ impl EntryWatch {
         };
         self.last = Some(now);
         entered
-    }
-
-    /// Whether the last look found the tab inside pinned folder `group`.
-    pub fn was_in(&self, group: GroupId) -> bool {
-        self.last == Some(Some(group))
     }
 }
 
