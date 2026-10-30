@@ -10,7 +10,9 @@ tty7's integration still loads after it. fish gets `--no-config` and the script
 as an extra `-C`. Other shells are untouched. The script runs `path_helper` on
 macOS, then, in `no_rcs_envlibs`, the env tools `detect` found before spawn:
 mise alone, else asdf's shims, direnv, and a `.env` parser when direnv is
-missing. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
+missing. In zsh, `mise activate` is read in the background (`DEFER_ZSH`: a
+process substitution, a `zle -F` handler, and a `preexec` that waits for it if
+a command comes first), so the first prompt does not wait on mise. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
 
 ## Fork-owned files
 
