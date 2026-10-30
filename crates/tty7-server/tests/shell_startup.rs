@@ -34,6 +34,11 @@ fn script(path: &Path, body: &str) {
 /// A daemon whose home has a `.zshrc` that prints a marker, with a fake mise
 /// and asdf first on its PATH.
 fn daemon(mode: &str) -> Daemon {
+    daemon_with(mode, "")
+}
+
+/// `daemon`, with `mise_first` run by the fake mise before it answers.
+fn daemon_with(mode: &str, mise_first: &str) -> Daemon {
     let dir = tempfile::TempDir::new().unwrap();
     let home = dir.path();
     std::fs::write(home.join(".zshrc"), "echo USER_RC_RAN\n").unwrap();
@@ -46,7 +51,10 @@ fn daemon(mode: &str) -> Daemon {
     std::fs::create_dir(&bin).unwrap();
     script(
         &bin.join("mise"),
-        r#"[ "$1" = activate ] && echo "export FAKE_MISE=$2""#,
+        &format!(
+            r#"{mise_first}
+[ "$1" = activate ] && echo "export FAKE_MISE=$2""#
+        ),
     );
     script(&bin.join("asdf"), "exit 0");
     let child = Command::new(env!("CARGO_BIN_EXE_tty7-server"))
@@ -82,9 +90,11 @@ fn endpoint(dir: &Path) -> PathBuf {
 }
 
 /// Everything a zsh pane prints through its first prompt, then the line its
-/// report of the environment prints.
-fn zsh_pane(daemon: &Daemon) -> (String, String) {
+/// report of the environment prints, and how long the prompt took.
+fn zsh_pane(daemon: &Daemon) -> (String, String, Duration) {
     let mut stream = transport::connect_endpoint_at(&endpoint(daemon.dir.path())).unwrap();
+    let spawned = Instant::now();
+    let mut prompt = Duration::ZERO;
     ClientMsg::Spawn {
         cwd: Some(daemon.dir.path().to_path_buf()),
         size: WinSize {
@@ -116,6 +126,7 @@ fn zsh_pane(daemon: &Daemon) -> (String, String) {
                 let text = String::from_utf8_lossy(&seen).into_owned();
                 if startup.is_none() && text.contains(PROMPT_MARK) {
                     startup = Some(text);
+                    prompt = spawned.elapsed();
                     seen.clear();
                     ClientMsg::Input(
                         b"print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} PATH=$PATH\r".to_vec(),
@@ -124,7 +135,7 @@ fn zsh_pane(daemon: &Daemon) -> (String, String) {
                     .unwrap();
                 } else if let Some(at) = text.find("OUT_2") {
                     let line = text[at..].lines().next().unwrap_or_default().to_string();
-                    return (startup.unwrap_or_default(), line);
+                    return (startup.unwrap_or_default(), line, prompt);
                 }
             }
             Ok(DaemonMsg::Exited { code }) => panic!("zsh exited ({code:?})"),
@@ -137,14 +148,14 @@ fn zsh_pane(daemon: &Daemon) -> (String, String) {
 
 #[test]
 fn user_mode_reads_the_users_zshrc() {
-    let (startup, line) = zsh_pane(&daemon("user"));
+    let (startup, line, _) = zsh_pane(&daemon("user"));
     assert!(startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(line.contains("MISE=no"), "{line}");
 }
 
 #[test]
 fn no_rcs_skips_the_users_zshrc_but_keeps_the_prompt_marks() {
-    let (startup, line) = zsh_pane(&daemon("no_rcs"));
+    let (startup, line, _) = zsh_pane(&daemon("no_rcs"));
     assert!(!startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(startup.contains(PROMPT_MARK));
     assert!(line.contains("MISE=no"), "{line}");
@@ -152,8 +163,20 @@ fn no_rcs_skips_the_users_zshrc_but_keeps_the_prompt_marks() {
 
 #[test]
 fn no_rcs_envlibs_activates_mise_and_not_asdf() {
-    let (startup, line) = zsh_pane(&daemon("no_rcs_envlibs"));
+    let (startup, line, _) = zsh_pane(&daemon("no_rcs_envlibs"));
     assert!(!startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(line.contains("MISE=zsh"), "{line}");
     assert!(!line.contains(".asdf/shims"), "{line}");
+}
+
+#[test]
+fn a_slow_mise_does_not_hold_up_the_first_prompt() {
+    let d = daemon_with("no_rcs_envlibs", "sleep 2");
+    let (_, line, prompt) = zsh_pane(&d);
+    assert!(
+        prompt < Duration::from_secs(1),
+        "the prompt waited {prompt:?} for mise"
+    );
+    // The command went in at the prompt, before mise answered, and still saw it.
+    assert!(line.contains("MISE=zsh"), "{line}");
 }

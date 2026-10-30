@@ -136,7 +136,13 @@ fn script(shell: &str, activation: Option<&Activation>) -> String {
         None => {}
         Some(Activation::Mise(mise)) => {
             path_add(&mut out, parent(mise));
-            hook(&mut out, mise, "activate");
+            match shell {
+                "zsh" => out.push_str(&DEFER_ZSH.replace(
+                    "{cmd}",
+                    &format!("{} activate zsh", quote(&mise.to_string_lossy(), false)),
+                )),
+                _ => hook(&mut out, mise, "activate"),
+            }
         }
         Some(Activation::Others { asdf, direnv }) => {
             if let Some((bin, shims)) = asdf {
@@ -175,6 +181,32 @@ fn quote(s: &str, fish: bool) -> String {
         format!("'{}'", s.replace('\'', r"'\''"))
     }
 }
+
+// `mise activate`'s output is read once zle is idle, after the first prompt is
+// drawn: mise takes 40-150ms just to start, which was most of a new pane's wait.
+// Its output already carries the directory's env, so nothing has to rerun.
+// A command entered sooner waits for it in preexec, so none runs without it.
+// tty7's precmd moves back to the end so the prompt mark still comes last.
+const DEFER_ZSH: &str = r#"exec {__tty7_defer_fd}< <({cmd} 2>/dev/null)
+__tty7_defer_done() {
+  local fd=$__tty7_defer_fd code= line
+  [[ -n $fd ]] || return 0
+  unset __tty7_defer_fd
+  zle -F $fd 2>/dev/null
+  while IFS= read -r -u $fd line; do code+=$line$'\n'; done
+  code+=$line
+  exec {fd}<&-
+  add-zsh-hook -d preexec __tty7_defer_done
+  eval "$code"
+  if (( $+functions[__tty7_precmd] )); then
+    add-zsh-hook -d precmd __tty7_precmd
+    add-zsh-hook precmd __tty7_precmd
+  fi
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook preexec __tty7_defer_done
+zle -F $__tty7_defer_fd __tty7_defer_done 2>/dev/null || __tty7_defer_done
+"#;
 
 // Parses `KEY=value` lines rather than sourcing the file: a `.env` in any
 // cloned repo would otherwise run its code on `cd`.
@@ -307,7 +339,9 @@ mod tests {
 
     #[test]
     fn mise_activates_for_its_own_shell() {
-        assert!(script("zsh", Some(&mise())).contains("eval \"$('/opt/x/mise' activate zsh)\""));
+        assert!(
+            script("zsh", Some(&mise())).contains("< <('/opt/x/mise' activate zsh 2>/dev/null)")
+        );
         assert!(script("bash", Some(&mise())).contains("activate bash"));
         assert!(script("fish", Some(&mise())).contains("'/opt/x/mise' activate fish | source"));
     }
