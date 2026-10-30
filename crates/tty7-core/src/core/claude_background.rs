@@ -407,6 +407,9 @@ fn text_of(content: &serde_json::Value) -> String {
 pub(crate) struct PaneFork {
     /// See [`adopt_argv_session`].
     pub(crate) argv_session_checked: Option<(Vec<String>, Instant)>,
+    /// When Enter was last typed into the pane: Codex starts a session's
+    /// hooks on its first turn, so a report follows the prompt that began it.
+    pub(crate) entered_at: Option<Instant>,
 }
 
 /// How long an argv's lookup stands before it is read again: the sessions
