@@ -336,6 +336,8 @@ pub struct TerminalView {
     /// pane* when the next one starts.
     pub(super) grid_buf: Vec<RenderCell>,
     pub(super) grid_snap: Option<GridSnapshot>,
+    /// Fork (spawn-trace): a new pane's first output and first paint.
+    pub(crate) spawn_trace: Option<crate::core::spawn_trace::Trace>,
     /// Terminal mode and selection as of the last frame that got the lock.
     /// What the *frame* declares — the keymap context it publishes, whether it
     /// draws a selection — is read from here, so drawing never queues behind
@@ -1985,6 +1987,7 @@ impl TerminalView {
             grid_slack: px(0.),
             grid_buf: Vec::new(),
             grid_snap: None,
+            spawn_trace: None,
             frame_alt_screen: false,
             frame_has_selection: false,
             selecting: false,
@@ -2636,6 +2639,12 @@ impl TerminalView {
         }
         match ev {
             AlacEvent::Wakeup => {
+                // The attach replay wakes the view too, before the shell wrote.
+                if let Some(t) = &mut self.spawn_trace
+                    && self.terminal.saw_output()
+                {
+                    t.stage(crate::core::spawn_trace::Stage::FirstOutput, "");
+                }
                 // The grid moved under whatever the search bar last measured.
                 self.note_output_under_search(cx);
                 // Only a pane that is on screen repaints on output. The

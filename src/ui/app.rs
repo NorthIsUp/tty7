@@ -4544,6 +4544,7 @@ impl Tty7App {
         if !self.guard_local_spawn(window, cx) {
             return None;
         }
+        crate::core::spawn_trace::request_tab();
         let group = self.spawn_group(cwd.as_deref(), cx);
         let tab = match new_terminal(
             self.window_workspace(cx),
@@ -10987,10 +10988,16 @@ pub(crate) fn new_terminal(
     window: &mut Window,
     cx: &mut Context<Tty7App>,
 ) -> anyhow::Result<PaneSlot> {
+    // shortcut: only a local spawn is traced; a routed one drops its attempt.
+    let trace = crate::core::spawn_trace::take_handed();
     if matches!(
         crate::terminal::PaneRoute::for_workspace(workspace.as_ref()),
         crate::terminal::PaneRoute::Local
     ) {
+        let trace = trace.map(|mut t| {
+            t.stage(crate::core::spawn_trace::Stage::SpawnSent, "");
+            t
+        });
         let parts = TerminalView::spawn_shell_terminal_in(
             workspace,
             working_directory,
@@ -11000,9 +11007,10 @@ pub(crate) fn new_terminal(
             grid,
             None,
         )?;
-        return Ok(PaneSlot::Ready(build_terminal_view(
-            parts, font_size, window, cx,
-        )));
+        let trace = trace.map(|t| t.spawned(parts.pane_id));
+        let view = build_terminal_view(parts, font_size, window, cx);
+        view.update(cx, |view, _| view.spawn_trace = trace);
+        return Ok(PaneSlot::Ready(view));
     }
 
     let spawn = crate::ui::pending_pane::PendingSpawn {

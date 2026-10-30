@@ -920,6 +920,9 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
             allow_remote_clipboard_write,
         } => {
             let id = registry.alloc_id();
+            let mut trace = crate::core::spawn_trace::Trace::pane(id);
+            trace.stage(crate::core::spawn_trace::Stage::SpawnRequested, "");
+            crate::core::spawn_trace::park(trace);
             if let Some(dead) = restore.as_ref().map(|r| r.pane_id) {
                 // Before the spawn, because the spawn is what hands the shell
                 // the name of its history file — and this is what puts the
@@ -960,6 +963,7 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
                 Ok(p) => p,
                 Err(e) => {
                     let mut w = write_stream;
+                    crate::core::spawn_trace::unpark(id);
                     log::error!("pane {id} spawn failed: {e}");
                     // The daemon's own error is already a sentence; a second
                     // "spawn failed:" in front of it only pads the one the
