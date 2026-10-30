@@ -1795,6 +1795,7 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarMoveToGroup => "Переместить в группу",
         L10nKey::SidebarNewGroup => "Новая группа…",
         L10nKey::SidebarRemoveFromGroup => "Убрать из группы",
+        L10nKey::SidebarPinToCurrentGroup => "Закрепить в текущей группе",
         L10nKey::SidebarNewGroupName => "Новая группа",
         L10nKey::SidebarRenameGroup => "Переименовать группу",
         L10nKey::SidebarPinGroup => "Закрепить группу",

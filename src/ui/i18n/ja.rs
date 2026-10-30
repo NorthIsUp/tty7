@@ -2329,6 +2329,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarMoveToGroup => "グループへ移動",
         L10nKey::SidebarNewGroup => "新規グループ…",
         L10nKey::SidebarRemoveFromGroup => "グループから外す",
+        L10nKey::SidebarPinToCurrentGroup => "現在のグループに固定",
         L10nKey::SidebarNewGroupName => "新規グループ",
         L10nKey::SidebarRenameGroup => "グループ名を変更",
         L10nKey::SidebarPinGroup => "グループを固定",

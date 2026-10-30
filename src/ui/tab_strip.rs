@@ -2099,6 +2099,9 @@ impl Tty7App {
                 },
             );
         }
+        if sidebar {
+            menu = crate::ui::group_follow::hold_item(menu, index, app, cx);
+        }
         // Read again: the submenu above needed `cx` mutably.
         let this = entity.read(cx);
 

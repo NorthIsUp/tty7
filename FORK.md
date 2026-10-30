@@ -41,7 +41,7 @@ read when a sync stops on a conflict in that feature.
 - [agent-resume](docs/fork/features/agent-resume.md): agents come back after a reboot
 - [palette-tabs](docs/fork/features/palette-tabs.md): the New Tab picker and Search Everywhere's tabs
 - [background-tabs](docs/fork/features/background-tabs.md): ⇧ opens a tab in the background
-- [sidebar-groups](docs/fork/features/sidebar-groups.md): group colours, headers, fill and fold
+- [sidebar-groups](docs/fork/features/sidebar-groups.md): group colours, headers, fill, fold and tab pins
 - [pane-nice](docs/fork/features/pane-nice.md): pane shells start at the configured nice
 - [github-session](docs/fork/features/github-session.md): the GitHub panel's Session tab and This session filter
 - [github-review](docs/fork/features/github-review.md): the GitHub panel's pull request review box
