@@ -14,3 +14,4 @@ github-row-links	the GitHub panel's Open in Graphite tile	github-session
 github-recent-branches	the GitHub panel keeps the last five branches	github-session
 tab-usage	the sidebar shows each tab's pid, CPU and memory	sidebar-groups
 shell-startup	pane shells can start without the user's rc files	fork-config,agent-resume
+spawn-trace	each new tab logs its start as one timeline	background-tabs
