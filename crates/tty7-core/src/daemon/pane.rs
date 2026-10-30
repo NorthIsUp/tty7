@@ -1851,6 +1851,10 @@ impl DaemonPane {
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
         let pty_size = pty_size(size);
+        // Fork (spawn-trace): a restored pane has no GUI trace to join.
+        let mut trace = restore
+            .is_none()
+            .then(|| crate::core::spawn_trace::Trace::pane(id));
 
         // Before the shell exists, not after: a ConPTY child inherits the
         // "ignore Ctrl+C" state of whoever created it, and the daemon can be
@@ -1865,6 +1869,9 @@ impl DaemonPane {
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
         log::info!("pane {id} child started; child_pid={shell_pid:?}");
+        if let Some(t) = &mut trace {
+            t.stage(crate::core::spawn_trace::Stage::ChildStarted, "");
+        }
         #[cfg(unix)]
         if let Some(pid) = shell_pid {
             super::nice::apply(pid);
@@ -1875,6 +1882,9 @@ impl DaemonPane {
 
         let reader_handle = pair.master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
+        if let Some(t) = trace {
+            crate::core::spawn_trace::park(t);
+        }
 
         let (ring, restored_title) = match restore {
             Some(restore) => {
@@ -2348,6 +2358,8 @@ impl DaemonPane {
                 // the same remote-context poll below. Seed it from the pane's
                 // current context so the first probe answers correctly.
                 let starts_local = state.lock().unwrap().remote.is_none();
+                // Fork (spawn-trace): only a pane spawned by a Spawn request has one.
+                let mut spawn_trace = crate::core::spawn_trace::unpark(state.lock().unwrap().id);
                 let mut graphics = GraphicsSniffer::new_local(starts_local);
                 let mut buf = [0u8; 65536];
 
@@ -2420,6 +2432,24 @@ impl DaemonPane {
                             if signals.shell.iter().any(|s| s.at_prompt) && foreground_running() {
                                 suppress_relayed_prompt_marks(&mut signals.shell);
                             }
+                            // Read off `signals` before `apply_signals` consumes
+                            // it; spent after the hop below — see the function.
+                            let saw_prompt_mark =
+                                signals.shell.iter().any(|s| s.mark_at_prompt);
+                            // Fork: the command a shell started this read, if any.
+                            let ran = signals
+                                .shell
+                                .iter()
+                                .rfind(|s| s.active && !s.mark_at_prompt)
+                                .map(|s| s.command.clone());
+                            // Fork (spawn-trace): before the foreground probes
+                            // below, whose syscalls would otherwise land in
+                            // prompt/command's ms.
+                            if let Some(t) = &mut spawn_trace
+                                && !t.read(saw_prompt_mark, ran.is_some())
+                            {
+                                spawn_trace = None;
+                            }
 
                             // A prompt mark that survived the suppression above
                             // is the shell saying the command it ran is over, so
@@ -2478,16 +2508,6 @@ impl DaemonPane {
                                 || remote.is_some()
                                 || agent.is_some()
                                 || probed_cwd.is_some();
-                            // Read off `signals` before `apply_signals` consumes
-                            // it; spent after the hop below — see the function.
-                            let saw_prompt_mark =
-                                signals.shell.iter().any(|s| s.mark_at_prompt);
-                            // Fork: the command a shell started this read, if any.
-                            let ran = signals
-                                .shell
-                                .iter()
-                                .rfind(|s| s.active && !s.mark_at_prompt)
-                                .map(|s| s.command.clone());
                             let mut st = state.lock().unwrap();
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);

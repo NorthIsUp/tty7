@@ -29,6 +29,7 @@ pub mod proc;
 pub mod session;
 pub mod shell_quote;
 pub mod shells;
+pub mod spawn_trace;
 #[allow(dead_code)]
 pub mod ssh_profile;
 pub mod tab_view;
