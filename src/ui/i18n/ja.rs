@@ -2580,6 +2580,13 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "ターミナル",
         L10nKey::SettingsSplitSame => "ペインと同じ",
         L10nKey::SettingsSplitChoose => "選ぶ",
+        L10nKey::SettingsQuietClose => "未操作のタブは確認せずに閉じる",
+        L10nKey::SettingsQuietCloseDesc => {
+            "この起動で開き、入力・ペースト・ドロップを一度もしていないタブやペインは確認せずに閉じます。復元したタブは確認します"
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "閉じる 確認 省略 未操作 新規 タブ ペイン quiet close skip confirm untouched new tab pane fresh"
+        }
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "番号",
         L10nKey::GitHubReviewPlaceholder => "レビューを書く…",

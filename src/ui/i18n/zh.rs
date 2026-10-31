@@ -2332,6 +2332,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "终端",
         L10nKey::SettingsSplitSame => "与窗格相同",
         L10nKey::SettingsSplitChoose => "选择",
+        L10nKey::SettingsQuietClose => "未操作的标签页关闭时不确认",
+        L10nKey::SettingsQuietCloseDesc => {
+            "本次启动打开、且从未输入、粘贴或拖放过的标签页或窗格，关闭时不再询问。恢复的标签页仍会询问。"
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "关闭 确认 跳过 未操作 新建 标签页 窗格 quiet close skip confirm untouched new tab pane fresh"
+        }
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "编号",
         L10nKey::GitHubReviewPlaceholder => "留下审查意见…",
