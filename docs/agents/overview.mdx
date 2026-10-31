@@ -99,9 +99,41 @@ By default an agent launches as its bare binary (`claude`, `codex`,
 ```
 
 A wrapper named there (`cx` above) is recognised as that agent without an
-`agent_commands` entry. To keep the flags a running agent was started with,
-right-click its pane and choose **Set Current Launch Args as Default**; tty7
-writes them into `agent_launch`, minus the session they resumed and any prompt.
+`agent_commands` entry.
+
+In **Settings → Agents**, each agent whose hooks are installed has its launch
+options right under its row: Model and the permission dropdowns on one line,
+then one field per extra argument line and **+ Add option**, with the line the
+agent launches as once anything is set. Any other agent opens the same
+options with **Launch options…** in its ⋯ menu, and its row notes what is set
+under its hook path (`model: o3 · never · +2 options`). Each control adds its flag only when set;
+left at Default it adds nothing and the agent's own config decides.
+
+| agent | controls | flags |
+|---|---|---|
+| Claude Code | Model, Permission mode | `--model <m>`, `--permission-mode <acceptEdits\|auto\|bypassPermissions\|dontAsk\|manual\|plan>` |
+| Codex | Model, Sandbox, Approval policy | `--model <m>`, `--sandbox <read-only\|workspace-write\|danger-full-access>`, `--ask-for-approval <on-request\|never>` |
+| Pi | Model | `--model <pattern>` (`provider/id` and `:<thinking>` work) |
+| Cursor | Model, Permission mode, Sandbox | `--model <m>`, `--mode plan`, `--mode ask` or `--force`, `--sandbox <enabled\|disabled>` |
+
+Every agent also takes **Extra arguments**: one line per entry, read the way
+a shell reads it (`--add-dir ~/src`, `--append-system-prompt "be terse"`),
+typed after the flags above. They are stored as `agent_settings` in
+`config.json` and appended to the agent's `agent_launch` line, so a wrapper
+keeps working. An `agent_launch` line that is the agent's own binary and plain
+flags moves into these controls the first time tty7 loads it, and launches
+exactly as before.
+
+New tabs, splits, resumes and forks from the session list, and the fresh
+start of a restored agent that never reported a session all use these
+settings. A pane restored into its own session resumes with the flags it was
+started with instead, so a change here reaches the next launch, not a session
+already running.
+
+To keep the flags a running agent was started with, right-click its pane and
+choose **Set Current Launch Args as Default**; tty7 puts them into the
+agent's settings (or `agent_launch`, for a wrapper), minus the session they
+resumed and any prompt.
 
 In a remote workspace tty7 cannot read the far machine's `PATH`, so it offers
 the agents it has already seen running there: start one by hand once and it

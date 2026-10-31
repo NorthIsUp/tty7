@@ -762,6 +762,118 @@ impl CLIAgent {
         self.aliases()[0]
     }
 
+    /// The flag that picks a model, for the agents whose CLI was checked to
+    /// take one (`--help` of claude 2.1, codex 0.166, pi 1.4, cursor-agent
+    /// 2026.10).
+    pub fn model_flag(self) -> Option<&'static str> {
+        match self {
+            CLIAgent::Claude | CLIAgent::Codex | CLIAgent::Pi | CLIAgent::Cursor => Some("--model"),
+            _ => None,
+        }
+    }
+
+    /// The pick-one launch settings this agent's CLI takes, from the same
+    /// `--help` as [`Self::model_flag`]. Picking none adds nothing, so the
+    /// CLI's own config decides.
+    pub fn launch_choices(self) -> &'static [LaunchChoice] {
+        match self {
+            CLIAgent::Claude => &[LaunchChoice {
+                key: "permission",
+                options: &[
+                    LaunchOption {
+                        value: "acceptEdits",
+                        argv: &["--permission-mode", "acceptEdits"],
+                    },
+                    LaunchOption {
+                        value: "auto",
+                        argv: &["--permission-mode", "auto"],
+                    },
+                    LaunchOption {
+                        value: "bypassPermissions",
+                        argv: &["--permission-mode", "bypassPermissions"],
+                    },
+                    LaunchOption {
+                        value: "dontAsk",
+                        argv: &["--permission-mode", "dontAsk"],
+                    },
+                    LaunchOption {
+                        value: "manual",
+                        argv: &["--permission-mode", "manual"],
+                    },
+                    LaunchOption {
+                        value: "plan",
+                        argv: &["--permission-mode", "plan"],
+                    },
+                ],
+            }],
+            CLIAgent::Codex => &[
+                LaunchChoice {
+                    key: "sandbox",
+                    options: &[
+                        LaunchOption {
+                            value: "read-only",
+                            argv: &["--sandbox", "read-only"],
+                        },
+                        LaunchOption {
+                            value: "workspace-write",
+                            argv: &["--sandbox", "workspace-write"],
+                        },
+                        LaunchOption {
+                            value: "danger-full-access",
+                            argv: &["--sandbox", "danger-full-access"],
+                        },
+                    ],
+                },
+                LaunchChoice {
+                    key: "approval",
+                    options: &[
+                        LaunchOption {
+                            value: "on-request",
+                            argv: &["--ask-for-approval", "on-request"],
+                        },
+                        LaunchOption {
+                            value: "never",
+                            argv: &["--ask-for-approval", "never"],
+                        },
+                    ],
+                },
+            ],
+            CLIAgent::Cursor => &[
+                LaunchChoice {
+                    key: "permission",
+                    options: &[
+                        LaunchOption {
+                            value: "plan",
+                            argv: &["--mode", "plan"],
+                        },
+                        LaunchOption {
+                            value: "ask",
+                            argv: &["--mode", "ask"],
+                        },
+                        LaunchOption {
+                            value: "force",
+                            argv: &["--force"],
+                        },
+                    ],
+                },
+                LaunchChoice {
+                    key: "sandbox",
+                    options: &[
+                        LaunchOption {
+                            value: "enabled",
+                            argv: &["--sandbox", "enabled"],
+                        },
+                        LaunchOption {
+                            value: "disabled",
+                            argv: &["--sandbox", "disabled"],
+                        },
+                    ],
+                },
+            ],
+            _ => &[],
+        }
+    }
+
     /// The command line a quick launch types for this agent: the user's
     /// `agent_launch` entry when there is one, the bare binary otherwise.
     ///
@@ -975,6 +1087,19 @@ fn is_shell(stem: &str) -> bool {
         stem.to_ascii_lowercase().as_str(),
         "sh" | "bash" | "zsh" | "dash" | "ksh" | "fish"
     )
+}
+
+/// One of an agent's pick-one launch settings ([`CLIAgent::launch_choices`]),
+/// stored under `key` in `AgentLaunchSettings::choices`.
+pub struct LaunchChoice {
+    pub key: &'static str,
+    pub options: &'static [LaunchOption],
+}
+
+/// A value a [`LaunchChoice`] can take, and the arguments it adds.
+pub struct LaunchOption {
+    pub value: &'static str,
+    pub argv: &'static [&'static str],
 }
 
 /// The program a launch command line runs: its first word that is not an

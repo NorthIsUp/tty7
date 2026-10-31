@@ -22,6 +22,7 @@ use gpui_component::WindowExt as _;
 
 use crate::core::cli_agent::{CLIAgent, launch_program, program_on_path};
 use crate::core::config::{Config, ProfileUsage, unix_now};
+use crate::core::fork_config::AgentLaunchSettings;
 use crate::core::session::WorkspaceStore;
 use crate::ui::app::{SpawnAs, SpawnWhere, Tty7App, join_shell_args};
 use crate::ui::i18n::{L10nKey, t_fmt};
@@ -113,24 +114,45 @@ pub(crate) fn launch_line_to_save(agent: CLIAgent, argv: &[String]) -> Option<St
         .map(|argv| join_shell_args(&argv))
 }
 
-/// Make `line` the command `agent` is launched with from now on.
+/// Make `line` the command `agent` is launched with from now on: its
+/// Settings → Agents controls when it is the binary and plain flags, else its
+/// `agent_launch` line. Either way it replaces the agent's settings, since the
+/// run it was saved from already carried their flags.
 pub(crate) fn remember_launch_line(cfg: &mut Config, agent: CLIAgent, line: String) {
     // One entry per agent, whatever case an existing key was written in.
     cfg.agent_launch
         .retain(|slug, _| CLIAgent::from_slug(slug) != Some(agent));
-    cfg.agent_launch.insert(agent.slug().to_string(), line);
+    cfg.fork
+        .agent_settings
+        .retain(|slug, _| CLIAgent::from_slug(slug) != Some(agent));
+    match AgentLaunchSettings::from_launch_line(agent, &line) {
+        Some(settings) => {
+            cfg.fork
+                .agent_settings
+                .insert(agent.slug().to_string(), settings);
+        }
+        None => {
+            cfg.agent_launch.insert(agent.slug().to_string(), line);
+        }
+    }
+}
+
+/// `launch` as argv for a resume or fork to replay; a quote that never
+/// closes falls back to whitespace, which the replay then refuses whole.
+fn launch_argv(launch: &str) -> Vec<String> {
+    crate::ui::app::split_shell_args(launch)
+        .unwrap_or_else(|_| launch.split_whitespace().map(str::to_string).collect())
 }
 
 /// The line that resumes `agent`'s session `session_id`, carrying the flags
-/// `agent_launch` gives the agent: a session started with
-/// `--dangerously-skip-permissions` comes back with it.
+/// `overrides` ([`Config::launch_lines`]) gives the agent: a session started
+/// with `--dangerously-skip-permissions` comes back with it.
 pub(crate) fn resume_line(
     agent: CLIAgent,
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.resume_command(session_id, Some(&argv))
 }
 
@@ -142,8 +164,7 @@ pub(crate) fn fork_line(
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.fork_command(session_id, Some(&argv))
 }
 
@@ -234,7 +255,7 @@ impl Tty7App {
     fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
         let command = crate::ui::agent_resume::with_minted_session(
             agent,
-            agent.launch_command(&cx.global::<Config>().agent_launch),
+            agent.launch_command(&cx.global::<Config>().launch_lines()),
         );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
@@ -271,7 +292,7 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let launch = &cx.global::<Config>().agent_launch;
+        let launch = &cx.global::<Config>().launch_lines();
         let command = match fork {
             true => fork_line(agent, session_id, launch),
             false => resume_line(agent, session_id, launch),
@@ -508,17 +529,28 @@ mod tests {
         .unwrap();
         remember_launch_line(&mut cfg, CLIAgent::Claude, line);
 
+        // The binary and plain flags land in Settings → Agents' controls.
         let json: serde_json::Value = serde_json::to_value(&cfg.0).unwrap();
         assert_eq!(
             json["agent_launch"],
-            serde_json::json!({
-                "claude": "claude --dangerously-skip-permissions",
-                "codex": "codex --model o3",
-            })
+            serde_json::json!({"codex": "codex --model o3"})
         );
         assert_eq!(
-            CLIAgent::Claude.launch_command(&cfg.agent_launch),
+            json["agent_settings"],
+            serde_json::json!({"claude": {"extra_args": ["--dangerously-skip-permissions"]}})
+        );
+        assert_eq!(
+            CLIAgent::Claude.launch_command(&cfg.launch_lines()),
             "claude --dangerously-skip-permissions"
+        );
+
+        // A wrapper stays a launch line, and replaces the settings the run
+        // it came from already carried.
+        remember_launch_line(&mut cfg, CLIAgent::Claude, "cc --fast".to_string());
+        assert!(cfg.fork.agent_settings.is_empty());
+        assert_eq!(
+            CLIAgent::Claude.launch_command(&cfg.launch_lines()),
+            "cc --fast"
         );
     }
 

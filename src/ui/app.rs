@@ -6795,7 +6795,7 @@ impl Tty7App {
                     ),
                     CommandKind::LaunchAgent(agent),
                 )
-                .with_subtitle(agent.launch_command(&cx.global::<Config>().agent_launch))
+                .with_subtitle(agent.launch_command(&cx.global::<Config>().launch_lines()))
                 .with_avatar(Avatar {
                     agent: Some(agent),
                     ..Avatar::default()
@@ -7655,6 +7655,7 @@ impl Tty7App {
         let link_file_command_input = self.build_link_file_command_input(&mut subs, window, cx);
         let http_proxy_input = self.build_http_proxy_input(&mut subs, window, cx);
         self.build_continue_prompt_input(&mut subs, window, cx);
+        self.build_agent_launch_inputs(window, cx);
         // One query box for whichever popover is open — a theme list or a
         // font list — since only one is ever open at a time.
         // Shared by every searchable dropdown on the page, so the hint is the

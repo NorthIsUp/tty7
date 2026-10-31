@@ -894,7 +894,7 @@ impl Item {
         else {
             return None;
         };
-        let launch = &cx.global::<Config>().agent_launch;
+        let launch = &cx.global::<Config>().launch_lines();
         let mut out = vec![
             Item::localized(L10nKey::SessionActionResume, kind.clone())
                 .with_subtitle(t(L10nKey::SessionActionResumeSubtitle)),
