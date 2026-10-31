@@ -19,7 +19,11 @@ hook-env's precomputed output, and when the line is missing the output is
 evaluated unchanged. `mise activate` mints its own `__MISE_ENV_CACHE_KEY`
 unless it inherits one, so panes could not read each other's `env_cache`;
 `mise_cache_key` gives every mise pane of a daemon one key, unless the daemon
-already carries the user's. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
+already carries the user's. While a load is pending and `__tty7_env_here` finds a
+config file in `$PWD` or above, a fixed English hint names the tool: zsh's
+deferred mise shows it, once 150ms have passed (a timer fd at the prompt, `zselect` in preexec), with `zle -M` and on stderr in the preexec wait; every
+other load blocks the first prompt, so the script prints it before and erases
+it after. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
 
 ## Fork-owned files
 
