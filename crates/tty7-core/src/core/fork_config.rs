@@ -108,11 +108,15 @@ pub struct ForkConfig {
     pub agent_settings: HashMap<String, AgentLaunchSettings>,
 }
 
+/// A bare "continue" read as "move on", so a resumed agent that stopped on a
+/// question answered it itself.
+pub const DEFAULT_CONTINUE_PROMPT: &str = "This agent is resuming after a crash. Pick up where you left off and continue. This is not an instruction to make a specific choice if you were waiting for user input.";
+
 impl Default for ForkConfig {
     fn default() -> Self {
         Self {
             restore_asleep: true,
-            continue_prompt: "continue".into(),
+            continue_prompt: DEFAULT_CONTINUE_PROMPT.into(),
             agent_wake_concurrency: None,
             resume_agents_on_launch: false,
             agent_resume_mode: AgentResumeMode::Typed,
@@ -588,7 +592,7 @@ mod tests {
         assert!(!cfg.resume_agents_on_launch);
         assert_eq!(cfg.agent_resume_mode, super::AgentResumeMode::Typed);
         assert!(!cfg.continue_interrupted_agents);
-        assert_eq!(cfg.continue_prompt, "continue");
+        assert_eq!(cfg.continue_prompt, super::DEFAULT_CONTINUE_PROMPT);
         assert_eq!(cfg.agent_wake_concurrency, None);
     }
 
@@ -601,7 +605,7 @@ mod tests {
             super::GroupColorSource::Hashed
         );
         assert_eq!(cfg.font_size, 13.0);
-        assert_eq!(cfg.fork.continue_prompt, "continue");
+        assert_eq!(cfg.fork.continue_prompt, super::DEFAULT_CONTINUE_PROMPT);
         assert_eq!(cfg.fork.nice, 5);
     }
 }
