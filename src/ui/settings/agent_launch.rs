@@ -438,7 +438,7 @@ impl Tty7App {
                 col.child(
                     div()
                         .min_w_0()
-                        .truncate()
+                        .whitespace_normal()
                         .font_family(Tk::mono(cx))
                         .text_size(fs(11.5))
                         .text_color(tk.k45)
