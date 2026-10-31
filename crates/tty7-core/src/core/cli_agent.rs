@@ -230,7 +230,10 @@ impl CLIAgent {
             CLIAgent::Grok => Some(format!("grok{flags} --resume {session_id}")),
             CLIAgent::QoderCLI => Some(format!("qodercli{flags} --resume {session_id}")),
             CLIAgent::QoderCLICn => Some(format!("qodercn{flags} --resume {session_id}")),
-            CLIAgent::Pi => Some(format!("pi{flags} --session {session_id}")),
+            // `--session` finds only a saved session, and Pi saves none until
+            // the first message, though it reports the id at startup;
+            // `--session-id` opens that session in this cwd or starts it anew.
+            CLIAgent::Pi => Some(format!("pi{flags} --session-id {session_id}")),
             CLIAgent::OhMyPi => Some(format!("omp{flags} --resume {session_id}")),
             CLIAgent::Kimi => Some(format!("kimi{flags} --session {session_id}")),
             CLIAgent::Crush => Some(format!("crush{flags} --session {session_id}")),
@@ -2481,7 +2484,7 @@ mod tests {
             CLIAgent::Pi
                 .resume_command("0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17", None)
                 .as_deref(),
-            Some("pi --session 0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17")
+            Some("pi --session-id 0199c3f2-1b0e-7c3a-9f21-6d4b8e2a5c17")
         );
         assert_eq!(
             CLIAgent::Kimi.resume_command("abc-123", None).as_deref(),
@@ -2643,7 +2646,7 @@ mod tests {
             CLIAgent::Pi
                 .resume_command("id-a", Some(&argv(&["pi", "--model", "opus"])))
                 .as_deref(),
-            Some("pi --model opus --session id-a")
+            Some("pi --model opus --session-id id-a")
         );
         assert_eq!(
             CLIAgent::Pi
@@ -2661,7 +2664,7 @@ mod tests {
                     ]))
                 )
                 .as_deref(),
-            Some("pi --model opus --session id-b")
+            Some("pi --model opus --session-id id-b")
         );
         assert_eq!(
             CLIAgent::Pi.resume_command(
@@ -2683,7 +2686,7 @@ mod tests {
                     ]))
                 )
                 .as_deref(),
-            Some("pi --session-dir /w/.sessions --session id-c")
+            Some("pi --session-dir /w/.sessions --session-id id-c")
         );
         assert_eq!(
             CLIAgent::Claude
