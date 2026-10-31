@@ -204,6 +204,42 @@ pub fn with_last_session(
     }
 }
 
+/// Pane `id`'s `facts`, its recorded session swapped for the one its argv
+/// names when another pane of the same agent claims the recorded one, by argv
+/// or record: a Codex report misrouted before #127 left one pane holding
+/// another's session, and both would resume it. A record no other pane claims
+/// stays, since `/new` inside a resumed session makes it newer than the argv.
+pub fn unclaimed_session(
+    facts: Option<AgentFacts>,
+    id: u64,
+    panes: &[PaneRecord],
+) -> Option<AgentFacts> {
+    let mut facts = facts?;
+    let named = |f: &AgentFacts| {
+        f.launch_argv
+            .as_deref()
+            .and_then(|argv| f.agent.session_id_in_argv(argv))
+    };
+    let (Some(recorded), Some(own)) = (facts.session_id.clone(), named(&facts)) else {
+        return Some(facts);
+    };
+    let claimed = recorded != own
+        && panes
+            .iter()
+            .filter(|p| p.id != id)
+            .filter_map(|p| with_last_session(p.agent.clone(), p.last_session.as_ref()))
+            .any(|o| {
+                o.agent == facts.agent
+                    && (o.session_id.as_deref() == Some(&recorded)
+                        || named(&o).as_deref() == Some(&recorded))
+            });
+    if claimed {
+        log::info!("pane {id}'s session {recorded} belongs to another pane; it resumes {own}");
+        facts.session_id = Some(own);
+    }
+    Some(facts)
+}
+
 /// The shell started `command` with no agent in front: the user is using
 /// the shell, so `last_session` is let go — unless the command is an
 /// agent's own (`claude --version`, `codex --help`).
@@ -1027,5 +1063,55 @@ mod tests {
         );
         assert_eq!(attached_job(&argv(&["claude", "--resume", ID])), None);
         assert_eq!(attached_job(&argv(&["tmux", "attach", "main"])), None);
+    }
+
+    #[test]
+    fn a_session_another_pane_claims_gives_way_to_the_one_the_argv_names() {
+        const X: &str = "01a17a3f-c6dd-7353-8a3f-3c60c83a2234";
+        const Y: &str = "01a15fed-9183-7e12-a490-168f72e2f39b";
+        const Z: &str = "01a16b02-21b6-74a3-a463-880dd2c4c1b1";
+        let codex = |session: Option<&str>, resumes: &str| AgentFacts {
+            agent: CLIAgent::Codex,
+            session_id: session.map(str::to_string),
+            launch_argv: Some(argv(&["node", "/bin/codex", "resume", resumes])),
+            status: None,
+        };
+        let pane = |id, facts: AgentFacts| {
+            let mut p = PaneRecord::new(id);
+            p.agent = Some(facts);
+            p
+        };
+        // 865 holds 913's session, which 913's argv names.
+        let panes = [pane(865, codex(Some(X), Y)), pane(913, codex(None, X))];
+        let session = |id, facts, panes: &[PaneRecord]| {
+            unclaimed_session(Some(facts), id, panes).and_then(|f| f.session_id)
+        };
+        assert_eq!(session(865, codex(Some(X), Y), &panes).as_deref(), Some(Y));
+        assert_eq!(
+            session(913, codex(None, X), &panes),
+            None,
+            "913 is untouched"
+        );
+
+        let by_record = [pane(865, codex(Some(X), Y)), pane(913, codex(Some(X), Z))];
+        assert_eq!(
+            session(865, codex(Some(X), Y), &by_record).as_deref(),
+            Some(Y),
+            "another pane's record claims it too"
+        );
+        let alone = [pane(865, codex(Some(X), Y))];
+        assert_eq!(
+            session(865, codex(Some(X), Y), &alone).as_deref(),
+            Some(X),
+            "a `/new` inside the resumed session keeps the newer record"
+        );
+        let mut claude = codex(Some(X), Z);
+        claude.agent = CLIAgent::Claude;
+        let other_agent = [pane(865, codex(Some(X), Y)), pane(913, claude)];
+        assert_eq!(
+            session(865, codex(Some(X), Y), &other_agent).as_deref(),
+            Some(X),
+            "only the same agent's panes claim"
+        );
     }
 }

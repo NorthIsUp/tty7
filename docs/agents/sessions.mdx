@@ -19,6 +19,11 @@ claude --dangerously-skip-permissions --resume 8f3c…
 The original launch flags are replayed, so the pane comes back the way you
 started it, not the way the defaults would.
 
+An agent that never reported a session (Codex before its first turn) is started
+anew with those same flags, so the tab keeps its agent. When two panes recorded
+the same session, a pane whose own `codex resume <id>` names a different one
+resumes that one instead.
+
 Supported for every recognised agent except Aider. Turn it off with
 `restore_agent_sessions: false`.
 

@@ -780,6 +780,20 @@ impl CLIAgent {
             .map_or_else(|| self.binary().to_string(), str::to_string)
     }
 
+    /// A new session for a pane whose agent never reported one: the binary
+    /// with the flags `launch_argv` ran it with, else [`Self::launch_command`]
+    /// when it adds none or carries more than flags (a prompt, a wrapper).
+    pub fn relaunch_command(
+        self,
+        launch_argv: Option<&[String]>,
+        overrides: &HashMap<String, String>,
+    ) -> String {
+        match launch_argv.and_then(|argv| self.replay_flags(argv)) {
+            Some(flags) if !flags.is_empty() => format!("{} {}", self.binary(), flags.join(" ")),
+            _ => self.launch_command(overrides),
+        }
+    }
+
     /// The arguments that start an interactive session whose first message is
     /// `prompt`. `None` for an agent whose positional prompt means a one-shot,
     /// non-interactive run, or whose form is not known — the caller then
@@ -3132,6 +3146,32 @@ mod tests {
         assert_eq!(CLIAgent::Codex.launch_command(&set), "codex --model o3");
         assert_eq!(CLIAgent::Gemini.launch_command(&set), "gemini");
         assert_eq!(CLIAgent::Aider.launch_command(&set), "aider");
+    }
+
+    #[test]
+    fn a_relaunch_keeps_the_flags_the_agent_ran_with() {
+        let set = overrides(&[("codex", "codex --model o3")]);
+        let relaunch = |agent: CLIAgent, a: &[&str]| agent.relaunch_command(Some(&argv(a)), &set);
+        assert_eq!(
+            relaunch(CLIAgent::Codex, &["node", "/bin/codex", "--yolo"]),
+            "codex --yolo"
+        );
+        assert_eq!(relaunch(CLIAgent::Codex, &["codex"]), "codex --model o3");
+        assert_eq!(
+            relaunch(CLIAgent::Codex, &["codex", "Reply with OK."]),
+            "codex --model o3",
+            "a prompt is not sent again"
+        );
+        assert_eq!(
+            relaunch(CLIAgent::Pi, &["pi", "--no-session"]),
+            "pi --no-session"
+        );
+        assert_eq!(
+            relaunch(CLIAgent::Pi, &["pi", "COLORTERM=truecolor"]),
+            "pi",
+            "environment read as arguments is dropped"
+        );
+        assert_eq!(CLIAgent::Pi.relaunch_command(None, &set), "pi");
     }
 
     #[test]
