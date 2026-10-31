@@ -248,8 +248,7 @@ impl Tty7App {
         let tk = Tk::of(cx);
         let cfg = cx.global::<Config>();
         let settings = settings_of(cfg, agent);
-        let line = (settings != AgentLaunchSettings::default())
-            .then(|| agent.launch_command(&cfg.launch_lines()));
+        let line = Some(agent.launch_command(&cfg.launch_lines()));
         let inputs = self.agent_inputs(agent, cx);
         let slug = agent.slug();
         // A label with the flag it adds on hover, in the fixed label column.
