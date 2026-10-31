@@ -2593,13 +2593,23 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
         }
-        L10nKey::SettingsSplitPage => "Разделение спрашивает, что открыть",
-        L10nKey::SettingsSplitPageDesc => {
-            "⌘D и ⌘⇧D открывают выбор новой вкладки: в разделённой панели можно открыть терминал или агента в любой папке."
+        L10nKey::SettingsSplitHarness => "Что открывает разделение",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "Что ⌘D и ⌘⇧D открывают рядом с панелью: терминал, того же агента, что в панели, или выбор новой вкладки."
         }
-        L10nKey::SettingsSearchSplitPageKeywords => {
-            "разделить панель выбор агент терминал split pane picker agent terminal claude codex cmd d"
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "разделить панель агент терминал выбор split pane harness agent terminal picker claude codex cmd d"
         }
+        L10nKey::SettingsSplitDir => "Папка разделения",
+        L10nKey::SettingsSplitDirDesc => {
+            "Где ⌘D и ⌘⇧D начинают: в папке панели или в папке из выбора новой вкладки."
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "разделить панель папка каталог split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "Терминал",
+        L10nKey::SettingsSplitSame => "Как в панели",
+        L10nKey::SettingsSplitChoose => "Выбрать",
         L10nKey::GitHubSortRecent => "Недавние",
         L10nKey::GitHubSortNumber => "Номер",
         L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",

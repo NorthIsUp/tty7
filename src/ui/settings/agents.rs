@@ -2,6 +2,7 @@
 //! sidebar, per machine, and the `tty7` command on PATH.
 
 use crate::core::agent_hooks::{HookAgent, HooksState};
+use tty7_core::core::fork_config::{SplitDir, SplitHarness};
 
 use super::kit::{self, BtnKind, Tk, fs};
 use super::shell::MenuEntry;
@@ -75,10 +76,41 @@ impl Tty7App {
             .gap(px(12.))
             .children(switches)
             .into_any_element();
-        let split_page = cx.global::<Config>().fork.split_page;
-        let split_switch = self.settings_switch("split-page", split_page, cx, |this, on, _, cx| {
-            this.update_config(cx, |c| c.fork.split_page = on)
-        });
+        let fork = &cx.global::<Config>().fork;
+        let (harness, dir) = (fork.split_harness, fork.split_dir);
+        let harnesses = [
+            SplitHarness::Terminal,
+            SplitHarness::Same,
+            SplitHarness::Choose,
+        ];
+        let harness_choice = self.settings_choice(
+            "split-harness",
+            &[
+                t(L10nKey::SettingsSplitTerminal),
+                t(L10nKey::SettingsSplitSame),
+                t(L10nKey::SettingsSplitChoose),
+            ],
+            harnesses.iter().position(|h| *h == harness).unwrap_or(2),
+            cx,
+            move |this, ix, _, cx| {
+                let harness = harnesses.get(ix).copied().unwrap_or_default();
+                this.update_config(cx, |c| c.fork.split_harness = harness)
+            },
+        );
+        let dirs = [SplitDir::Same, SplitDir::Choose];
+        let dir_choice = self.settings_choice(
+            "split-dir",
+            &[
+                t(L10nKey::SettingsSplitSame),
+                t(L10nKey::SettingsSplitChoose),
+            ],
+            dirs.iter().position(|d| *d == dir).unwrap_or(1),
+            cx,
+            move |this, ix, _, cx| {
+                let dir = dirs.get(ix).copied().unwrap_or_default();
+                this.update_config(cx, |c| c.fork.split_dir = dir)
+            },
+        );
         self.settings_group(
             None,
             None,
@@ -91,9 +123,16 @@ impl Tty7App {
                 )
                 .into_any_element(),
                 self.settings_row(
-                    t(L10nKey::SettingsSplitPage),
-                    t(L10nKey::SettingsSplitPageDesc),
-                    split_switch,
+                    t(L10nKey::SettingsSplitHarness),
+                    t(L10nKey::SettingsSplitHarnessDesc),
+                    harness_choice,
+                    cx,
+                )
+                .into_any_element(),
+                self.settings_row(
+                    t(L10nKey::SettingsSplitDir),
+                    t(L10nKey::SettingsSplitDirDesc),
+                    dir_choice,
                     cx,
                 )
                 .into_any_element(),

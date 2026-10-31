@@ -7377,8 +7377,11 @@ impl Tty7App {
             L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
                 c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
             }),
-            L10nKey::SettingsSplitPage => {
-                self.update_config(cx, |c| c.fork.split_page = defaults.fork.split_page)
+            L10nKey::SettingsSplitHarness => {
+                self.update_config(cx, |c| c.fork.split_harness = defaults.fork.split_harness)
+            }
+            L10nKey::SettingsSplitDir => {
+                self.update_config(cx, |c| c.fork.split_dir = defaults.fork.split_dir)
             }
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
