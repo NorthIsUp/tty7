@@ -2536,6 +2536,27 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsShellStartupUser => "Your rc files",
         L10nKey::SettingsShellStartupNoRcs => "No rc files",
         L10nKey::SettingsShellStartupEnvlibs => "No rc files + env tools",
+        L10nKey::SettingsAgentLaunchesAs => "Launches as: {command}",
+        L10nKey::SettingsAgentModel => "Model",
+        L10nKey::SettingsAgentModelDesc => {
+            "Passed as {flag}. Empty leaves it to the agent's own config."
+        }
+        L10nKey::SettingsAgentPermission => "Permission mode",
+        L10nKey::SettingsAgentSandbox => "Sandbox",
+        L10nKey::SettingsAgentApproval => "Approval policy",
+        L10nKey::SettingsAgentChoiceDesc => {
+            "Passed as {flag}. Default leaves it to the agent's own config."
+        }
+        L10nKey::SettingsAgentDefault => "Default",
+        L10nKey::SettingsAgentExtraArgs => "Extra arguments",
+        L10nKey::SettingsAgentExtraArgsDesc => {
+            "One argument line each, typed after the options above, as a shell reads it: --add-dir ~/src"
+        }
+        L10nKey::SettingsAgentAddArg => "+ Add option",
+        L10nKey::SettingsAgentRemoveArg => "Remove argument",
+        L10nKey::SettingsAgentLaunchOptions => "Launch options…",
+        L10nKey::SettingsAgentSummaryModel => "model: {model}",
+        L10nKey::SettingsAgentSummaryExtras => "+{count} options",
     }
 }
 
@@ -2559,6 +2580,9 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMoreAgents, "zero") => "No more agents",
         (L10nKey::SettingsMoreAgents, "one") => "1 more agent available",
         (L10nKey::SettingsMoreAgents, "other") => "{count} more agents available",
+        (L10nKey::SettingsAgentSummaryExtras, "zero") => "No options",
+        (L10nKey::SettingsAgentSummaryExtras, "one") => "+1 option",
+        (L10nKey::SettingsAgentSummaryExtras, "other") => "+{count} options",
         (L10nKey::SettingsAliasesLinked, "zero") => "No aliases linked yet.",
         (L10nKey::SettingsAliasesLinked, "one") => "1 alias linked.",
         (L10nKey::SettingsAliasesLinked, "other") => "{count} aliases linked.",

@@ -131,7 +131,7 @@ impl Resume {
                     "{}'s pane had no captured session id; it starts anew",
                     agent.display_name()
                 );
-                let line = agent.relaunch_command(launch_argv, &cfg.agent_launch);
+                let line = agent.relaunch_command(launch_argv, &cfg.launch_lines());
                 Reopen::Launch(with_minted_session(*agent, line))
             }
             Some(session_id) => {

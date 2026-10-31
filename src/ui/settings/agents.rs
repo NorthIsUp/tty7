@@ -338,7 +338,14 @@ impl Tty7App {
                     .into_any_element(),
             ),
             AgentHooksView::Ready(rows) => {
-                let has = |r: &AgentHookRow| r.state != HooksState::NotInstalled;
+                let launch_open: Vec<HookAgent> = rows
+                    .iter()
+                    .filter(|r| self.agent_launch_open(cli_agent(r.agent), cx))
+                    .map(|r| r.agent)
+                    .collect();
+                let has = |r: &AgentHookRow| {
+                    r.state != HooksState::NotInstalled || launch_open.contains(&r.agent)
+                };
                 let is_focused =
                     |r: &AgentHookRow| focused.is_some_and(|k| t(k) == r.agent.display_name());
                 let mut list: Vec<&AgentHookRow> = rows
@@ -496,7 +503,14 @@ impl Tty7App {
                 HooksState::Installed => None,
             })
             .flatten();
-        let has_menu = row.state != HooksState::NotInstalled && !busy;
+        let hooked = row.state != HooksState::NotInstalled;
+        let has_menu = !busy;
+        let launch_open = self.agent_launch_open(mark, cx);
+        let launch_shown = hooked || launch_open;
+        let launch_summary = (!launch_shown)
+            .then(|| super::agent_launch::launch_summary(cx.global::<Config>(), mark))
+            .flatten();
+        let launch_panel = launch_shown.then(|| self.render_agent_launch_panel(mark, cx));
         let menu_id: SharedString = format!("agent-menu-{i}").into();
         let open = menu_open == Some(menu_id.as_ref());
         let local = self
@@ -506,14 +520,21 @@ impl Tty7App {
         let dev_build = local && crate::core::dev_build::running_dev_build();
         let menu = has_menu.then(|| {
             let mut entries = Vec::new();
-            if !dev_build {
+            if !hooked {
+                entries.push(MenuEntry::item(
+                    t(L10nKey::SettingsAgentLaunchOptions),
+                    launch_open,
+                    move |this, window, cx| this.toggle_agent_launch(mark, window, cx),
+                ));
+            }
+            if hooked && !dev_build {
                 entries.push(MenuEntry::item(
                     t(L10nKey::SettingsReinstall),
                     false,
                     move |this, _w, cx| this.settings_install_agent_hooks(agent, cx),
                 ));
             }
-            if local {
+            if hooked && local {
                 entries.push(MenuEntry::item(
                     t(L10nKey::SettingsRevealHookFile),
                     false,
@@ -523,7 +544,7 @@ impl Tty7App {
                     },
                 ));
             }
-            if !dev_build {
+            if hooked && !dev_build {
                 entries.push(MenuEntry::Item {
                     label: t(L10nKey::SettingsUninstall).into(),
                     checked: false,
@@ -616,7 +637,16 @@ impl Tty7App {
                                     .text_color(tk.k45)
                                     .truncate()
                                     .child(row.target.clone()),
-                            ),
+                            )
+                            .when_some(launch_summary, |col, summary| {
+                                col.child(
+                                    div()
+                                        .text_size(fs(11.5))
+                                        .text_color(tk.k5)
+                                        .truncate()
+                                        .child(summary),
+                                )
+                            }),
                     )
                     .child(
                         h_flex()
@@ -653,6 +683,7 @@ impl Tty7App {
                             .children(menu),
                     ),
             )
+            .children(launch_panel)
             .when_some(note, |col, text| {
                 col.child(
                     div()
