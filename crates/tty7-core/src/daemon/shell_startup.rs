@@ -15,8 +15,9 @@ use crate::core::fork_config::ShellStartup;
 /// startup files they source instead of the user's.
 pub(crate) const STARTUP_ENV: &str = "TTY7_SHELL_STARTUP";
 
-/// mise's `env_cache` encrypts its cache with this key and computes the env
-/// afresh whenever a shell brings none.
+/// The key mise's `env_cache` encrypts with. `mise activate` mints a new one
+/// unless the shell inherits one, so without a shared key no pane could read
+/// the cache another pane wrote.
 const MISE_KEY_ENV: &str = "__MISE_ENV_CACHE_KEY";
 
 /// The env tools a no-rcs shell activates, by absolute path.
@@ -38,6 +39,7 @@ pub(crate) fn apply(kind: &ShellKind, injection: &mut Injection) {
         kind,
         injection,
         detect_here,
+        mise_cache_key(),
     );
 }
 
@@ -46,6 +48,7 @@ fn apply_mode(
     kind: &ShellKind,
     injection: &mut Injection,
     detect: impl FnOnce() -> Activation,
+    mise_key: Option<&str>,
 ) {
     // Empty, not absent: a daemon started from a no-rcs pane inherits it.
     injection.env.insert(STARTUP_ENV.into(), String::new());
@@ -59,7 +62,7 @@ fn apply_mode(
         return;
     }
     let activation = (mode == ShellStartup::NoRcsEnvlibs).then(detect);
-    if let (Some(Activation::Mise(_)), Some(key)) = (&activation, mise_cache_key()) {
+    if let (Some(Activation::Mise(_)), Some(key)) = (&activation, mise_key) {
         injection.env.insert(MISE_KEY_ENV.into(), key.into());
     }
     let script = script(shell, activation.as_ref());
@@ -82,24 +85,26 @@ fn apply_mode(
         .insert(STARTUP_ENV.into(), dir.to_string_lossy().into_owned());
 }
 
-/// One key for every pane of this daemon, so each new pane's `mise activate`
-/// reads the cache the panes before it wrote. `None` when the daemon already
+/// One key for every pane of this daemon. `None` when the daemon already
 /// carries the user's own key, which the panes inherit instead.
 fn mise_cache_key() -> Option<&'static str> {
     static KEY: OnceLock<Option<String>> = OnceLock::new();
     KEY.get_or_init(|| {
-        std::env::var_os(MISE_KEY_ENV)
-            .is_none()
-            .then(mint_mise_cache_key)
+        if std::env::var_os(MISE_KEY_ENV).is_some() {
+            return None;
+        }
+        mint_mise_cache_key()
+            .inspect_err(|e| log::warn!("shell_startup: no mise env cache key: {e}"))
+            .ok()
     })
     .as_deref()
 }
 
 /// mise's own format: 32 random bytes for ChaCha20-Poly1305, standard base64.
-fn mint_mise_cache_key() -> String {
+fn mint_mise_cache_key() -> Result<String, getrandom::Error> {
     let mut key = [0u8; 32];
-    getrandom::fill(&mut key).expect("OS RNG unavailable");
-    base64::engine::general_purpose::STANDARD.encode(key)
+    getrandom::fill(&mut key)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(key))
 }
 
 fn detect_here() -> Activation {
@@ -240,19 +245,20 @@ const DEFER_ZSH: &str = r#"__tty7_defer_activate() {
 }
 exec {__tty7_defer_fd}< <(__tty7_defer_activate)
 __tty7_defer_done() {
-  local fd=$__tty7_defer_fd code= line
+  local fd=$__tty7_defer_fd code
   [[ -n $fd ]] || return 0
-  unset __tty7_defer_fd
+  # A Ctrl-C here aborts the function with the fd and hooks in place, so the
+  # next command or idle prompt reads it instead.
+  IFS= read -rd '' -u $fd code
   zle -F $fd 2>/dev/null
-  while IFS= read -r -u $fd line; do code+=$line$'\n'; done
-  code+=$line
   exec {fd}<&-
+  unset __tty7_defer_fd
   add-zsh-hook -d preexec __tty7_defer_done
+  zle && zle -I
   eval "$code"
-  if (( $+functions[__tty7_precmd] )); then
-    add-zsh-hook -d precmd __tty7_precmd
-    add-zsh-hook precmd __tty7_precmd
-  fi
+  # `__tty7_precmd` is shell_integration.rs's prompt-mark hook.
+  [[ -n ${precmd_functions[(r)__tty7_precmd]} ]] &&
+    precmd_functions=(${precmd_functions:#__tty7_precmd} __tty7_precmd)
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec __tty7_defer_done
@@ -415,6 +421,7 @@ mod tests {
             &ShellKind::Zsh,
             &mut inj,
             || unreachable!(),
+            None,
         );
         assert_eq!(inj.env[STARTUP_ENV], "");
         assert_eq!(inj.args, ["-C", "integration"]);
@@ -426,7 +433,7 @@ mod tests {
         for (kind, file) in [(ShellKind::Zsh, ".zshrc"), (ShellKind::Bash, ".bashrc")] {
             let t = tempfile::tempdir().unwrap();
             let mut inj = injection(Some(t.path().into()));
-            apply_mode(ShellStartup::NoRcsEnvlibs, &kind, &mut inj, mise);
+            apply_mode(ShellStartup::NoRcsEnvlibs, &kind, &mut inj, mise, None);
             let dir = t.path().join("startup");
             assert_eq!(inj.env[STARTUP_ENV], dir.to_string_lossy());
             let body = std::fs::read_to_string(dir.join(file)).unwrap();
@@ -435,27 +442,29 @@ mod tests {
     }
 
     #[test]
-    fn mise_panes_share_one_cache_key_and_others_get_none() {
+    fn the_mise_cache_key_goes_only_to_panes_that_activate_mise() {
         let key = base64::engine::general_purpose::STANDARD
-            .decode(mint_mise_cache_key())
+            .decode(mint_mise_cache_key().unwrap())
             .unwrap();
         assert_eq!(key.len(), 32);
-        assert_ne!(mint_mise_cache_key(), mint_mise_cache_key());
+        assert_ne!(
+            mint_mise_cache_key().unwrap(),
+            mint_mise_cache_key().unwrap()
+        );
         let pane = |mode, detect: fn() -> Activation| {
             let t = tempfile::tempdir().unwrap();
             let mut inj = injection(Some(t.path().into()));
-            apply_mode(mode, &ShellKind::Zsh, &mut inj, detect);
+            apply_mode(mode, &ShellKind::Zsh, &mut inj, detect, Some("k"));
             inj.env.get(MISE_KEY_ENV).cloned()
         };
-        let first = pane(ShellStartup::NoRcsEnvlibs, mise);
-        assert_eq!(first.as_deref(), mise_cache_key());
-        assert_eq!(pane(ShellStartup::NoRcsEnvlibs, mise), first);
+        assert_eq!(pane(ShellStartup::NoRcsEnvlibs, mise).as_deref(), Some("k"));
         let others = || Activation::Others {
             asdf: None,
             direnv: None,
         };
         assert_eq!(pane(ShellStartup::NoRcsEnvlibs, others), None);
         assert_eq!(pane(ShellStartup::NoRcs, mise), None);
+        assert_eq!(mise_cache_key(), mise_cache_key());
     }
 
     #[test]
@@ -466,6 +475,7 @@ mod tests {
             &ShellKind::Fish,
             &mut inj,
             || unreachable!(),
+            None,
         );
         assert_eq!(inj.args[..2], ["--no-config", "-C"]);
         assert_eq!(inj.args[3..], ["-C", "integration"]);
@@ -479,6 +489,7 @@ mod tests {
             &ShellKind::Nushell,
             &mut inj,
             mise,
+            None,
         );
         assert_eq!(inj.args, ["-C", "integration"]);
         assert_eq!(inj.env[STARTUP_ENV], "");
