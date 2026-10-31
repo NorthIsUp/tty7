@@ -203,8 +203,11 @@ impl Tty7App {
                             .when_some(font, |d, f| d.font_family(f))
                             .when(danger, |d| d.text_color(tk.danger))
                             .child(label)
+                            // A set width, not a max: text measured at its
+                            // natural width reports one line, so a wrapped
+                            // detail painted over the row below.
                             .when_some(detail, |d, text| {
-                                d.max_w(px(280.)).child(
+                                d.w(px(280.)).child(
                                     div()
                                         .text_size(fs(11.5))
                                         .line_height(px(16.))
