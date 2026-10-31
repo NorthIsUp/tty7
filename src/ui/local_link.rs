@@ -15,7 +15,7 @@ pub struct LocalLink {
     /// `invalidate` on purpose: forgetting it there would make every
     /// reconnect a first sighting, and a daemon that came back as a
     /// *different* process would never be noticed (#553).
-    instance: String,
+    instance: crate::ui::tree_sync::ServerSeen,
     backoff: Backoff,
     next_attempt: Option<std::time::Instant>,
     attempting: bool,
@@ -142,6 +142,7 @@ impl LocalLink {
                             crate::ui::tree_sync::note_instance(
                                 &mut link.instance,
                                 &client.hello().instance,
+                                client.hello().pid,
                             )
                         };
                         let link = cx.default_global::<LocalLink>();

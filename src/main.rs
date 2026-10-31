@@ -617,6 +617,10 @@ fn main() {
     };
     crate::core::crash::install(role);
     crate::core::logfile::install(role);
+    // The window holds a socket or two per pane as well: at 256, a rebuild that
+    // reattaches every tab runs out, and each failed attach spawns a duplicate.
+    #[cfg(unix)]
+    crate::daemon::server::raise_open_file_limit();
 
     // The Windows installer owns the Explorer context menu: a task checkbox
     // runs these, and the uninstaller always runs the unregister half. Keeping

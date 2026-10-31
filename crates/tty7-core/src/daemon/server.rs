@@ -424,7 +424,7 @@ pub fn run_daemon() -> anyhow::Result<()> {
 /// try_clone(), so existing screens work while new input connections get EOF.
 /// Do this before opening services, including when adopting a live handoff.
 #[cfg(unix)]
-fn raise_open_file_limit() {
+pub fn raise_open_file_limit() {
     const TARGET: libc::rlim_t = 4096;
     let mut limits = libc::rlimit {
         rlim_cur: 0,
@@ -919,6 +919,22 @@ fn handle_conn(stream: Stream, registry: Arc<Registry>) -> anyhow::Result<()> {
             restore,
             allow_remote_clipboard_write,
         } => {
+            // A restore stands in for a pane that is gone. One still running
+            // is the client's mistake — an attach that failed on its side — and
+            // a fresh pane over it would orphan the live one behind a duplicate.
+            if let Some(live) = restore
+                .as_ref()
+                .map(|r| r.pane_id)
+                .filter(|id| registry.get(*id).is_some_and(|p| p.alive()))
+            {
+                log::warn!("refused to restore pane {live} into a fresh pane: it is still running");
+                let mut w = write_stream;
+                DaemonMsg::Error(format!(
+                    "pane {live} is still running; attach to it instead"
+                ))
+                .encode(&mut w)?;
+                return Ok(());
+            }
             let id = registry.alloc_id();
             let mut trace = crate::core::spawn_trace::Trace::pane(id);
             trace.stage(crate::core::spawn_trace::Stage::SpawnRequested, "");
