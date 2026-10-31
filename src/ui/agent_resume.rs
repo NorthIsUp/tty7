@@ -46,6 +46,9 @@ pub(crate) struct Resume {
     /// Sent instead when the transcript shows the turn was cut off:
     /// `continue_prompt`, under `continue_interrupted_agents`.
     pub on_interrupt: Option<String>,
+    /// The line that starts the agent anew, for a pane whose agent never
+    /// reported a session (`session_id` is then empty).
+    pub launch: Option<String>,
 }
 
 impl Resume {
@@ -53,6 +56,9 @@ impl Resume {
     /// fresh start take no prompt: a running session needs no nudge, and a
     /// new one has nothing to continue.
     fn line(&self, plan: ResumePlan, shell: &str) -> Option<String> {
+        if self.launch.is_some() {
+            return self.launch.clone();
+        }
         let argv = self.launch_argv.as_deref();
         match plan {
             ResumePlan::Attach(job) => Some(format!("claude attach {job}")),
@@ -85,13 +91,15 @@ impl Resume {
     }
 
     /// What a restored pane that ran `agent` reopens: nothing when session
-    /// restore is off, no session id was captured, or the agent cannot resume
-    /// it (an id unsafe to run). `prompt` is the wake's.
+    /// restore is off, no session id was captured (unless `fresh`, which
+    /// starts the agent anew), or the agent cannot resume it (an id unsafe to
+    /// run). `prompt` is the wake's.
     pub(crate) fn restored(
         agent: &Option<CLIAgent>,
         session_id: Option<&str>,
         launch_argv: Option<&[String]>,
         prompt: Option<String>,
+        fresh: bool,
         cx: &App,
     ) -> Option<Resume> {
         let cfg = cx.global::<Config>();
@@ -102,6 +110,23 @@ impl Resume {
         // A record an older daemon wrote has the id only in the argv it saved.
         let named = launch_argv.and_then(|argv| agent.session_id_in_argv(argv));
         let Some(session_id) = session_id.or(named.as_deref()) else {
+            if fresh {
+                // Codex starts its session's hooks on the first turn, so an
+                // agent nobody typed into yet has none to resume.
+                log::info!(
+                    "{}'s pane had no captured session id; it starts anew",
+                    agent.display_name()
+                );
+                let line = agent.relaunch_command(launch_argv, &cfg.agent_launch);
+                return Some(Resume {
+                    agent: *agent,
+                    session_id: String::new(),
+                    launch_argv: launch_argv.map(<[String]>::to_vec),
+                    prompt: None,
+                    on_interrupt: None,
+                    launch: Some(with_minted_session(*agent, line)),
+                });
+            }
             log::info!(
                 "{}'s pane had no captured session id; it comes back as a plain shell",
                 agent.display_name()
@@ -119,12 +144,16 @@ impl Resume {
             launch_argv: launch_argv.map(<[String]>::to_vec),
             prompt,
             on_interrupt: on_interrupt.filter(|p| !p.is_empty()),
+            launch: None,
         })
     }
 
     /// How to reopen it. Reads Claude's files, so off the UI thread; `local`
     /// is whether they are on this machine.
     fn plan(&self, local: bool) -> ResumePlan {
+        if self.launch.is_some() {
+            return ResumePlan::Fresh;
+        }
         let plan = match local {
             true => Roots::local().map_or(ResumePlan::Resume, |r| {
                 claude_background::resume_plan(&r.claude, self.agent, &self.session_id)
@@ -157,6 +186,7 @@ impl PaneResume {
             spawn.agent_session_id.as_deref(),
             spawn.agent_launch_argv.as_deref(),
             spawn.agent_prompt.clone(),
+            true,
             cx,
         )?;
         let route = PaneRoute::for_workspace(spawn.workspace.as_ref());
@@ -293,6 +323,7 @@ fn dead_session(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<R
         session_id.as_deref(),
         argv.as_deref(),
         prompt.map(str::to_string),
+        false,
         cx,
     )
 }
@@ -353,6 +384,7 @@ pub(crate) fn dead_agent_spawn(
         agent_session_id.as_deref(),
         agent_launch_argv.as_deref(),
         None,
+        true,
         cx,
     )?;
     Some(PendingSpawn {
@@ -655,7 +687,7 @@ fn restored_dead(st: &SessionTab, alive: Option<&HashMap<u64, Option<String>>>) 
 /// The tabs a wake picks: asleep, with an agent session somewhere in them.
 fn agent_tabs<'a>(tabs: impl IntoIterator<Item = (TabId, Option<&'a SessionPane>)>) -> Vec<TabId> {
     tabs.into_iter()
-        .filter(|(_, asleep)| asleep.is_some_and(layout_has_agent_session))
+        .filter(|(_, asleep)| asleep.is_some_and(layout_has_agent))
         .map(|(id, _)| id)
         .collect()
 }
@@ -888,16 +920,11 @@ struct ContinuePromptInputs(HashMap<gpui::EntityId, Entity<InputState>>);
 
 impl Global for ContinuePromptInputs {}
 
-pub(crate) fn layout_has_agent_session(pane: &SessionPane) -> bool {
+/// An agent with no session still comes back, started anew.
+pub(crate) fn layout_has_agent(pane: &SessionPane) -> bool {
     match pane {
-        SessionPane::Leaf {
-            agent,
-            agent_session_id,
-            ..
-        } => agent.is_some() && agent_session_id.is_some(),
-        SessionPane::Split { a, b, .. } => {
-            layout_has_agent_session(a) || layout_has_agent_session(b)
-        }
+        SessionPane::Leaf { agent, .. } => agent.is_some(),
+        SessionPane::Split { a, b, .. } => layout_has_agent(a) || layout_has_agent(b),
     }
 }
 
@@ -997,7 +1024,7 @@ mod tests {
         let codex = Some(CLIAgent::Codex);
         cx.update(|cx| {
             let resumed = |session: Option<&str>, argv: &[String]| {
-                Resume::restored(&codex, session, Some(argv), None, cx).map(|r| r.session_id)
+                Resume::restored(&codex, session, Some(argv), None, false, cx).map(|r| r.session_id)
             };
             assert_eq!(resumed(None, &argv).as_deref(), Some(id));
             assert_eq!(
@@ -1061,16 +1088,25 @@ mod tests {
     }
 
     #[test]
-    fn a_wake_picks_only_sleeping_tabs_with_an_agent_session() {
+    fn a_wake_picks_only_sleeping_tabs_with_an_agent() {
         let agent = agent_leaf(Some("s1"));
         let shell = agent_leaf(None);
+        let mut sessionless = agent_leaf(Some("s1"));
+        if let SessionPane::Leaf {
+            agent_session_id, ..
+        } = &mut sessionless
+        {
+            *agent_session_id = None;
+        }
         let (asleep_agent, asleep_shell, awake) = (TabId::new(), TabId::new(), TabId::new());
+        let asleep_new = TabId::new();
         let picked = agent_tabs([
             (asleep_agent, Some(&agent)),
             (asleep_shell, Some(&shell)),
+            (asleep_new, Some(&sessionless)),
             (awake, None),
         ]);
-        assert_eq!(picked, vec![asleep_agent]);
+        assert_eq!(picked, vec![asleep_agent, asleep_new]);
     }
 
     #[gpui::test]
@@ -1267,6 +1303,7 @@ mod tests {
             launch_argv: Some(vec!["claude".into(), "--model".into(), "opus".into()]),
             prompt: None,
             on_interrupt: Some("continue".into()),
+            launch: None,
         };
         assert_eq!(
             resume.line(ResumePlan::Resume, "zsh").as_deref(),
@@ -1307,6 +1344,7 @@ mod tests {
             launch_argv: None,
             prompt: None,
             on_interrupt: None,
+            launch: None,
         };
         assert_eq!(
             codex.line(ResumePlan::Fresh, "zsh").as_deref(),
@@ -1328,6 +1366,7 @@ mod tests {
             launch_argv: None,
             prompt: Some("go `rm -rf ~` $HOME".into()),
             on_interrupt: None,
+            launch: None,
         };
         let line = resume.line(ResumePlan::Resume, "/bin/zsh").unwrap();
         assert!(line.ends_with("'go `rm -rf ~` $HOME'"), "{line}");
@@ -1364,6 +1403,63 @@ mod tests {
             )
             .expect("a dead agent leaf respawns");
             assert_eq!(spawn.grid, Some(grid));
+        });
+    }
+
+    #[gpui::test]
+    fn an_agent_with_no_session_restores_started_anew(cx: &mut gpui::TestAppContext) {
+        use crate::core::session::WorkspaceId;
+        let leaf = |agent, argv: &[&str]| SessionPane::Leaf {
+            cwd: None,
+            pane_id: Some(9),
+            shell: None,
+            ssh_spec: None,
+            agent: Some(agent),
+            agent_session_id: None,
+            agent_launch_argv: Some(argv.iter().map(|t| t.to_string()).collect()),
+        };
+        let empty = Default::default();
+        cx.update(|cx| {
+            let mut cfg = Config::default();
+            cfg.agent_launch.insert(
+                "claude".into(),
+                "claude --dangerously-skip-permissions".into(),
+            );
+            cx.set_global(cfg);
+            let restored = |leaf: &SessionPane| {
+                let mut spawn = super::dead_agent_spawn(
+                    leaf,
+                    None,
+                    WorkspaceId::new(),
+                    &None,
+                    Some(9),
+                    Some(&empty),
+                    13.,
+                    None,
+                    cx,
+                )
+                .expect("an agent with no session respawns");
+                super::decide(&mut spawn, false, cx);
+                spawn.resume.expect("its agent comes back").line()
+            };
+            assert_eq!(
+                restored(&leaf(CLIAgent::Codex, &["node", "/bin/codex", "--yolo"])).as_deref(),
+                Some("codex --yolo")
+            );
+            assert_eq!(
+                restored(&leaf(CLIAgent::Pi, &["pi"])).as_deref(),
+                Some("pi")
+            );
+            let claude = restored(&leaf(CLIAgent::Claude, &["claude"])).unwrap();
+            assert!(
+                claude.starts_with("claude --dangerously-skip-permissions --session-id "),
+                "{claude}"
+            );
+            assert_eq!(
+                Resume::restored(&Some(CLIAgent::Codex), None, None, None, false, cx),
+                None,
+                "Continue All leaves an idle shell be"
+            );
         });
     }
 
