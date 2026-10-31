@@ -72,9 +72,12 @@ An explicit background-server restart still ends its sessions.
 `grep spawn-trace ~/.config/tty7/tty7.log` shows each new tab's timeline: the
 app's lines (`attempt=N`, then `pane=N` once the server answered) from the New
 Tab page through the first painted output, and the server's (`pane=N`) from the
-spawn request through the shell's first prompt and first command. `ms` counts
-from the first line of that tab in each process, so the biggest jump is where
-the time went. No directory or command text is logged.
+shell starting through its first prompt and first command. The app's `ms`
+starts when the New Tab page opens, so the time before `picked` is you choosing;
+the stages after it are the app's own latency, and the biggest jump among them
+is where the time went. The server's `ms` starts at its own first line, so the
+two clocks don't line up: match a tab's lines on `pane=N` and compare their
+timestamps. No directory or command text is logged.
 
 ## Panes came back empty
 

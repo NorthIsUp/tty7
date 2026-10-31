@@ -1851,6 +1851,10 @@ impl DaemonPane {
         on_dead: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
         let pty_size = pty_size(size);
+        // Fork (spawn-trace): a restored pane has no GUI trace to join.
+        let mut trace = restore
+            .is_none()
+            .then(|| crate::core::spawn_trace::Trace::pane(id));
 
         // Before the shell exists, not after: a ConPTY child inherits the
         // "ignore Ctrl+C" state of whoever created it, and the daemon can be
@@ -1865,7 +1869,9 @@ impl DaemonPane {
         let child = pair.slave.spawn_command(spawn.cmd)?;
         let shell_pid = child.process_id();
         log::info!("pane {id} child started; child_pid={shell_pid:?}");
-        crate::core::spawn_trace::parked_stage(id, crate::core::spawn_trace::Stage::ChildStarted);
+        if let Some(t) = &mut trace {
+            t.stage(crate::core::spawn_trace::Stage::ChildStarted, "");
+        }
         #[cfg(unix)]
         if let Some(pid) = shell_pid {
             super::nice::apply(pid);
@@ -1876,6 +1882,9 @@ impl DaemonPane {
 
         let reader_handle = pair.master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
+        if let Some(t) = trace {
+            crate::core::spawn_trace::park(t);
+        }
 
         let (ring, restored_title) = match restore {
             Some(restore) => {
@@ -2423,12 +2432,21 @@ impl DaemonPane {
                             if signals.shell.iter().any(|s| s.at_prompt) && foreground_running() {
                                 suppress_relayed_prompt_marks(&mut signals.shell);
                             }
-                            // Fork (spawn-trace): stamped before the foreground probes below.
+                            // Read off `signals` before `apply_signals` consumes
+                            // it; spent after the hop below — see the function.
+                            let saw_prompt_mark =
+                                signals.shell.iter().any(|s| s.mark_at_prompt);
+                            // Fork: the command a shell started this read, if any.
+                            let ran = signals
+                                .shell
+                                .iter()
+                                .rfind(|s| s.active && !s.mark_at_prompt)
+                                .map(|s| s.command.clone());
+                            // Fork (spawn-trace): before the foreground probes
+                            // below, whose syscalls would otherwise land in
+                            // prompt/command's ms.
                             if let Some(t) = &mut spawn_trace
-                                && !t.read(
-                                    signals.shell.iter().any(|s| s.mark_at_prompt),
-                                    signals.shell.iter().any(|s| s.active && !s.mark_at_prompt),
-                                )
+                                && !t.read(saw_prompt_mark, ran.is_some())
                             {
                                 spawn_trace = None;
                             }
@@ -2490,16 +2508,6 @@ impl DaemonPane {
                                 || remote.is_some()
                                 || agent.is_some()
                                 || probed_cwd.is_some();
-                            // Read off `signals` before `apply_signals` consumes
-                            // it; spent after the hop below — see the function.
-                            let saw_prompt_mark =
-                                signals.shell.iter().any(|s| s.mark_at_prompt);
-                            // Fork: the command a shell started this read, if any.
-                            let ran = signals
-                                .shell
-                                .iter()
-                                .rfind(|s| s.active && !s.mark_at_prompt)
-                                .map(|s| s.command.clone());
                             let mut st = state.lock().unwrap();
                             let facts_before = may_change_facts.then(|| observed_facts(&st));
                             record_output(&mut st, bytes);

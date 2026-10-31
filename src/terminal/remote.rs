@@ -1493,6 +1493,13 @@ impl RemoteTerminal {
                         {
                             proxy.send_event(super::color_scheme::query_reply());
                         }
+                        // Fork (spawn-trace): a new pane's attach replays one
+                        // empty segment, which is not output.
+                        if let DaemonMsg::Snapshot(bytes) | DaemonMsg::Output(bytes) = &msg
+                            && !bytes.is_empty()
+                        {
+                            saw_output.store(true, Ordering::Relaxed);
+                        }
                         match msg {
                             // Geometry, applied at this exact stream position.
                             // During replay each ring segment is preceded by
@@ -1524,10 +1531,6 @@ impl RemoteTerminal {
                             }
                             DaemonMsg::Snapshot(bytes) => {
                                 flush_batch!();
-                                // A new pane's attach replays one empty segment.
-                                if !bytes.is_empty() {
-                                    saw_output.store(true, Ordering::Relaxed);
-                                }
                                 cursor_scan.reset();
                                 parked_cursor.reset();
                                 proxy.replaying.store(true, Ordering::Relaxed);
@@ -1608,9 +1611,6 @@ impl RemoteTerminal {
                                 // time, and that report would be discounted.
                                 awaiting_replay = false;
                                 replaying_state = false;
-                                if !bytes.is_empty() {
-                                    saw_output.store(true, Ordering::Relaxed);
-                                }
                                 super::color_scheme::fold(&mut modes, &bytes, &color_scheme_updates);
                                 if std::mem::take(&mut report_scheme)
                                     && modes.is_on(COLOR_SCHEME_UPDATES)
