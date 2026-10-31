@@ -2139,10 +2139,15 @@ fn session_pane_from_node(node: &PaneNode, panes: &[PaneRecord]) -> SessionPane 
                 Some(r) => (
                     r.cwd.clone().map(std::path::PathBuf::from),
                     r.ssh_spec.clone(),
-                    // Fork: the session the agent left behind.
-                    tty7_core::core::claude_background::with_last_session(
-                        r.agent.clone(),
-                        r.last_session.as_ref(),
+                    // Fork: the session the agent left behind, unless another
+                    // pane's.
+                    tty7_core::core::claude_background::unclaimed_session(
+                        tty7_core::core::claude_background::with_last_session(
+                            r.agent.clone(),
+                            r.last_session.as_ref(),
+                        ),
+                        r.id,
+                        panes,
                     ),
                     r.shell.clone(),
                 ),
