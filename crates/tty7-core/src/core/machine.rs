@@ -413,7 +413,7 @@ pub struct PaneRecord {
     #[serde(default)]
     pub agent: Option<AgentFacts>,
     /// Fork: the last session an agent reported here, kept after it leaves
-    /// (`claude_background::note_session`).
+    /// (`last_session::note_session`).
     #[serde(default)]
     pub last_session: Option<AgentFacts>,
     /// What the pane is actually running, resolved: the spawn's override if it

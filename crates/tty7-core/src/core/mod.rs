@@ -19,6 +19,7 @@ pub mod history_search;
 #[allow(dead_code)]
 pub mod keychain;
 pub mod kitty_graphics;
+pub mod last_session;
 pub mod logfile;
 pub mod machine;
 pub mod osc;

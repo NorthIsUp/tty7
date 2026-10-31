@@ -2141,14 +2141,7 @@ fn session_pane_from_node(node: &PaneNode, panes: &[PaneRecord]) -> SessionPane 
                     r.ssh_spec.clone(),
                     // Fork: the session the agent left behind, unless another
                     // pane's.
-                    tty7_core::core::claude_background::unclaimed_session(
-                        tty7_core::core::claude_background::with_last_session(
-                            r.agent.clone(),
-                            r.last_session.as_ref(),
-                        ),
-                        r.id,
-                        panes,
-                    ),
+                    tty7_core::core::last_session::pane_agent(r, panes),
                     r.shell.clone(),
                 ),
                 None => (None, None, None, None),

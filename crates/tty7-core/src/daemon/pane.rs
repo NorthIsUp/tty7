@@ -2532,7 +2532,7 @@ impl DaemonPane {
                                 && !shutting_down.load(Ordering::SeqCst)
                             {
                                 crate::core::machine::observe_pane(pane, |p| {
-                                    crate::core::claude_background::note_command(p, ran.as_deref())
+                                    crate::core::last_session::note_command(p, ran.as_deref())
                                 });
                             }
                             if !shutting_down.load(Ordering::SeqCst)
@@ -3781,7 +3781,7 @@ fn publish_facts(pane: u64, alive: bool, after: ObservedFacts, closed: bool) {
         // assigned either way.
         p.osc_title = after.osc_title;
         p.agent = after.agent;
-        crate::core::claude_background::note_session(p, closed);
+        crate::core::last_session::note_session(p, closed);
         if after.shell.is_some() {
             p.shell = after.shell;
         }
