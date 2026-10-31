@@ -552,8 +552,9 @@ impl Tty7App {
                 window,
                 cx,
             );
-            let (selected, text_selected) =
-                sf.selected_on(crate::ui::app::hsla_to_u32(deco.rows_under()));
+            let (selected, text_selected) = deco
+                .rows_under()
+                .map_or((sf.selected, sf.text_selected), |w| sf.selected_on(w));
             let mut rows_h = 0.;
             let mut rows: Vec<ContextMenu<Stateful<Div>>> = Vec::new();
             // The header keeps counting every row the group has; folding only

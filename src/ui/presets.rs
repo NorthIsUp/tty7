@@ -105,8 +105,8 @@ pub mod state {
     pub const CURSOR: f32 = 1.70;
     /// The side panels' own, lighter rungs (see `Theme::panel_surface`).
     /// A panel lists many rows at once, and at the window's 1.30 the current
-    /// one read as a dark slab; the current tab's rung still has to stand
-    /// clear of a group's wash, so it sits well above hover.
+    /// one read as a dark slab; the current tab still has to be found at a
+    /// glance in a long column, so its rung sits well above hover.
     pub const PANEL_HOVER: f32 = 1.07;
     pub const PANEL_SELECTED: f32 = 1.22;
     pub const TEXT_RESTING: f32 = 4.6;
@@ -125,26 +125,24 @@ pub struct Surface {
     pub cursor: u32,
     pub text_resting: u32,
     pub text_selected: u32,
+    /// The foreground the rungs were stepped toward.
+    pub fg: u32,
 }
 
 impl Surface {
-    /// The selected fill and its ink, stepped off `under`: the fill a row
-    /// actually sits on. A group's wash is darker than the rail, so a rung
-    /// taken from the rail came out lighter than the rows around it.
-    pub(crate) fn selected_on(&self, under: u32) -> (u32, u32) {
-        if under == self.base {
-            return (self.selected, self.text_selected);
-        }
-        let fill = raise(
-            under,
-            shade_of(under, self.text_selected),
-            state::PANEL_SELECTED,
-        );
-        (
-            fill,
-            stepped_ink(fill, under, self.text_selected, self.text_resting),
-        )
+    /// A panel's selected fill and its ink, stepped off `under`, the fill the
+    /// row actually sits on: a group's wash is not the rail, so a rung
+    /// measured from the rail can land on the wash, or past it, rather than
+    /// a step clear of it.
+    pub(crate) fn selected_on(&self, under: Hsla) -> (u32, u32) {
+        panel_selected(pack(under), self.fg, self.text_resting)
     }
+}
+
+/// A panel's selected rung on `base` and its ink.
+fn panel_selected(base: u32, fg: u32, text_resting: u32) -> (u32, u32) {
+    let selected = raise(base, shade_of(base, fg), state::PANEL_SELECTED);
+    (selected, stepped_ink(selected, base, fg, text_resting))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -308,6 +306,7 @@ impl Theme {
             cursor: raise(base, fg, state::CURSOR),
             text_resting,
             text_selected: stepped_ink(selected, base, fg, text_resting),
+            fg,
         }
     }
 
@@ -318,13 +317,13 @@ impl Theme {
     /// tint out of a rung this faint, and the row reads as a grey patch on
     /// cream.
     fn panel_surface(&self, base: u32, text_resting: u32, fg: u32) -> Surface {
-        let shade = shade_of(base, fg);
-        let selected = raise(base, shade, state::PANEL_SELECTED);
+        let (selected, text_selected) = panel_selected(base, fg, text_resting);
         Surface {
-            hover: raise(base, shade, state::PANEL_HOVER),
+            hover: raise(base, shade_of(base, fg), state::PANEL_HOVER),
             selected,
             text_resting,
-            text_selected: stepped_ink(selected, base, fg, text_resting),
+            text_selected,
+            fg,
             ..self.surface(base)
         }
     }
@@ -449,7 +448,7 @@ impl Theme {
         let fg = legible_foreground(self.background_color(), self.foreground);
         // The panels once climbed a rung *above* the window (1.50), when a
         // regular-weight current tab was the faintest mark in its column. The
-        // current title is SEMIBOLD now and carries that on its own; a heavy
+        // current title is BOLD now and carries that on its own; a heavy
         // fill on top of it read as a pressed button rather than as a place.
         let sidebar = self.panel_surface(m.sidebar, m.sidebar_fg, fg);
         let rail = self.panel_surface(m.rail, m.rail_fg, fg);
@@ -1863,6 +1862,29 @@ mod tests {
                     t.id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn the_selected_rung_on_a_wash_steps_off_the_wash() {
+        for t in builtins() {
+            let sf = t.surfaces().rail;
+            let hsla = |c: u32| Hsla::from(gpui::rgb(c));
+            assert_eq!(
+                sf.selected_on(hsla(sf.base)),
+                (sf.selected, sf.text_selected),
+                "{}: on the bare rail it is the rail's own rung",
+                t.id
+            );
+            let wash = mix(sf.base, 0x2878df, 0.2);
+            let (fill, ink) = sf.selected_on(hsla(wash));
+            assert!(
+                contrast(fill, wash) >= state::PANEL_SELECTED - 0.02,
+                "{}: selected is only {:.2}:1 from the wash",
+                t.id,
+                contrast(fill, wash)
+            );
+            assert!(contrast(fill, ink) >= 4.5, "{}: ink on the wash", t.id);
         }
     }
 
