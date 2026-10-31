@@ -38,6 +38,28 @@ fn cli_agent(agent: HookAgent) -> crate::core::cli_agent::CLIAgent {
     }
 }
 
+/// The tab bar's agent disc: the brand field, the mark on it, and a hairline
+/// where the field is the page.
+fn agent_disc(mark: crate::core::cli_agent::CLIAgent, tk: Tk) -> Div {
+    div()
+        .size(px(20.))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(rgb(mark.accent_rgb()))
+        .when(presets::needs_edge(mark.accent_rgb(), tk.page), |d| {
+            d.shadow(vec![kit::ring(tk.k15, 0.5, false)])
+        })
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            gpui::svg()
+                .path(mark.icon_path())
+                .size(px(11.))
+                .text_color(rgb(mark.icon_rgb())),
+        )
+}
+
 impl Tty7App {
     pub(crate) fn render_settings_agents(&self, cx: &mut Context<Self>) -> AnyElement {
         Self::settings_page([
@@ -55,25 +77,44 @@ impl Tty7App {
             &std::env::var_os("PATH").unwrap_or_default(),
             &cfg.agent_launch,
         );
+        let tk = Tk::of(cx);
+        // `Switch::label` is only the screen-reader name, so each switch
+        // draws its agent beside it.
         let switches = agents.into_iter().map(|agent| {
-            kit::switch(("new-tab-agent", agent as usize))
-                .small()
-                .label(agent.display_name())
-                .checked(!hidden.contains(agent.slug()))
-                .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                    let on = *on;
-                    this.update_config(cx, |c| {
-                        let hidden = &mut c.fork.new_tab_hidden_agents;
-                        match on {
-                            true => hidden.remove(agent.slug()),
-                            false => hidden.insert(agent.slug().to_string()),
-                        };
-                    })
-                }))
+            h_flex()
+                .gap(px(6.))
+                .items_center()
+                .debug_selector(move || format!("new-tab-agent-{}", agent.slug()))
+                .child(agent_disc(agent, tk))
+                .child(
+                    div()
+                        .text_size(fs(12.5))
+                        .text_color(tk.fg)
+                        .child(agent.display_name()),
+                )
+                .child(
+                    kit::switch(("new-tab-agent", agent as usize))
+                        .small()
+                        .label(agent.display_name())
+                        .checked(!hidden.contains(agent.slug()))
+                        .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                            let on = *on;
+                            this.update_config(cx, |c| {
+                                let hidden = &mut c.fork.new_tab_hidden_agents;
+                                match on {
+                                    true => hidden.remove(agent.slug()),
+                                    false => hidden.insert(agent.slug().to_string()),
+                                };
+                            })
+                        })),
+                )
         });
+        // The control column never shrinks, so the cap is what makes it wrap.
         let control = h_flex()
             .flex_wrap()
-            .gap(px(12.))
+            .max_w(px(360.))
+            .gap_x(px(16.))
+            .gap_y(px(8.))
             .children(switches)
             .into_any_element();
         let fork = &cx.global::<Config>().fork;
@@ -603,27 +644,7 @@ impl Tty7App {
                     .py(px(8.))
                     .gap(px(12.))
                     .items_center()
-                    .child(
-                        // The tab bar's agent disc: the brand field, the mark
-                        // on it, and a hairline where the field is the page.
-                        div()
-                            .size(px(20.))
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .bg(rgb(mark.accent_rgb()))
-                            .when(presets::needs_edge(mark.accent_rgb(), tk.page), |d| {
-                                d.shadow(vec![kit::ring(tk.k15, 0.5, false)])
-                            })
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                gpui::svg()
-                                    .path(mark.icon_path())
-                                    .size(px(11.))
-                                    .text_color(rgb(mark.icon_rgb())),
-                            ),
-                    )
+                    .child(agent_disc(mark, tk))
                     .child(
                         v_flex()
                             .flex_1()

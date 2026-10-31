@@ -3951,6 +3951,29 @@ mod gpui_tests {
         assert_eq!(inner.offset().y, px(0.));
     }
 
+    /// Each New Tab agent switch draws its agent's name beside it: the
+    /// switch's own label only reaches a screen reader.
+    #[gpui::test]
+    fn new_tab_agent_switches_show_their_agent(cx: &mut TestAppContext) {
+        let (app, mut vcx) = harness(cx);
+        app.update_in(&mut vcx, |app, window, cx| {
+            // An override with a path makes Claude "installed" whatever PATH holds.
+            cx.global_mut::<Config>()
+                .agent_launch
+                .insert("claude".into(), "/bin/sh".into());
+            app.open_settings_section(SettingsSection::Agents, window, cx);
+        });
+        vcx.simulate_resize(size(px(1100.), px(700.)));
+        vcx.run_until_parked();
+        let item = vcx
+            .debug_bounds("new-tab-agent-claude")
+            .expect("Claude's switch is drawn with its name");
+        assert!(
+            item.size.width > px(90.),
+            "the name takes room beside the switch"
+        );
+    }
+
     /// #1221: the SSH page's "Show all" list scrolls on its own, and only an
     /// event that starts at its edge moves the page.
     #[gpui::test]
