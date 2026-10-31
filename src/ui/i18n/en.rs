@@ -2541,19 +2541,15 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAgentModelDesc => {
             "Passed as {flag}. Empty leaves it to the agent's own config."
         }
-        L10nKey::SettingsAgentPermission => "Permission mode",
+        L10nKey::SettingsAgentPermission => "Permissions",
         L10nKey::SettingsAgentSandbox => "Sandbox",
-        L10nKey::SettingsAgentApproval => "Approval policy",
-        L10nKey::SettingsAgentChoiceDesc => {
-            "Passed as {flag}. Default leaves it to the agent's own config."
-        }
         L10nKey::SettingsAgentDefault => "Default",
-        L10nKey::SettingsAgentExtraArgs => "Extra arguments",
+        L10nKey::SettingsAgentExtraArgs => "CLI options",
         L10nKey::SettingsAgentExtraArgsDesc => {
             "One argument line each, typed after the options above, as a shell reads it: --add-dir ~/src"
         }
-        L10nKey::SettingsAgentAddArg => "+ Add option",
-        L10nKey::SettingsAgentRemoveArg => "Remove argument",
+        L10nKey::SettingsAgentAddArg => "+ Add CLI option",
+        L10nKey::SettingsAgentRemoveArg => "Remove option",
         L10nKey::SettingsAgentLaunchOptions => "Launch options…",
         L10nKey::SettingsAgentSummaryModel => "model: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} options",

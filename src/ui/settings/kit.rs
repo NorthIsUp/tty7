@@ -496,6 +496,26 @@ pub(crate) fn text_field(
     field_box(input, focused, invalid, false, tk, cx)
 }
 
+/// A [`text_field`] dressed as a [`select_trigger`] — its fill, raised edge
+/// and UI font — for a grid where a field sits among dropdowns. The focus or
+/// error ring still draws over the edge.
+pub(crate) fn raised_text_field(
+    input: &gpui::Entity<InputState>,
+    focused: bool,
+    invalid: bool,
+    tk: &Tk,
+    cx: &App,
+) -> Div {
+    let mut shadow = tk.raised();
+    if invalid || focused {
+        shadow.push(ring(if invalid { tk.danger } else { tk.k45 }, 1., true));
+    }
+    field_box(input, focused, invalid, false, tk, cx)
+        .bg(tk.btn)
+        .shadow(shadow)
+        .font_family(cx.theme().font_family.clone())
+}
+
 /// A [`text_field`] for a masked input, with the eye that reveals it.
 pub(crate) fn secret_field(
     input: &gpui::Entity<InputState>,

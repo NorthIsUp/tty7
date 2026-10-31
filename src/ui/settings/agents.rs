@@ -253,6 +253,7 @@ impl Tty7App {
                         .into()
                     },
                 ),
+                detail: None,
                 on_pick: std::rc::Rc::new(move |this, _w, cx| {
                     if let Some(s) = this.active_settings_mut() {
                         s.agent_touched.clear();
@@ -592,6 +593,7 @@ impl Tty7App {
                     font: None,
                     danger: true,
                     trailing: None,
+                    detail: None,
                     on_pick: std::rc::Rc::new(move |this, _w, cx| {
                         this.settings_uninstall_agent_hooks(agent, cx)
                     }),

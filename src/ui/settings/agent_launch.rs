@@ -12,6 +12,7 @@ use crate::core::cli_agent::CLIAgent;
 use crate::core::fork_config::AgentLaunchSettings;
 
 use super::kit::{self, BtnKind, Tk, fs};
+use super::shell::MenuEntry;
 use super::*;
 
 /// One agent's text fields on the page.
@@ -63,7 +64,6 @@ fn set_settings(cfg: &mut Config, agent: CLIAgent, settings: AgentLaunchSettings
 fn choice_title(key: &str) -> L10nKey {
     match key {
         "sandbox" => L10nKey::SettingsAgentSandbox,
-        "approval" => L10nKey::SettingsAgentApproval,
         _ => L10nKey::SettingsAgentPermission,
     }
 }
@@ -214,9 +214,32 @@ impl Tty7App {
         self.update_config(cx, |c| set_settings(c, agent, settings));
     }
 
-    /// `agent`'s launch options, compact under its integration row: the
-    /// model and choices on one wrapping line, then one field per extra
-    /// argument line and "+ Add option".
+    /// A text field in the panel's grid, dressed as the dropdowns beside it,
+    /// with the line that says what is wrong with it.
+    fn grid_field(
+        &self,
+        input: &Entity<InputState>,
+        error: Option<String>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let tk = Tk::of(cx);
+        let focused = self.settings_input_focused(input, cx);
+        v_flex()
+            .gap(px(4.))
+            .child(
+                kit::raised_text_field(input, focused, error.is_some(), &tk, cx)
+                    .w(px(kit::CONTROL_W)),
+            )
+            .when_some(error, |col, e| {
+                col.child(div().text_size(fs(12.)).text_color(tk.danger).child(e))
+            })
+            .into_any_element()
+    }
+
+    /// `agent`'s launch options under its integration row, in the row's text
+    /// column: a label column and a [`kit::CONTROL_W`] control column, so
+    /// every agent's controls line up — model, each choice, one field per
+    /// CLI option with its remove tile, then "+ Add CLI option".
     pub(crate) fn render_agent_launch_panel(
         &self,
         agent: CLIAgent,
@@ -228,114 +251,194 @@ impl Tty7App {
         let line = (settings != AgentLaunchSettings::default())
             .then(|| agent.launch_command(&cfg.launch_lines()));
         let inputs = self.agent_inputs(agent, cx);
-        let label = |text: &'static str| {
+        let slug = agent.slug();
+        // A label with the flag it adds on hover, in the fixed label column.
+        let label = |id: String, text: &'static str, hint: Option<String>| {
             div()
+                .id(SharedString::from(id))
+                .w(px(LAUNCH_LABEL_W))
+                .flex_shrink_0()
                 .text_size(fs(12.))
-                .text_color(tk.k45)
-                .whitespace_nowrap()
+                .text_color(tk.k5)
+                .truncate()
                 .child(text)
+                .when_some(hint, |d, hint| {
+                    d.tooltip(move |w, cx| {
+                        gpui_component::tooltip::Tooltip::new(hint.clone()).build(w, cx)
+                    })
+                })
         };
-        let mut controls = h_flex().flex_wrap().gap(px(10.)).items_center();
+        let grid_row = |name: String| {
+            h_flex()
+                .gap(px(LAUNCH_GAP))
+                .items_center()
+                .debug_selector(move || name)
+        };
+        // The control column; the kit sizes its fields and dropdowns to it.
+        let column = |name: String, control: AnyElement| {
+            div()
+                .w(px(kit::CONTROL_W))
+                .flex_shrink_0()
+                .debug_selector(move || name)
+                .child(control)
+        };
+        let mut rows: Vec<AnyElement> = Vec::new();
 
         if let (Some(flag), Some((model, _))) = (agent.model_flag(), &inputs) {
-            controls = controls.child(
-                h_flex()
-                    .gap(px(6.))
-                    .items_center()
-                    .id(SharedString::from(format!(
-                        "agent-launch-{}-model",
-                        agent.slug()
-                    )))
-                    .tooltip(move |w, cx| {
-                        gpui_component::tooltip::Tooltip::new(t_fmt(
-                            L10nKey::SettingsAgentModelDesc,
-                            &[("flag", flag)],
-                        ))
-                        .build(w, cx)
-                    })
-                    .child(label(t(L10nKey::SettingsAgentModel)))
-                    .child(self.settings_text_input(model, 160., false, cx)),
+            rows.push(
+                grid_row(format!("agent-launch-{slug}-model"))
+                    .child(label(
+                        format!("agent-launch-{slug}-model-label"),
+                        t(L10nKey::SettingsAgentModel),
+                        Some(t_fmt(L10nKey::SettingsAgentModelDesc, &[("flag", flag)])),
+                    ))
+                    .child(column(
+                        format!("agent-launch-{slug}-model-control"),
+                        self.grid_field(model, None, cx),
+                    ))
+                    .into_any_element(),
             );
         }
 
         for choice in agent.launch_choices() {
-            let mut labels = vec![t(L10nKey::SettingsAgentDefault)];
-            labels.extend(choice.options.iter().map(|o| o.value));
-            let selected = settings
+            let picked = settings
                 .choices
                 .get(choice.key)
-                .and_then(|v| choice.options.iter().position(|o| o.value == v))
-                .map_or(0, |i| i + 1);
+                .and_then(|v| choice.options.iter().find(|o| o.value == v));
             let key = choice.key;
-            let control = self.settings_choice(
-                format!("agent-launch-{}-{key}", agent.slug()),
-                &labels,
-                selected,
+            let pick = |ix: usize| -> super::shell::PickFn {
+                std::rc::Rc::new(move |this, _w, cx| this.pick_agent_choice(agent, key, ix, cx))
+            };
+            let mut entries = vec![MenuEntry::item(
+                t(L10nKey::SettingsAgentDefault),
+                picked.is_none(),
+                move |this, _w, cx| this.pick_agent_choice(agent, key, 0, cx),
+            )];
+            for (i, opt) in choice.options.iter().enumerate() {
+                entries.push(MenuEntry::Item {
+                    label: opt.label.into(),
+                    checked: picked.is_some_and(|p| p.value == opt.value),
+                    font: None,
+                    danger: false,
+                    trailing: None,
+                    detail: opt.hint.map(Into::into),
+                    on_pick: pick(i + 1),
+                });
+            }
+            let control = self.settings_dropdown(
+                format!("agent-launch-{slug}-{key}"),
+                picked.map_or(t(L10nKey::SettingsAgentDefault), |o| o.label),
+                None,
+                entries,
                 cx,
-                move |this, ix, _w, cx| this.pick_agent_choice(agent, key, ix, cx),
             );
-            controls = controls.child(
-                h_flex()
-                    .gap(px(6.))
-                    .items_center()
-                    .child(label(t(choice_title(key))))
-                    .child(control),
+            rows.push(
+                grid_row(format!("agent-launch-{slug}-{key}-row"))
+                    .child(label(
+                        format!("agent-launch-{slug}-{key}-label"),
+                        t(choice_title(key)),
+                        picked.and_then(|o| o.hint).map(str::to_string),
+                    ))
+                    .child(column(
+                        format!("agent-launch-{slug}-{key}-control"),
+                        control,
+                    ))
+                    .into_any_element(),
             );
         }
 
-        let mut extras_col = v_flex().gap(px(6.));
         if let Some((_, extras)) = &inputs {
             for (i, input) in extras.iter().enumerate() {
                 let error = crate::ui::app::split_shell_args(&input.read(cx).value())
                     .is_err()
                     .then(|| t(L10nKey::SettingsArgumentsInvalid).to_string());
-                extras_col = extras_col.child(
-                    h_flex()
-                        .gap(px(6.))
+                let remove = div()
+                    .id(SharedString::from(format!(
+                        "agent-launch-{slug}-remove-{i}"
+                    )))
+                    .debug_selector(move || format!("agent-launch-{slug}-remove-{i}"))
+                    .role(gpui::Role::Button)
+                    .aria_label(t(L10nKey::SettingsAgentRemoveArg))
+                    .size(px(26.))
+                    .flex_shrink_0()
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(tk.k05))
+                    .child(
+                        Icon::empty()
+                            .path("icons/settings/trash.svg")
+                            .size(px(12.))
+                            .text_color(tk.k5),
+                    )
+                    .tooltip(|w, cx| {
+                        gpui_component::tooltip::Tooltip::new(t(L10nKey::SettingsAgentRemoveArg))
+                            .build(w, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.commit_agent_launch(agent, Some(i), cx);
+                        this.build_agent_inputs(agent, 0, window, cx);
+                    }));
+                let name = match i {
+                    0 => t(L10nKey::SettingsAgentExtraArgs),
+                    _ => "",
+                };
+                rows.push(
+                    grid_row(format!("agent-launch-{slug}-extra-{i}"))
                         .items_start()
-                        .child(self.settings_checked_input(input, 260., error, cx))
                         .child(
-                            kit::button(
-                                SharedString::from(format!(
-                                    "agent-launch-{}-remove-{i}",
-                                    agent.slug()
-                                )),
-                                t(L10nKey::SettingsAgentRemoveArg),
-                                BtnKind::Link,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.commit_agent_launch(agent, Some(i), cx);
-                                    this.build_agent_inputs(agent, 0, window, cx);
-                                },
-                            )),
-                        ),
+                            label(format!("agent-launch-{slug}-extra-{i}-label"), name, None)
+                                .h(px(26.))
+                                .flex()
+                                .items_center(),
+                        )
+                        .child(column(
+                            format!("agent-launch-{slug}-extra-{i}-control"),
+                            self.grid_field(input, error, cx),
+                        ))
+                        .child(remove)
+                        .into_any_element(),
                 );
             }
-            extras_col = extras_col.child(
-                h_flex().child(
-                    kit::button(
-                        SharedString::from(format!("agent-launch-{}-add", agent.slug())),
-                        t(L10nKey::SettingsAgentAddArg),
-                        BtnKind::Link,
+            rows.push(
+                grid_row(format!("agent-launch-{slug}-add-row"))
+                    .h(px(26.))
+                    .child(div().w(px(LAUNCH_LABEL_W)).flex_shrink_0())
+                    .child(
+                        div()
+                            .debug_selector(move || format!("agent-launch-{slug}-add"))
+                            .child(
+                                kit::button(
+                                    SharedString::from(format!("agent-launch-{slug}-add")),
+                                    t(L10nKey::SettingsAgentAddArg),
+                                    BtnKind::Link,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        this.commit_agent_launch(agent, None, cx);
+                                        this.build_agent_inputs(agent, 1, window, cx);
+                                    },
+                                )),
+                            ),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.commit_agent_launch(agent, None, cx);
-                        this.build_agent_inputs(agent, 1, window, cx);
-                    })),
-                ),
+                    .into_any_element(),
             );
         }
 
         v_flex()
-            .pl(px(32.))
-            .pb(px(10.))
-            .gap(px(6.))
-            .child(controls)
-            .child(extras_col)
+            .debug_selector(move || format!("agent-launch-{slug}"))
+            .pl(px(LAUNCH_INDENT))
+            .pb(px(12.))
+            .gap(px(8.))
+            .min_w_0()
+            .children(rows)
             .when_some(line, |col, line| {
                 col.child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .font_family(Tk::mono(cx))
                         .text_size(fs(11.5))
                         .text_color(tk.k45)
@@ -349,6 +452,11 @@ impl Tty7App {
     }
 }
 
+/// The integration row's text column: its 20px disc and the 12px gap after.
+const LAUNCH_INDENT: f32 = 32.;
+const LAUNCH_LABEL_W: f32 = 120.;
+const LAUNCH_GAP: f32 = 8.;
+
 /// The collapsed row's note of what `agent`'s launch options set:
 /// `model: o3 · never · +2 options`. `None` when nothing is.
 pub(crate) fn launch_summary(cfg: &Config, agent: CLIAgent) -> Option<String> {
@@ -361,10 +469,12 @@ pub(crate) fn launch_summary(cfg: &Config, agent: CLIAgent) -> Option<String> {
         ));
     }
     for choice in agent.launch_choices() {
-        if let Some(v) = s.choices.get(choice.key)
-            && choice.options.iter().any(|o| o.value == v)
+        if let Some(opt) = s
+            .choices
+            .get(choice.key)
+            .and_then(|v| choice.options.iter().find(|o| o.value == v))
         {
-            parts.push(v.clone());
+            parts.push(opt.label.to_string());
         }
     }
     let extras = s.extra_args.iter().filter(|l| !l.trim().is_empty()).count();
@@ -421,7 +531,7 @@ mod tests {
             CLIAgent::Codex,
             settings(
                 "gpt-5.1-codex",
-                &[("sandbox", "workspace-write"), ("approval", "never")],
+                &[("permission", "approve-for-me")],
                 &["--search"],
             ),
         );
@@ -434,9 +544,97 @@ mod tests {
                 "--sandbox",
                 "workspace-write",
                 "--ask-for-approval",
-                "never",
+                "on-request",
+                "-c",
+                "approvals_reviewer=auto_review",
                 "--search"
             ]
+        );
+        // Each preset is the sandbox, approval policy and reviewer Codex's
+        // own /permissions picker sets for it.
+        let preset = |value: &str| {
+            let cfg = with(CLIAgent::Codex, settings("", &[("permission", value)], &[]));
+            line(&cfg, CLIAgent::Codex)
+        };
+        assert_eq!(
+            preset("ask"),
+            "codex --sandbox workspace-write --ask-for-approval on-request -c approvals_reviewer=user"
+        );
+        assert_eq!(
+            preset("full-access"),
+            "codex --sandbox danger-full-access --ask-for-approval never -c approvals_reviewer=user"
+        );
+        assert_eq!(
+            preset("read-only"),
+            "codex --sandbox read-only --ask-for-approval on-request -c approvals_reviewer=user"
+        );
+        let labels: Vec<&str> = CLIAgent::Codex.launch_choices()[0]
+            .options
+            .iter()
+            .map(|o| o.label)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Ask for approval",
+                "Approve for me",
+                "Full Access",
+                "Read Only"
+            ]
+        );
+    }
+
+    /// The Sandbox and Approval policy pair #144 stored becomes the preset
+    /// that sets it, or the flags it added when no preset does.
+    #[test]
+    fn a_codex_sandbox_and_approval_pair_becomes_its_preset() {
+        let migrated = |choices: &[(&str, &str)]| {
+            let mut cfg = with(CLIAgent::Codex, settings("o3", choices, &["--search"]));
+            cfg.move_agent_launch_into_settings();
+            settings_of(&cfg, CLIAgent::Codex)
+        };
+        assert_eq!(
+            migrated(&[("sandbox", "workspace-write"), ("approval", "on-request")]),
+            settings("o3", &[("permission", "ask")], &["--search"])
+        );
+        assert_eq!(
+            migrated(&[("sandbox", "danger-full-access"), ("approval", "never")]),
+            settings("o3", &[("permission", "full-access")], &["--search"])
+        );
+        assert_eq!(
+            migrated(&[("sandbox", "read-only"), ("approval", "on-request")]),
+            settings("o3", &[("permission", "read-only")], &["--search"])
+        );
+        assert_eq!(
+            migrated(&[("sandbox", "workspace-write"), ("approval", "never")]),
+            settings(
+                "o3",
+                &[],
+                &[
+                    "--sandbox workspace-write",
+                    "--ask-for-approval never",
+                    "--search"
+                ]
+            )
+        );
+        assert_eq!(
+            migrated(&[("approval", "never")]),
+            settings("o3", &[], &["--ask-for-approval never", "--search"])
+        );
+    }
+
+    #[test]
+    fn a_launch_line_spelling_a_preset_moves_into_it() {
+        let mut cfg = Config::default();
+        cfg.agent_launch.insert(
+            "codex".into(),
+            "codex -c approvals_reviewer=user --ask-for-approval never --model o3 --sandbox danger-full-access"
+                .into(),
+        );
+        cfg.move_agent_launch_into_settings();
+        assert_eq!(
+            settings_of(&cfg, CLIAgent::Codex),
+            settings("o3", &[("permission", "full-access")], &[])
         );
     }
 
@@ -490,12 +688,16 @@ mod tests {
     fn the_collapsed_row_sums_up_what_is_set() {
         let cfg = with(
             CLIAgent::Codex,
-            settings("o3", &[("approval", "never")], &["--search", "--oss"]),
+            settings(
+                "o3",
+                &[("permission", "approve-for-me")],
+                &["--search", "--oss"],
+            ),
         );
         let summary = launch_summary(&cfg, CLIAgent::Codex).unwrap();
         let parts: Vec<&str> = summary.split(" · ").collect();
         assert_eq!(parts.len(), 3, "{summary}");
-        assert!(parts[0].contains("o3") && parts[1] == "never" && parts[2].contains('2'));
+        assert!(parts[0].contains("o3") && parts[1] == "Approve for me" && parts[2].contains('2'));
         assert_eq!(launch_summary(&cfg, CLIAgent::Claude), None);
     }
 
@@ -550,20 +752,21 @@ mod tests {
     fn a_resume_and_a_fresh_restart_carry_the_settings() {
         let cfg = with(
             CLIAgent::Codex,
-            settings("o3", &[("sandbox", "read-only")], &[]),
+            settings("o3", &[("permission", "read-only")], &[]),
         );
         let lines = cfg.launch_lines();
+        let flags = "--model o3 --sandbox read-only --ask-for-approval on-request -c approvals_reviewer=user";
         assert_eq!(
-            crate::ui::agent_launch::resume_line(CLIAgent::Codex, "0199-x", &lines).as_deref(),
-            Some("codex resume 0199-x --model o3 --sandbox read-only")
+            crate::ui::agent_launch::resume_line(CLIAgent::Codex, "0199-x", &lines),
+            Some(format!("codex resume 0199-x {flags}"))
         );
         assert_eq!(
-            crate::ui::agent_launch::fork_line(CLIAgent::Codex, "0199-x", &lines).as_deref(),
-            Some("codex fork 0199-x --model o3 --sandbox read-only")
+            crate::ui::agent_launch::fork_line(CLIAgent::Codex, "0199-x", &lines),
+            Some(format!("codex fork 0199-x {flags}"))
         );
         assert_eq!(
             CLIAgent::Codex.relaunch_command(None, &lines),
-            "codex --model o3 --sandbox read-only"
+            format!("codex {flags}")
         );
         // A pane that recorded its own flags restarts with those instead.
         let ran: Vec<String> = ["codex", "--model", "gpt-5"].map(String::from).to_vec();
@@ -605,10 +808,10 @@ mod tests {
                 &["--dangerously-skip-permissions"]
             )
         );
-        // `-s` is not the spelling the control writes, so it stays an extra.
+        // A sandbox and approval policy that are no preset stay extras.
         assert_eq!(
             settings_of(&cfg, CLIAgent::Codex),
-            settings("o3", &[("approval", "never")], &["-s read-only"])
+            settings("o3", &[], &["-s read-only", "--ask-for-approval never"])
         );
         // A bare binary needs no settings at all.
         assert!(settings_key(&cfg, CLIAgent::Gemini).is_none());
@@ -645,5 +848,169 @@ mod tests {
         cfg.move_agent_launch_into_settings();
         assert_eq!(cfg.agent_launch["claude"], "claude --model sonnet");
         assert_eq!(settings_of(&cfg, CLIAgent::Claude).model, "opus");
+    }
+}
+
+#[cfg(test)]
+mod gpui_tests {
+    use super::super::{AgentHookRow, AgentHooksView, SettingsSection};
+    use super::*;
+    use crate::core::agent_hooks::{HookAgent, HooksState};
+    use crate::core::session::Session;
+    use gpui::{TestAppContext, VisualTestContext, size};
+
+    /// The panel's grid, as laid out: one label column and one control
+    /// column across agents, controls one width and height, the remove tiles
+    /// on one line, "+ Add CLI option" in the control column, even spacing,
+    /// and nothing past the row's right edge.
+    #[gpui::test]
+    fn launch_options_line_up_across_agents(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let mut cfg = Config::default();
+            let extras = |lines: &[&str]| AgentLaunchSettings {
+                extra_args: lines.iter().map(|l| l.to_string()).collect(),
+                ..Default::default()
+            };
+            cfg.fork
+                .agent_settings
+                .insert("claude".into(), extras(&["--add-dir ~/src", "--verbose"]));
+            cfg.fork
+                .agent_settings
+                .insert("codex".into(), extras(&["--search"]));
+            cx.set_global(cfg);
+            crate::ui::keymap::init(cx);
+        });
+        let window = cx.add_window(|window, cx| {
+            let app =
+                cx.new(|cx| Tty7App::with_session(None, Some(Session::default()), window, cx));
+            gpui_component::Root::new(app, window, cx)
+        });
+        cx.background_executor.run_until_parked();
+        let app = window
+            .update(cx, |root, _, _| {
+                root.view().clone().downcast::<Tty7App>().ok().unwrap()
+            })
+            .unwrap();
+        let mut vcx = VisualTestContext::from_window(window.into(), cx);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_settings_section(SettingsSection::Agents, window, cx);
+        });
+        vcx.run_until_parked();
+        app.update_in(&mut vcx, |app, _, cx| {
+            let s = app.active_settings_mut().unwrap();
+            s.agent_hooks_seq += 1;
+            s.agent_hooks_states = AgentHooksView::Ready(
+                [HookAgent::Claude, HookAgent::Codex, HookAgent::Cursor]
+                    .into_iter()
+                    .map(|agent| AgentHookRow {
+                        agent,
+                        state: HooksState::Installed,
+                        target: "~/.claude/settings.json".into(),
+                    })
+                    .collect(),
+            );
+            cx.notify();
+        });
+        vcx.simulate_resize(size(px(1100.), px(1400.)));
+        vcx.run_until_parked();
+
+        let at = |vcx: &mut VisualTestContext, name: &'static str| {
+            vcx.debug_bounds(name)
+                .unwrap_or_else(|| panic!("{name} was drawn"))
+        };
+        // Each agent's rows top to bottom, then their controls.
+        let agents: [(&str, &[&'static str], &[&'static str]); 3] = [
+            (
+                "agent-launch-claude",
+                &[
+                    "agent-launch-claude-model",
+                    "agent-launch-claude-permission-row",
+                    "agent-launch-claude-extra-0",
+                    "agent-launch-claude-extra-1",
+                    "agent-launch-claude-add-row",
+                ],
+                &[
+                    "agent-launch-claude-model-control",
+                    "agent-launch-claude-permission-control",
+                    "agent-launch-claude-extra-0-control",
+                    "agent-launch-claude-extra-1-control",
+                ],
+            ),
+            (
+                "agent-launch-codex",
+                &[
+                    "agent-launch-codex-model",
+                    "agent-launch-codex-permission-row",
+                    "agent-launch-codex-extra-0",
+                    "agent-launch-codex-add-row",
+                ],
+                &[
+                    "agent-launch-codex-model-control",
+                    "agent-launch-codex-permission-control",
+                    "agent-launch-codex-extra-0-control",
+                ],
+            ),
+            (
+                "agent-launch-cursor",
+                &[
+                    "agent-launch-cursor-model",
+                    "agent-launch-cursor-permission-row",
+                    "agent-launch-cursor-sandbox-row",
+                    "agent-launch-cursor-add-row",
+                ],
+                &[
+                    "agent-launch-cursor-model-control",
+                    "agent-launch-cursor-permission-control",
+                    "agent-launch-cursor-sandbox-control",
+                ],
+            ),
+        ];
+        let first_row = at(&mut vcx, "agent-launch-claude-model");
+        let first_control = at(&mut vcx, "agent-launch-claude-model-control");
+        for (panel, rows, controls) in agents {
+            let panel = at(&mut vcx, panel);
+            assert_eq!(first_row.left() - panel.left(), px(LAUNCH_INDENT));
+            let rows: Vec<_> = rows.iter().map(|r| at(&mut vcx, r)).collect();
+            for pair in rows.windows(2) {
+                assert_eq!(pair[0].size.height, px(26.), "one row height");
+                assert_eq!(
+                    pair[1].top() - pair[0].bottom(),
+                    px(LAUNCH_GAP),
+                    "even spacing"
+                );
+            }
+            for row in &rows {
+                assert_eq!(row.left(), first_row.left(), "one label column");
+                assert!(row.right() <= panel.right());
+            }
+            for control in controls {
+                let control = at(&mut vcx, control);
+                assert_eq!(control.left(), first_control.left(), "one control column");
+                assert_eq!(control.size.width, px(kit::CONTROL_W));
+                assert_eq!(control.size.height, px(26.));
+            }
+        }
+        assert_eq!(
+            first_control.left() - first_row.left(),
+            px(LAUNCH_LABEL_W + LAUNCH_GAP)
+        );
+        for add in [
+            "agent-launch-claude-add",
+            "agent-launch-codex-add",
+            "agent-launch-cursor-add",
+        ] {
+            assert_eq!(at(&mut vcx, add).left(), first_control.left(), "{add}");
+        }
+        let trash_x = first_control.right() + px(LAUNCH_GAP);
+        for remove in [
+            "agent-launch-claude-remove-0",
+            "agent-launch-claude-remove-1",
+            "agent-launch-codex-remove-0",
+        ] {
+            assert_eq!(at(&mut vcx, remove).left(), trash_x, "{remove}");
+        }
     }
 }

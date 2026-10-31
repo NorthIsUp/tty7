@@ -2614,19 +2614,15 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentModelDesc => {
             "{flag} として渡します。空欄ならエージェント自身の設定に従います。"
         }
-        L10nKey::SettingsAgentPermission => "権限モード",
+        L10nKey::SettingsAgentPermission => "権限",
         L10nKey::SettingsAgentSandbox => "サンドボックス",
-        L10nKey::SettingsAgentApproval => "承認ポリシー",
-        L10nKey::SettingsAgentChoiceDesc => {
-            "{flag} として渡します。デフォルトならエージェント自身の設定に従います。"
-        }
         L10nKey::SettingsAgentDefault => "デフォルト",
-        L10nKey::SettingsAgentExtraArgs => "追加の引数",
+        L10nKey::SettingsAgentExtraArgs => "CLI オプション",
         L10nKey::SettingsAgentExtraArgsDesc => {
             "1 行に 1 つの引数行。上のオプションの後にシェルと同じ解釈で付きます: --add-dir ~/src"
         }
-        L10nKey::SettingsAgentAddArg => "+ オプションを追加",
-        L10nKey::SettingsAgentRemoveArg => "引数を削除",
+        L10nKey::SettingsAgentAddArg => "+ CLI オプションを追加",
+        L10nKey::SettingsAgentRemoveArg => "オプションを削除",
         L10nKey::SettingsAgentLaunchOptions => "起動オプション…",
         L10nKey::SettingsAgentSummaryModel => "モデル: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} 個のオプション",
