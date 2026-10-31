@@ -415,18 +415,14 @@ impl CLIAgent {
         {
             return None;
         }
-        Some(
-            launch_argv
-                .and_then(|argv| self.replay_flags(argv))
-                .map(|flags| {
-                    flags.iter().fold(String::new(), |mut s, f| {
-                        s.push(' ');
-                        s.push_str(f);
-                        s
-                    })
-                })
-                .unwrap_or_default(),
-        )
+        Some(self.replayed(launch_argv).unwrap_or_default())
+    }
+
+    /// The flags `launch_argv` ran the agent with, each after a space; `None`
+    /// when there are none to replay.
+    fn replayed(self, launch_argv: Option<&[String]>) -> Option<String> {
+        let flags = launch_argv.and_then(|argv| self.replay_flags(argv))?;
+        (!flags.is_empty()).then(|| flags.iter().map(|f| format!(" {f}")).collect())
     }
 
     fn replay_flags(self, argv: &[String]) -> Option<Vec<String>> {
@@ -780,18 +776,19 @@ impl CLIAgent {
             .map_or_else(|| self.binary().to_string(), str::to_string)
     }
 
-    /// A new session for a pane whose agent never reported one: the binary
-    /// with the flags `launch_argv` ran it with, else [`Self::launch_command`]
-    /// when it adds none or carries more than flags (a prompt, a wrapper).
+    /// A new session for a pane whose agent never reported one. Recorded
+    /// flags win over the `agent_launch` override when the argv has flags;
+    /// else [`Self::launch_command`], also when the argv carries more than
+    /// flags (a prompt, a wrapper).
     pub fn relaunch_command(
         self,
         launch_argv: Option<&[String]>,
         overrides: &HashMap<String, String>,
     ) -> String {
-        match launch_argv.and_then(|argv| self.replay_flags(argv)) {
-            Some(flags) if !flags.is_empty() => format!("{} {}", self.binary(), flags.join(" ")),
-            _ => self.launch_command(overrides),
-        }
+        self.replayed(launch_argv).map_or_else(
+            || self.launch_command(overrides),
+            |flags| format!("{}{flags}", self.binary()),
+        )
     }
 
     /// The arguments that start an interactive session whose first message is

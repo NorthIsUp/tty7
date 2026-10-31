@@ -27,6 +27,7 @@ use tty7_core::core::agent_history::Roots;
 use tty7_core::core::claude_background::{self, ResumePlan};
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::fork_config::AgentResumeMode;
+use tty7_core::core::last_session;
 use tty7_core::core::machine::{AgentFacts, TabId};
 use tty7_core::core::shell_quote::{quote_for_shell, runs_once};
 use tty7_core::core::shells::login_shell;
@@ -34,21 +35,31 @@ use tty7_core::daemon::protocol::FEATURE_RUN_ONCE;
 use tty7_core::daemon::spawn::local_daemon_supports;
 use tty7_core::host::HostId;
 
-/// An agent session a restored pane reopens.
+/// How a restored agent pane comes back.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Reopen {
+    /// The session its agent reported.
+    Session {
+        session_id: String,
+        /// Sent as the resumed session's next turn whatever its transcript
+        /// says (Continue All Agents).
+        prompt: Option<String>,
+        /// Sent instead when the transcript shows the turn was cut off:
+        /// `continue_prompt`, under `continue_interrupted_agents`.
+        on_interrupt: Option<String>,
+    },
+    /// The line that starts the agent anew, for a pane whose agent never
+    /// reported a session. A wake's prompt is dropped: there is nothing to
+    /// continue.
+    Launch(String),
+}
+
+/// An agent a restored pane reopens.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Resume {
     pub agent: CLIAgent,
-    pub session_id: String,
     pub launch_argv: Option<Vec<String>>,
-    /// Sent as the resumed session's next turn whatever its transcript says
-    /// (Continue All Agents).
-    pub prompt: Option<String>,
-    /// Sent instead when the transcript shows the turn was cut off:
-    /// `continue_prompt`, under `continue_interrupted_agents`.
-    pub on_interrupt: Option<String>,
-    /// The line that starts the agent anew, for a pane whose agent never
-    /// reported a session (`session_id` is then empty).
-    pub launch: Option<String>,
+    pub reopen: Reopen,
 }
 
 impl Resume {
@@ -56,32 +67,36 @@ impl Resume {
     /// fresh start take no prompt: a running session needs no nudge, and a
     /// new one has nothing to continue.
     fn line(&self, plan: ResumePlan, shell: &str) -> Option<String> {
-        if self.launch.is_some() {
-            return self.launch.clone();
-        }
+        let (session_id, prompt, on_interrupt) = match &self.reopen {
+            Reopen::Launch(line) => return Some(line.clone()),
+            Reopen::Session {
+                session_id,
+                prompt,
+                on_interrupt,
+            } => (session_id, prompt.as_deref(), on_interrupt.as_deref()),
+        };
         let argv = self.launch_argv.as_deref();
+        let resumed = |prompt| self.resumed(session_id, argv, prompt, shell);
         match plan {
             ResumePlan::Attach(job) => Some(format!("claude attach {job}")),
             ResumePlan::Fresh => self
                 .agent
-                .start_command(&self.session_id, argv)
-                .or_else(|| self.resumed(argv, None, shell)),
-            ResumePlan::Resume => self.resumed(argv, self.prompt.as_deref(), shell),
+                .start_command(session_id, argv)
+                .or_else(|| resumed(None)),
+            ResumePlan::Resume => resumed(prompt),
             ResumePlan::Closed => None,
-            ResumePlan::Interrupted => {
-                let prompt = self.prompt.as_deref().or(self.on_interrupt.as_deref());
-                self.resumed(argv, prompt, shell)
-            }
+            ResumePlan::Interrupted => resumed(prompt.or(on_interrupt)),
         }
     }
 
     fn resumed(
         &self,
+        session_id: &str,
         argv: Option<&[String]>,
         prompt: Option<&str>,
         shell: &str,
     ) -> Option<String> {
-        let cmd = self.agent.resume_command(&self.session_id, argv)?;
+        let cmd = self.agent.resume_command(session_id, argv)?;
         Some(
             match prompt.filter(|p| !p.is_empty() && self.agent.resume_takes_prompt()) {
                 Some(p) => format!("{cmd} {}", quote_for_shell(p, Some(shell))),
@@ -91,15 +106,14 @@ impl Resume {
     }
 
     /// What a restored pane that ran `agent` reopens: nothing when session
-    /// restore is off, no session id was captured (unless `fresh`, which
-    /// starts the agent anew), or the agent cannot resume it (an id unsafe to
-    /// run). `prompt` is the wake's.
+    /// restore is off or the agent cannot resume its session (an id unsafe
+    /// to run); the agent started anew when no session id was captured.
+    /// `prompt` is the wake's.
     pub(crate) fn restored(
         agent: &Option<CLIAgent>,
         session_id: Option<&str>,
         launch_argv: Option<&[String]>,
         prompt: Option<String>,
-        fresh: bool,
         cx: &App,
     ) -> Option<Resume> {
         let cfg = cx.global::<Config>();
@@ -109,58 +123,51 @@ impl Resume {
         let agent = agent.as_ref()?;
         // A record an older daemon wrote has the id only in the argv it saved.
         let named = launch_argv.and_then(|argv| agent.session_id_in_argv(argv));
-        let Some(session_id) = session_id.or(named.as_deref()) else {
-            if fresh {
-                // Codex starts its session's hooks on the first turn, so an
-                // agent nobody typed into yet has none to resume.
+        let reopen = match session_id.or(named.as_deref()) {
+            // Codex starts its session's hooks on the first turn, so an agent
+            // nobody typed into yet has none to resume.
+            None => {
                 log::info!(
                     "{}'s pane had no captured session id; it starts anew",
                     agent.display_name()
                 );
                 let line = agent.relaunch_command(launch_argv, &cfg.agent_launch);
-                return Some(Resume {
-                    agent: *agent,
-                    session_id: String::new(),
-                    launch_argv: launch_argv.map(<[String]>::to_vec),
-                    prompt: None,
-                    on_interrupt: None,
-                    launch: Some(with_minted_session(*agent, line)),
-                });
+                Reopen::Launch(with_minted_session(*agent, line))
             }
-            log::info!(
-                "{}'s pane had no captured session id; it comes back as a plain shell",
-                agent.display_name()
-            );
-            return None;
+            Some(session_id) => {
+                agent.resume_command(session_id, launch_argv)?;
+                let on_interrupt = cfg
+                    .fork
+                    .continue_interrupted_agents
+                    .then(|| cfg.fork.continue_prompt.clone());
+                Reopen::Session {
+                    session_id: session_id.to_string(),
+                    prompt,
+                    on_interrupt: on_interrupt.filter(|p| !p.is_empty()),
+                }
+            }
         };
-        agent.resume_command(session_id, launch_argv)?;
-        let on_interrupt = cfg
-            .fork
-            .continue_interrupted_agents
-            .then(|| cfg.fork.continue_prompt.clone());
         Some(Resume {
             agent: *agent,
-            session_id: session_id.to_string(),
             launch_argv: launch_argv.map(<[String]>::to_vec),
-            prompt,
-            on_interrupt: on_interrupt.filter(|p| !p.is_empty()),
-            launch: None,
+            reopen,
         })
     }
 
     /// How to reopen it. Reads Claude's files, so off the UI thread; `local`
     /// is whether they are on this machine.
     fn plan(&self, local: bool) -> ResumePlan {
-        if self.launch.is_some() {
-            return ResumePlan::Fresh;
-        }
+        let session_id = match &self.reopen {
+            Reopen::Launch(_) => return ResumePlan::Fresh,
+            Reopen::Session { session_id, .. } => session_id,
+        };
         let plan = match local {
             true => Roots::local().map_or(ResumePlan::Resume, |r| {
-                claude_background::resume_plan(&r.claude, self.agent, &self.session_id)
+                claude_background::resume_plan(&r.claude, self.agent, session_id)
             }),
             false => ResumePlan::Resume,
         };
-        log::info!("resuming {} as {plan:?}", self.session_id);
+        log::info!("resuming {session_id} as {plan:?}");
         plan
     }
 }
@@ -186,7 +193,6 @@ impl PaneResume {
             spawn.agent_session_id.as_deref(),
             spawn.agent_launch_argv.as_deref(),
             spawn.agent_prompt.clone(),
-            true,
             cx,
         )?;
         let route = PaneRoute::for_workspace(spawn.workspace.as_ref());
@@ -312,7 +318,8 @@ fn type_resume(view: &Entity<TerminalView>, resume: PaneResume, cx: &mut App) {
 }
 
 /// The session `view`'s record kept (`last_session`) after its agent died,
-/// told `prompt`; `None` while an agent or a command holds it.
+/// told `prompt`; `None` while an agent or a command holds it. An idle shell
+/// whose agent left no session is the user's, so its agent is not started anew.
 fn dead_session(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<Resume> {
     if view.agent().is_some() || !view.terminal.at_prompt() {
         return None;
@@ -323,9 +330,9 @@ fn dead_session(view: &TerminalView, prompt: Option<&str>, cx: &App) -> Option<R
         session_id.as_deref(),
         argv.as_deref(),
         prompt.map(str::to_string),
-        false,
         cx,
     )
+    .filter(|r| matches!(r.reopen, Reopen::Session { .. }))
 }
 
 /// `tab`'s panes whose agent died back to an idle shell.
@@ -384,7 +391,6 @@ pub(crate) fn dead_agent_spawn(
         agent_session_id.as_deref(),
         agent_launch_argv.as_deref(),
         None,
-        true,
         cx,
     )?;
     Some(PendingSpawn {
@@ -908,7 +914,7 @@ pub(crate) fn sleeping_agent(
     let last = crate::ui::machine_mirror::MachineMirrors::machine(cx, view.host_id())
         .and_then(|m| m.panes.iter().find(|p| p.id == view.pane_id))
         .and_then(|p| p.last_session.as_ref());
-    match claude_background::with_last_session(live, last) {
+    match last_session::with_last_session(live, last) {
         Some(f) => (Some(f.agent), f.session_id, f.launch_argv),
         None => (None, None, None),
     }
@@ -945,43 +951,57 @@ pub(crate) fn layout_has_live_pane(
 #[cfg(test)]
 mod tests {
     use super::{
-        LaunchWake, RestoredDead, Resume, ResumePlan, Wake, agent_tabs, flush_restored,
-        forget_restored, launch_wake, layout_has_live_pane, load_restored, record_restores_asleep,
-        remove_restored_file, restart_wakes, runs_as_program, take_launch_wake, take_restored,
+        LaunchWake, PaneResume, Reopen, RestoredDead, Resume, ResumePlan, Wake, agent_tabs,
+        dead_agent, dead_agent_spawn, decide, flush_restored, forget_restored, launch_wake,
+        layout_has_live_pane, load_restored, record_restores_asleep, remove_restored_file,
+        restart_wakes, runs_as_program, take_launch_wake, take_restored, typed,
         with_minted_session,
     };
     use gpui::Entity;
 
     use crate::core::config::Config;
-    use crate::core::session::SessionPane;
+    use crate::core::session::{RemoteTarget, SessionAxis, SessionPane, SessionTab, WorkspaceId};
+    use crate::daemon::protocol::ShellSpec;
+    use crate::terminal::PaneWorkspace;
     use crate::terminal::view::{TerminalView, quiet_test_pane};
     use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::background_grid::Grid;
     use crate::ui::first_prompt::tests::report_prompt;
     use crate::ui::machine_mirror::MachineMirrors;
+    use crate::ui::pending_pane::PendingSpawn;
     use crate::ui::wake_pool::Job;
     use tty7_core::core::cli_agent::CLIAgent;
+    use tty7_core::core::fork_config::AgentResumeMode::{Program, Typed};
     use tty7_core::core::machine::{AgentFacts, Machine, PaneRecord, TabId};
 
     fn agent_leaf(session: Option<&str>) -> SessionPane {
+        leaf(session.map(|_| CLIAgent::Claude), session)
+    }
+
+    fn leaf(agent: Option<CLIAgent>, session: Option<&str>) -> SessionPane {
         SessionPane::Leaf {
             cwd: None,
             pane_id: None,
             shell: None,
             ssh_spec: None,
-            agent: session.map(|_| CLIAgent::Claude),
+            agent,
             agent_session_id: session.map(Into::into),
             agent_launch_argv: None,
         }
     }
 
     /// `view`'s record keeps `session` as the one its agent left.
-    fn left_session(view: &Entity<TerminalView>, session: &str, vcx: &mut gpui::VisualTestContext) {
+    fn left_session(
+        view: &Entity<TerminalView>,
+        session: Option<&str>,
+        vcx: &mut gpui::VisualTestContext,
+    ) {
         vcx.update(|_, cx| {
             let view = view.read(cx);
             let mut record = PaneRecord::new(view.pane_id);
             record.last_session = Some(AgentFacts {
                 agent: CLIAgent::Claude,
-                session_id: Some(session.into()),
+                session_id: session.map(Into::into),
                 launch_argv: None,
                 status: None,
             });
@@ -1007,7 +1027,7 @@ mod tests {
             vcx.update(|_, cx| super::sleeping_agent(view.read(cx), cx))
         };
         assert_eq!(read(&mut vcx), (None, None, None));
-        left_session(&view, "s-left", &mut vcx);
+        left_session(&view, Some("s-left"), &mut vcx);
         assert_eq!(
             read(&mut vcx),
             (Some(CLIAgent::Claude), Some("s-left".into()), None)
@@ -1024,15 +1044,26 @@ mod tests {
         let codex = Some(CLIAgent::Codex);
         cx.update(|cx| {
             let resumed = |session: Option<&str>, argv: &[String]| {
-                Resume::restored(&codex, session, Some(argv), None, false, cx).map(|r| r.session_id)
+                Resume::restored(&codex, session, Some(argv), None, cx).map(|r| r.reopen)
             };
-            assert_eq!(resumed(None, &argv).as_deref(), Some(id));
+            let session = |id: &str| {
+                Some(Reopen::Session {
+                    session_id: id.into(),
+                    prompt: None,
+                    on_interrupt: None,
+                })
+            };
+            assert_eq!(resumed(None, &argv), session(id));
             assert_eq!(
-                resumed(Some("01a00000-0000-7000-8000-000000000000"), &argv).as_deref(),
-                Some("01a00000-0000-7000-8000-000000000000"),
+                resumed(Some("01a00000-0000-7000-8000-000000000000"), &argv),
+                session("01a00000-0000-7000-8000-000000000000"),
                 "a captured session wins over the argv's"
             );
-            assert_eq!(resumed(None, &argv[..2]), None, "a fresh `codex` has none");
+            assert_eq!(
+                resumed(None, &argv[..2]),
+                Some(Reopen::Launch("codex".into())),
+                "a fresh `codex` starts anew"
+            );
         });
     }
 
@@ -1046,16 +1077,28 @@ mod tests {
         });
         let mut vcx = cx.add_empty_window().clone();
         let (view, mut daemon) = vcx.update(|window, cx| quiet_test_pane(42, window, cx));
-        left_session(&view, "s-died", &mut vcx);
+        left_session(&view, Some("s-died"), &mut vcx);
         let read = |vcx: &mut gpui::VisualTestContext| {
-            vcx.update(|_, cx| super::dead_agent(view.read(cx), Some("go"), cx).map(|r| r.resume))
+            vcx.update(|_, cx| dead_agent(view.read(cx), Some("go"), cx).map(|r| r.resume))
         };
         assert_eq!(read(&mut vcx), None, "a shell not at its prompt is left be");
 
         report_prompt(&view, &mut vcx, &mut daemon);
         let resume = read(&mut vcx).expect("resumes at the prompt");
-        assert_eq!(resume.session_id, "s-died");
-        assert_eq!(resume.prompt.as_deref(), Some("go"));
+        assert_eq!(
+            resume.reopen,
+            Reopen::Session {
+                session_id: "s-died".into(),
+                prompt: Some("go".into()),
+                on_interrupt: None,
+            }
+        );
+        left_session(&view, None, &mut vcx);
+        assert_eq!(
+            read(&mut vcx),
+            None,
+            "an idle shell whose agent left no session is the user's"
+        );
     }
 
     #[gpui::test]
@@ -1069,7 +1112,7 @@ mod tests {
                 .map(|t| t.pane.terminals()[0].clone())
                 .collect::<Vec<_>>()
         });
-        left_session(&views[0], "s-died", &mut vcx);
+        left_session(&views[0], Some("s-died"), &mut vcx);
         report_prompt(&views[0], &mut vcx, &mut streams[0]);
         let (dead, other) = (views[0].entity_id(), views[1].entity_id());
         app.update_in(&mut vcx, |app, window, cx| {
@@ -1091,13 +1134,7 @@ mod tests {
     fn a_wake_picks_only_sleeping_tabs_with_an_agent() {
         let agent = agent_leaf(Some("s1"));
         let shell = agent_leaf(None);
-        let mut sessionless = agent_leaf(Some("s1"));
-        if let SessionPane::Leaf {
-            agent_session_id, ..
-        } = &mut sessionless
-        {
-            *agent_session_id = None;
-        }
+        let sessionless = leaf(Some(CLIAgent::Codex), None);
         let (asleep_agent, asleep_shell, awake) = (TabId::new(), TabId::new(), TabId::new());
         let asleep_new = TabId::new();
         let picked = agent_tabs([
@@ -1111,8 +1148,6 @@ mod tests {
 
     #[gpui::test]
     fn an_automatic_wake_leaves_hibernated_tabs_asleep(cx: &mut gpui::TestAppContext) {
-        use crate::core::session::{RemoteTarget, SessionTab, WorkspaceId};
-        use crate::terminal::PaneWorkspace;
         let tab = |hibernated| SessionTab {
             name: None,
             pane: agent_leaf(Some("s1")),
@@ -1202,7 +1237,6 @@ mod tests {
 
     #[gpui::test]
     fn every_workspace_takes_the_launch_wake_once(cx: &mut gpui::TestAppContext) {
-        use crate::core::session::WorkspaceId;
         let (launched, hotkey) = (WorkspaceId::new(), WorkspaceId::new());
         cx.update(|cx| {
             assert_eq!(take_launch_wake(launched, cx), None, "before launch");
@@ -1254,7 +1288,6 @@ mod tests {
 
     #[test]
     fn a_tab_sleeps_through_restore_only_when_nothing_of_it_survived() {
-        use crate::core::session::{SessionAxis, SessionPane};
         let leaf = |id: Option<u64>| SessionPane::Leaf {
             cwd: None,
             pane_id: id,
@@ -1297,13 +1330,16 @@ mod tests {
     #[test]
     fn a_resume_types_exactly_one_command_for_its_plan() {
         const ID: &str = "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11";
+        let session =
+            |session_id: &str, prompt: Option<&str>, on_interrupt: Option<&str>| Reopen::Session {
+                session_id: session_id.into(),
+                prompt: prompt.map(Into::into),
+                on_interrupt: on_interrupt.map(Into::into),
+            };
         let resume = Resume {
             agent: CLIAgent::Claude,
-            session_id: ID.into(),
             launch_argv: Some(vec!["claude".into(), "--model".into(), "opus".into()]),
-            prompt: None,
-            on_interrupt: Some("continue".into()),
-            launch: None,
+            reopen: session(ID, None, Some("continue")),
         };
         assert_eq!(
             resume.line(ResumePlan::Resume, "zsh").as_deref(),
@@ -1316,7 +1352,7 @@ mod tests {
             "a cut-off turn is told to carry on"
         );
         let continue_all = Resume {
-            prompt: Some("go on".into()),
+            reopen: session(ID, Some("go on"), Some("continue")),
             ..resume.clone()
         };
         assert_eq!(
@@ -1340,11 +1376,8 @@ mod tests {
 
         let codex = Resume {
             agent: CLIAgent::Codex,
-            session_id: "th_1".into(),
             launch_argv: None,
-            prompt: None,
-            on_interrupt: None,
-            launch: None,
+            reopen: session("th_1", None, None),
         };
         assert_eq!(
             codex.line(ResumePlan::Fresh, "zsh").as_deref(),
@@ -1352,7 +1385,7 @@ mod tests {
             "an agent that can't name a new session resumes"
         );
         let unsafe_id = Resume {
-            session_id: "$(boom)".into(),
+            reopen: session("$(boom)", None, None),
             ..resume
         };
         assert_eq!(unsafe_id.line(ResumePlan::Resume, "zsh"), None);
@@ -1362,11 +1395,12 @@ mod tests {
     fn a_prompt_is_quoted_for_the_shell_it_lands_in() {
         let resume = Resume {
             agent: CLIAgent::Claude,
-            session_id: "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11".into(),
             launch_argv: None,
-            prompt: Some("go `rm -rf ~` $HOME".into()),
-            on_interrupt: None,
-            launch: None,
+            reopen: Reopen::Session {
+                session_id: "0b5c3a5e-6d0e-4c1f-9a4b-2f7f1d9e8c11".into(),
+                prompt: Some("go `rm -rf ~` $HOME".into()),
+                on_interrupt: None,
+            },
         };
         let line = resume.line(ResumePlan::Resume, "/bin/zsh").unwrap();
         assert!(line.ends_with("'go `rm -rf ~` $HOME'"), "{line}");
@@ -1375,8 +1409,6 @@ mod tests {
     /// #77: a woken agent opens at the window's grid, not the placeholder.
     #[gpui::test]
     fn a_dead_agent_spawns_at_the_window_s_grid(cx: &mut gpui::TestAppContext) {
-        use crate::core::session::WorkspaceId;
-        use crate::ui::background_grid::Grid;
         let leaf = SessionPane::Leaf {
             cwd: None,
             pane_id: Some(9),
@@ -1390,7 +1422,7 @@ mod tests {
         let empty = Default::default();
         cx.update(|cx| {
             cx.set_global(Config::default());
-            let spawn = super::dead_agent_spawn(
+            let spawn = dead_agent_spawn(
                 &leaf,
                 None,
                 WorkspaceId::new(),
@@ -1408,7 +1440,6 @@ mod tests {
 
     #[gpui::test]
     fn an_agent_with_no_session_restores_started_anew(cx: &mut gpui::TestAppContext) {
-        use crate::core::session::WorkspaceId;
         let leaf = |agent, argv: &[&str]| SessionPane::Leaf {
             cwd: None,
             pane_id: Some(9),
@@ -1427,7 +1458,7 @@ mod tests {
             );
             cx.set_global(cfg);
             let restored = |leaf: &SessionPane| {
-                let mut spawn = super::dead_agent_spawn(
+                let mut spawn = dead_agent_spawn(
                     leaf,
                     None,
                     WorkspaceId::new(),
@@ -1439,7 +1470,7 @@ mod tests {
                     cx,
                 )
                 .expect("an agent with no session respawns");
-                super::decide(&mut spawn, false, cx);
+                decide(&mut spawn, false, cx);
                 spawn.resume.expect("its agent comes back").line()
             };
             assert_eq!(
@@ -1455,20 +1486,11 @@ mod tests {
                 claude.starts_with("claude --dangerously-skip-permissions --session-id "),
                 "{claude}"
             );
-            assert_eq!(
-                Resume::restored(&Some(CLIAgent::Codex), None, None, None, false, cx),
-                None,
-                "Continue All leaves an idle shell be"
-            );
         });
     }
 
     #[gpui::test]
     fn a_resume_goes_to_the_spawn_or_to_the_prompt_decided_once(cx: &mut gpui::TestAppContext) {
-        use super::{PaneResume, decide, typed};
-        use crate::daemon::protocol::ShellSpec;
-        use crate::ui::pending_pane::PendingSpawn;
-        use tty7_core::core::fork_config::AgentResumeMode::{Program, Typed};
         let spawn = PendingSpawn {
             restore_pane: Some(7),
             shell: Some(ShellSpec {
@@ -1526,7 +1548,6 @@ mod tests {
 
     #[test]
     fn a_resume_runs_as_the_tab_only_where_it_can() {
-        use tty7_core::core::fork_config::AgentResumeMode::{Program, Typed};
         assert!(runs_as_program(Program, true, Some(7), "/bin/zsh"));
         for shell in ["sh", "/opt/homebrew/bin/bash", "dash", "ksh", "fish"] {
             assert!(runs_as_program(Program, true, Some(7), shell), "{shell}");
