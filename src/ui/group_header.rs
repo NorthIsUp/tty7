@@ -185,13 +185,13 @@ impl Deco {
         self.style.as_ref().map_or(self.rail, |s| s.backing)
     }
 
-    /// What the rows sit on: the group's fill over the rail when the fill
-    /// covers the block, the rail otherwise.
-    pub(crate) fn rows_under(&self) -> Hsla {
-        match &self.style {
-            Some(style) if style.fill.is_some() && wears(style.scope, true) => style.backing,
-            _ => self.rail,
-        }
+    /// The group's fill over the rail, when it covers the rows; `None` when
+    /// they sit on the bare rail.
+    pub(crate) fn rows_under(&self) -> Option<Hsla> {
+        self.style
+            .as_ref()
+            .filter(|style| style.fill.is_some() && wears(style.scope, true))
+            .map(|style| style.backing)
     }
 
     /// The rows, clipped to how open the group is while it slides; `full` is
