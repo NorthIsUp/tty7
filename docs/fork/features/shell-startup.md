@@ -12,7 +12,11 @@ macOS, then, in `no_rcs_envlibs`, the env tools `detect` found before spawn:
 mise alone, else asdf's shims, direnv, and a `.env` parser when direnv is
 missing. In zsh, `mise activate` is read in the background (`DEFER_ZSH`: a
 process substitution, a `zle -F` handler, and a `preexec` that waits for it if
-a command comes first), so the first prompt does not wait on mise. When mise is
+a command comes first), so the first prompt does not wait on mise. The
+background subshell also runs the initial `mise hook-env --force` that
+activate's output ends with: the exact line `_mise_hook --force` is replaced by
+hook-env's precomputed output, and when the line is missing the output is
+evaluated unchanged. When mise is
 activated, every pane of a daemon gets the same `__MISE_ENV_CACHE_KEY`
 (`mise_cache_key`: 32 OS-random bytes in base64, minted once), so with mise's
 `env_cache` on, a new pane decrypts the cache earlier panes wrote instead of

@@ -117,7 +117,7 @@ there is no direnv a built-in hook loads `KEY=value` lines from `.env` in each
 directory you `cd` into. It sets variables only; it never runs the file, and a
 variable stays set after you leave the directory.
 
-In zsh, `mise activate` runs while the first prompt is drawn rather than
+In zsh, `mise activate` and its first `mise hook-env` run while the first prompt is drawn rather than
 before it, so a new pane is not held up by mise starting. A command entered
 before mise has answered waits for it, so it still runs with mise's
 environment.
