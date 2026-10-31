@@ -404,13 +404,13 @@ impl NewTabPage {
 
     /// Deferred: a key or click reaches the page while it is being updated,
     /// and opening closes the palette that holds it.
-    fn open(&self, background: bool, window: &mut Window, cx: &mut App) {
+    fn open(&mut self, background: bool, window: &mut Window, cx: &mut App) {
         // No row: nothing to open, and the page stays for another query.
         let Some(dir) = self.rows.get(self.selected).cloned() else {
             return;
         };
         let (kind, target) = (self.kinds[self.kind], self.target);
-        let mut trace = self.trace;
+        let mut trace = self.trace.take();
         if let Some(t) = &mut trace {
             // Never the path itself: the log is sent along with bug reports.
             let typed = self.typed.as_ref().is_some_and(|(_, (d, _))| *d == dir);
@@ -424,10 +424,9 @@ impl NewTabPage {
         let app = self.app.clone();
         window.defer(cx, move |window, cx| {
             let _ = app.update(cx, |app, cx| {
-                spawn_trace::hand_off(trace);
-                app.open_from_new_tab_page(kind, dir, target, background, window, cx);
-                // A spawn refused before `new_terminal` leaves it behind.
-                spawn_trace::hand_off(None);
+                spawn_trace::handing(trace, || {
+                    app.open_from_new_tab_page(kind, dir, target, background, window, cx)
+                });
             });
         });
     }

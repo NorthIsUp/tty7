@@ -1,9 +1,4 @@
-//! Fork (spawn-trace): one `spawn-trace` info line per stage of a new tab's
-//! life, so a slow start reads as one timeline in `tty7.log`. The GUI's lines
-//! carry an attempt number from the keypress on and `pane=N` once the daemon
-//! has answered; the daemon's carry `pane=N`, so the two join on it. Each
-//! line's `ms` counts from that process's first stage for the tab.
-//! See `docs/fork/features/spawn-trace.md`.
+//! Fork (spawn-trace): see `docs/fork/features/spawn-trace.md`.
 
 use std::cell::Cell;
 use std::fmt::Write as _;
@@ -21,7 +16,6 @@ pub enum Stage {
     Spawned,
     FirstPaint,
     // daemon
-    SpawnRequested,
     ChildStarted,
     Prompt,
     Command,
@@ -38,7 +32,6 @@ impl Stage {
             Stage::SpawnSent => "spawn_sent",
             Stage::Spawned => "spawned",
             Stage::FirstPaint => "first_paint",
-            Stage::SpawnRequested => "spawn_requested",
             Stage::ChildStarted => "child_started",
             Stage::Prompt => "prompt",
             Stage::Command => "command",
@@ -47,8 +40,11 @@ impl Stage {
     }
 }
 
+// `Trace::seen` is a u16 bitmask.
+const _: () = assert!((Stage::FirstOutput as u16) < 16);
+
 /// One tab's clock in one process.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct Trace {
     attempt: Option<u64>,
     pane: Option<u64>,
@@ -63,7 +59,7 @@ impl Trace {
         Self::new(Some(NEXT.fetch_add(1, Ordering::Relaxed)), None)
     }
 
-    /// The daemon's, from the id it just allocated.
+    /// The daemon's, from the pane's id.
     pub fn pane(id: u64) -> Self {
         Self::new(None, Some(id))
     }
@@ -136,23 +132,12 @@ pub fn painted(trace: &mut Option<Trace>) {
     }
 }
 
-// Daemon: the Spawn handler parks a pane's trace for `DaemonPane::spawn` and
-// its reader thread to pick up, so neither signature has to carry it.
+// Daemon: `DaemonPane::spawn` parks a pane's trace for its reader thread to
+// pick up, so the shared reader signature doesn't have to carry it.
 static PARKED: Mutex<Vec<Trace>> = Mutex::new(Vec::new());
 
 pub fn park(trace: Trace) {
     PARKED.lock().unwrap().push(trace);
-}
-
-pub fn parked_stage(pane: u64, stage: Stage) {
-    if let Some(t) = PARKED
-        .lock()
-        .unwrap()
-        .iter_mut()
-        .find(|t| t.pane == Some(pane))
-    {
-        t.stage(stage, "");
-    }
 }
 
 pub fn unpark(pane: u64) -> Option<Trace> {
@@ -167,8 +152,13 @@ thread_local! {
     static HANDED: Cell<Option<Trace>> = const { Cell::new(None) };
 }
 
-pub fn hand_off(trace: Option<Trace>) {
+/// Hands `trace` to the `new_terminal` that `f` reaches; a spawn refused
+/// before it leaves the trace behind, so it is cleared after.
+pub fn handing<R>(trace: Option<Trace>, f: impl FnOnce() -> R) -> R {
     HANDED.set(trace);
+    let r = f();
+    HANDED.set(None);
+    r
 }
 
 pub fn take_handed() -> Option<Trace> {
@@ -178,13 +168,12 @@ pub fn take_handed() -> Option<Trace> {
 /// `new_tab_slot` without the page in front: a fresh attempt, unless the
 /// page already handed one off.
 pub fn request_tab() {
-    HANDED.with(|h| {
-        if h.get().is_none() {
-            let mut t = Trace::attempt();
-            t.stage(Stage::TabRequested, "");
-            h.set(Some(t));
-        }
+    let handed = HANDED.take().or_else(|| {
+        let mut t = Trace::attempt();
+        t.stage(Stage::TabRequested, "");
+        Some(t)
     });
+    HANDED.set(handed);
 }
 
 #[cfg(test)]
@@ -194,9 +183,9 @@ mod tests {
     #[test]
     fn daemon_stages_log_once_in_order_then_the_trace_ends() {
         let mut t = Trace::pane(7);
-        let first = t.stage(Stage::SpawnRequested, "").unwrap();
-        assert!(first.starts_with("spawn-trace pane=7 stage=spawn_requested ms="));
-        assert!(t.stage(Stage::SpawnRequested, "").is_none());
+        let first = t.stage(Stage::ChildStarted, "").unwrap();
+        assert!(first.starts_with("spawn-trace pane=7 stage=child_started ms="));
+        assert!(t.stage(Stage::ChildStarted, "").is_none());
         assert!(t.read(false, false));
         assert!(t.seen(Stage::FirstOutput) && !t.seen(Stage::Prompt));
         assert!(t.read(true, false));
@@ -238,21 +227,26 @@ mod tests {
 
     #[test]
     fn a_parked_trace_is_found_by_pane_and_taken_once() {
-        park(Trace::pane(9001));
-        parked_stage(9001, Stage::ChildStarted);
-        let t = unpark(9001).unwrap();
-        assert!(t.seen(Stage::ChildStarted));
+        let mut t = Trace::pane(9001);
+        t.stage(Stage::ChildStarted, "");
+        park(t);
+        assert!(unpark(9001).unwrap().seen(Stage::ChildStarted));
         assert!(unpark(9001).is_none());
     }
 
     #[test]
     fn request_tab_keeps_a_handed_off_attempt() {
         let page = Trace::attempt();
-        hand_off(Some(page));
-        request_tab();
-        assert_eq!(take_handed().unwrap().attempt, page.attempt);
-        request_tab();
-        assert!(take_handed().unwrap().seen(Stage::TabRequested));
+        let attempt = page.attempt;
+        let kept = handing(Some(page), || {
+            request_tab();
+            take_handed().unwrap().attempt
+        });
+        assert_eq!(kept, attempt);
+        handing(None, || {
+            request_tab();
+            assert!(take_handed().unwrap().seen(Stage::TabRequested));
+        });
         assert!(take_handed().is_none());
     }
 }

@@ -10,13 +10,7 @@ use tty7_core::daemon::protocol::{ClientMsg, DaemonMsg, ShellSpec, WinSize};
 use tty7_core::daemon::transport;
 
 const WITHIN: Duration = Duration::from_secs(30);
-const STAGES: [&str; 5] = [
-    "spawn_requested",
-    "child_started",
-    "first_output",
-    "prompt",
-    "command",
-];
+const STAGES: [&str; 4] = ["child_started", "first_output", "prompt", "command"];
 
 struct Daemon(Child);
 
