@@ -1358,7 +1358,7 @@ pub(crate) struct RemoteLinks {
     /// disconnected from the switcher, or — since #820 — an authentication
     /// the user closed the sheet on rather than answered.
     suspended: std::collections::HashSet<HostId>,
-    instances: std::collections::HashMap<HostId, String>,
+    instances: std::collections::HashMap<HostId, crate::ui::tree_sync::ServerSeen>,
     #[allow(
         dead_code,
         reason = "read by the prompt relay's drain, which lands with the routed auth sheet"
@@ -2542,9 +2542,10 @@ fn note_pane_relink_outcome(cx: &mut gpui::App, workspace: WorkspaceId, misses: 
 }
 
 fn server_restarted(cx: &mut gpui::App, host: HostId, peer: &RemoteHost) -> bool {
-    let instance = peer.peer().instance.clone();
+    let hello = peer.peer();
+    let (instance, pid) = (hello.instance.clone(), hello.pid);
     let seen = &mut cx.default_global::<RemoteLinks>().instances;
-    crate::ui::tree_sync::note_instance(seen.entry(host).or_default(), &instance)
+    crate::ui::tree_sync::note_instance(seen.entry(host).or_default(), &instance, pid)
 }
 
 fn refresh_window_shells(cx: &mut gpui::App, workspace: WorkspaceId) {
@@ -3140,18 +3141,21 @@ mod tests {
 
         assert!(!crate::ui::tree_sync::note_instance(
             seen.entry(a).or_default(),
-            "a1"
+            "a1",
+            0
         ));
         assert!(!crate::ui::tree_sync::note_instance(
             seen.entry(b).or_default(),
-            "b1"
+            "b1",
+            0
         ));
         assert!(crate::ui::tree_sync::note_instance(
             seen.entry(a).or_default(),
-            "a2"
+            "a2",
+            0
         ));
         assert!(
-            !crate::ui::tree_sync::note_instance(seen.entry(b).or_default(), "b1"),
+            !crate::ui::tree_sync::note_instance(seen.entry(b).or_default(), "b1", 0),
             "box-b never changed; box-a restarting is not its business"
         );
     }

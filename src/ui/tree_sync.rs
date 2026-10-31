@@ -3138,29 +3138,54 @@ pub(crate) fn resync_window_from_tree(cx: &mut App, client_ws: WorkspaceId) {
     hydrate(cx, client_ws, Adopt::Replace);
 }
 
+/// The server process a link last talked to, from its hello.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ServerSeen {
+    pub(crate) instance: String,
+    pub(crate) pid: u32,
+}
+
 /// Records the daemon process a link is talking to, answering "did the server
 /// behind this link just become a *different* process?".
 ///
-/// `seen` is the instance last recorded for this link, empty when unknown. A
+/// `seen` is the server last recorded for this link, empty when unknown. A
 /// first sighting is not a restart (there is nothing on screen to be wrong
 /// about yet), and an empty instance means the server predates the field —
 /// it neither reports nor overwrites what was seen before. Shared by the
 /// remote path (`remote_workspace::server_restarted`, keyed per host) and the
 /// local link (single daemon), which needs the same comparison to notice the
 /// daemon it lost came back as another process (#553).
-pub(crate) fn note_instance(seen: &mut String, instance: &str) -> bool {
+///
+/// A new instance under the same pid is an in-place handoff: the image changed
+/// and every pane, pid and pty was kept, so the panes on screen are still
+/// true and only relink. Rebuilding there tore down every live view and
+/// reattached all of them at once. `pid` 0 is a server that predates the field.
+pub(crate) fn note_instance(seen: &mut ServerSeen, instance: &str, pid: u32) -> bool {
     if instance.is_empty() {
         return false;
     }
-    let before = std::mem::replace(seen, instance.to_string());
-    if !before.is_empty() && before != instance {
-        log::info!(
-            "the tty7-server on this machine is a new process ({before} → {instance}); \
-             its panes are gone"
-        );
-        return true;
+    let now = ServerSeen {
+        instance: instance.to_string(),
+        pid,
+    };
+    let before = std::mem::replace(seen, now);
+    if before.instance.is_empty() || before.instance == instance {
+        return false;
     }
-    false
+    if pid != 0 && before.pid == pid {
+        log::info!(
+            "the tty7-server on this machine was handed off in place (pid {pid}, {} → \
+             {instance}); its panes are kept",
+            before.instance
+        );
+        return false;
+    }
+    log::info!(
+        "the tty7-server on this machine is a new process ({} → {instance}); \
+         its panes are gone",
+        before.instance
+    );
+    true
 }
 
 /// Drops the link to the local daemon and rebuilds every local window from the
@@ -3597,34 +3622,77 @@ mod tests {
 
     #[test]
     fn note_instance_reports_only_a_real_change() {
-        let mut seen = String::new();
+        let mut seen = ServerSeen::default();
 
         assert!(
-            !note_instance(&mut seen, "abc"),
+            !note_instance(&mut seen, "abc", 7),
             "a first sighting is not a restart"
         );
         assert!(
-            !note_instance(&mut seen, "abc"),
+            !note_instance(&mut seen, "abc", 7),
             "the same process is not a restart"
         );
-        assert!(note_instance(&mut seen, "def"), "a new process is");
-        assert!(!note_instance(&mut seen, "def"));
+        assert!(
+            note_instance(&mut seen, "def", 8),
+            "a new process is: the server died and its panes went with it"
+        );
+        assert!(!note_instance(&mut seen, "def", 8));
+    }
+
+    #[test]
+    fn a_handoff_keeps_the_panes() {
+        let mut seen = ServerSeen::default();
+        note_instance(&mut seen, "old-image", 4507);
+
+        assert!(
+            !note_instance(&mut seen, "new-image", 4507),
+            "a new image under the same pid is a handoff, not a restart"
+        );
+        assert_eq!(
+            seen.instance, "new-image",
+            "the new image is what is seen now"
+        );
+        assert!(
+            note_instance(&mut seen, "next", 9000),
+            "a restart after a handoff is still a restart"
+        );
+    }
+
+    #[test]
+    fn a_server_without_a_pid_falls_back_to_the_instance() {
+        let mut seen = ServerSeen::default();
+        note_instance(&mut seen, "abc", 0);
+
+        assert!(
+            note_instance(&mut seen, "def", 0),
+            "no pid on either side: only the instance can speak"
+        );
+        assert!(
+            note_instance(&mut seen, "ghi", 5),
+            "a pid first seen now proves nothing about the process before"
+        );
     }
 
     #[test]
     fn note_instance_ignores_a_server_that_predates_the_field() {
-        let mut seen = String::from("abc");
+        let mut seen = ServerSeen {
+            instance: "abc".into(),
+            pid: 0,
+        };
 
         assert!(
-            !note_instance(&mut seen, ""),
+            !note_instance(&mut seen, "", 0),
             "an unknown instance is never a restart"
         );
-        assert_eq!(seen, "abc", "and it must not overwrite what was seen");
+        assert_eq!(
+            seen.instance, "abc",
+            "and it must not overwrite what was seen"
+        );
 
-        let mut fresh = String::new();
-        assert!(!note_instance(&mut fresh, ""));
+        let mut fresh = ServerSeen::default();
+        assert!(!note_instance(&mut fresh, "", 0));
         assert!(
-            !note_instance(&mut fresh, "abc"),
+            !note_instance(&mut fresh, "abc", 0),
             "the first real instance after an unknown one is a first sighting"
         );
     }
