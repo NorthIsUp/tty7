@@ -20,6 +20,24 @@ pub(crate) const STARTUP_ENV: &str = "TTY7_SHELL_STARTUP";
 /// the cache another pane wrote.
 const MISE_KEY_ENV: &str = "__MISE_ENV_CACHE_KEY";
 
+/// The shells a startup script is written for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Sh {
+    Zsh,
+    Bash,
+    Fish,
+}
+
+impl Sh {
+    fn name(self) -> &'static str {
+        match self {
+            Sh::Zsh => "zsh",
+            Sh::Bash => "bash",
+            Sh::Fish => "fish",
+        }
+    }
+}
+
 /// The env tools a no-rcs shell activates, by absolute path.
 #[derive(Debug, PartialEq)]
 enum Activation {
@@ -52,11 +70,11 @@ fn apply_mode(
 ) {
     // Empty, not absent: a daemon started from a no-rcs pane inherits it.
     injection.env.insert(STARTUP_ENV.into(), String::new());
-    let shell = match kind {
-        ShellKind::Zsh => "zsh",
-        ShellKind::Bash => "bash",
-        ShellKind::Fish => "fish",
-        _ => return,
+    let sh = match kind {
+        ShellKind::Zsh => Sh::Zsh,
+        ShellKind::Bash => Sh::Bash,
+        ShellKind::Fish => Sh::Fish,
+        ShellKind::PowerShell | ShellKind::Nushell | ShellKind::Wsl => return,
     };
     if mode == ShellStartup::User {
         return;
@@ -65,17 +83,21 @@ fn apply_mode(
     if let (Some(Activation::Mise(_)), Some(key)) = (&activation, mise_key) {
         injection.env.insert(MISE_KEY_ENV.into(), key.into());
     }
-    let script = script(shell, activation.as_ref());
-    if shell == "fish" {
-        injection
-            .args
-            .splice(0..0, ["--no-config".into(), "-C".into(), script]);
-        return;
-    }
+    let script = script(sh, activation.as_ref());
+    let rc = match sh {
+        Sh::Zsh => ".zshrc",
+        Sh::Bash => ".bashrc",
+        Sh::Fish => {
+            injection
+                .args
+                .splice(0..0, ["--no-config".into(), "-C".into(), script]);
+            return;
+        }
+    };
     let Some(dir) = injection.dir.as_ref().map(|d| d.join("startup")) else {
         return;
     };
-    let file = dir.join(if shell == "zsh" { ".zshrc" } else { ".bashrc" });
+    let file = dir.join(rc);
     if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, script)) {
         log::warn!("shell_startup: {e}; this pane reads the user's rc files");
         return;
@@ -139,42 +161,47 @@ fn detect(search: &[PathBuf], asdf_data: &Path) -> Activation {
     }
 }
 
-/// What a no-rcs `shell` runs where the user's rc files would have: macOS's
+/// What a no-rcs `sh` runs where the user's rc files would have: macOS's
 /// system PATH, then `activation`'s tools.
-fn script(shell: &str, activation: Option<&Activation>) -> String {
-    let fish = shell == "fish";
+fn script(sh: Sh, activation: Option<&Activation>) -> String {
     let mut out = String::new();
     if cfg!(target_os = "macos") {
-        out.push_str(if fish {
-            "test -x /usr/libexec/path_helper; and /usr/libexec/path_helper -c | source\n"
-        } else {
-            "[ -x /usr/libexec/path_helper ] && eval \"$(/usr/libexec/path_helper -s)\"\n"
+        out.push_str(match sh {
+            Sh::Fish => {
+                "test -x /usr/libexec/path_helper; and /usr/libexec/path_helper -c | source\n"
+            }
+            Sh::Zsh | Sh::Bash => {
+                "[ -x /usr/libexec/path_helper ] && eval \"$(/usr/libexec/path_helper -s)\"\n"
+            }
         });
     }
     let path_add = |out: &mut String, dir: &Path| {
-        let dir = quote(&dir.to_string_lossy(), fish);
-        out.push_str(&if fish {
-            format!("contains -- {dir} $PATH; or set -gx PATH {dir} $PATH\n")
-        } else {
-            format!("case \":$PATH:\" in *:{dir}:*) ;; *) export PATH={dir}:\"$PATH\" ;; esac\n")
+        let dir = quote(&dir.to_string_lossy(), sh);
+        out.push_str(&match sh {
+            Sh::Fish => format!("contains -- {dir} $PATH; or set -gx PATH {dir} $PATH\n"),
+            Sh::Zsh | Sh::Bash => {
+                format!(
+                    "case \":$PATH:\" in *:{dir}:*) ;; *) export PATH={dir}:\"$PATH\" ;; esac\n"
+                )
+            }
         });
     };
     let hook = |out: &mut String, bin: &Path, verb: &str| {
-        let bin = quote(&bin.to_string_lossy(), fish);
-        out.push_str(&if fish {
-            format!("{bin} {verb} fish | source\n")
-        } else {
-            format!("eval \"$({bin} {verb} {shell})\"\n")
+        let bin = quote(&bin.to_string_lossy(), sh);
+        out.push_str(&match sh {
+            Sh::Fish => format!("{bin} {verb} fish | source\n"),
+            Sh::Zsh | Sh::Bash => format!("eval \"$({bin} {verb} {})\"\n", sh.name()),
         });
     };
     match activation {
         None => {}
         Some(Activation::Mise(mise)) => {
             path_add(&mut out, parent(mise));
-            match shell {
-                "zsh" => out
-                    .push_str(&DEFER_ZSH.replace("{mise}", &quote(&mise.to_string_lossy(), false))),
-                _ => hook(&mut out, mise, "activate"),
+            match sh {
+                Sh::Zsh => {
+                    out.push_str(&DEFER_ZSH.replace("{mise}", &quote(&mise.to_string_lossy(), sh)))
+                }
+                Sh::Bash | Sh::Fish => hook(&mut out, mise, "activate"),
             }
         }
         Some(Activation::Others { asdf, direnv }) => {
@@ -187,16 +214,11 @@ fn script(shell: &str, activation: Option<&Activation>) -> String {
                     path_add(&mut out, parent(direnv));
                     hook(&mut out, direnv, "hook");
                 }
-                None => {
-                    if !fish {
-                        out.push_str(DOTENV_POSIX);
-                    }
-                    out.push_str(match shell {
-                        "fish" => DOTENV_FISH,
-                        "zsh" => DOTENV_ZSH_HOOK,
-                        _ => DOTENV_BASH_HOOK,
-                    });
-                }
+                None => match sh {
+                    Sh::Fish => out.push_str(DOTENV_FISH),
+                    Sh::Zsh => out.push_str(&format!("{DOTENV_POSIX}{DOTENV_ZSH_HOOK}")),
+                    Sh::Bash => out.push_str(&format!("{DOTENV_POSIX}{DOTENV_BASH_HOOK}")),
+                },
             }
         }
     }
@@ -207,11 +229,10 @@ fn parent(bin: &Path) -> &Path {
     bin.parent().unwrap_or(Path::new("/"))
 }
 
-fn quote(s: &str, fish: bool) -> String {
-    if fish {
-        format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'"))
-    } else {
-        format!("'{}'", s.replace('\'', r"'\''"))
+fn quote(s: &str, sh: Sh) -> String {
+    match sh {
+        Sh::Fish => format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'")),
+        Sh::Zsh | Sh::Bash => format!("'{}'", s.replace('\'', r"'\''")),
     }
 }
 
@@ -381,31 +402,32 @@ mod tests {
             asdf: None,
             direnv: Some("/d/direnv".into()),
         };
-        for shell in ["zsh", "bash", "fish"] {
+        for shell in [Sh::Zsh, Sh::Bash, Sh::Fish] {
             assert!(
                 script(shell, Some(&none)).contains("__tty7_dotenv"),
-                "{shell}"
+                "{shell:?}"
             );
             let s = script(shell, Some(&direnv));
-            assert!(!s.contains("__tty7_dotenv"), "{shell}: {s}");
-            assert!(s.contains("'/d/direnv' hook"), "{shell}: {s}");
+            assert!(!s.contains("__tty7_dotenv"), "{shell:?}: {s}");
+            assert!(s.contains("'/d/direnv' hook"), "{shell:?}: {s}");
         }
-        assert!(script("zsh", Some(&none)).contains("chpwd"));
-        assert!(script("bash", Some(&none)).contains("PROMPT_COMMAND"));
+        assert!(script(Sh::Zsh, Some(&none)).contains("chpwd"));
+        assert!(script(Sh::Bash, Some(&none)).contains("PROMPT_COMMAND"));
     }
 
     #[test]
     fn mise_activates_for_its_own_shell() {
         assert!(
-            script("zsh", Some(&mise())).contains("out=$('/opt/x/mise' activate zsh 2>/dev/null)")
+            script(Sh::Zsh, Some(&mise()))
+                .contains("out=$('/opt/x/mise' activate zsh 2>/dev/null)")
         );
-        assert!(script("bash", Some(&mise())).contains("activate bash"));
-        assert!(script("fish", Some(&mise())).contains("'/opt/x/mise' activate fish | source"));
+        assert!(script(Sh::Bash, Some(&mise())).contains("activate bash"));
+        assert!(script(Sh::Fish, Some(&mise())).contains("'/opt/x/mise' activate fish | source"));
     }
 
     #[test]
     fn no_rcs_without_envlibs_activates_nothing() {
-        for shell in ["zsh", "bash", "fish"] {
+        for shell in [Sh::Zsh, Sh::Bash, Sh::Fish] {
             let s = script(shell, None);
             assert!(!s.contains("activate") && !s.contains("dotenv"), "{s}");
             assert_eq!(s.contains("path_helper"), cfg!(target_os = "macos"));
