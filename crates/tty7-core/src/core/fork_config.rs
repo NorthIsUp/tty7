@@ -49,6 +49,9 @@ pub struct ForkConfig {
     /// [`migrate`]: ForkConfig::migrate
     #[serde(skip_serializing)]
     pub split_page: Option<bool>,
+    /// Closing a tab or pane opened this run that was never typed, pasted or
+    /// dropped into skips the close question.
+    pub quiet_close: bool,
     /// Agents the new tab page leaves out, by slug, though they are on `PATH`.
     pub new_tab_hidden_agents: BTreeSet<String>,
     /// Directories whose children the new tab page offers (`~` expands).
@@ -122,6 +125,7 @@ impl Default for ForkConfig {
             split_harness: SplitHarness::Choose,
             split_dir: SplitDir::Choose,
             split_page: None,
+            quiet_close: true,
             new_tab_hidden_agents: BTreeSet::new(),
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
             dir_frecency: HashMap::new(),
