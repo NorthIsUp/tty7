@@ -2507,6 +2507,13 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSplitTerminal => "Terminal",
         L10nKey::SettingsSplitSame => "Same as the pane",
         L10nKey::SettingsSplitChoose => "Choose",
+        L10nKey::SettingsQuietClose => "Skip confirmation for untouched tabs",
+        L10nKey::SettingsQuietCloseDesc => {
+            "A tab or pane opened this run and never typed, pasted or dropped into closes without asking. Restored tabs still ask."
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "quiet close skip confirm untouched new tab pane fresh unused ask prompt"
+        }
         L10nKey::GitHubSortRecent => "Recent",
         L10nKey::GitHubSortNumber => "Number",
         L10nKey::GitHubReviewPlaceholder => "Leave a review…",

@@ -1414,6 +1414,7 @@ impl Tty7App {
             TabBarPosition::Left => 1,
         };
         let sidebar_auto_grouping = cfg.sidebar_auto_grouping;
+        let quiet_close = cfg.fork.quiet_close;
         let confirm_idx = match cfg.confirm_close {
             ConfirmClose::Never => 0,
             ConfirmClose::WhenBusy => 1,
@@ -1469,6 +1470,10 @@ impl Tty7App {
                 );
             },
         );
+        let quiet_close =
+            self.settings_switch("wt-quiet-close", quiet_close, cx, |this, on, _, cx| {
+                this.update_config(cx, |c| c.fork.quiet_close = on)
+            });
         let grouping = self.settings_switch(
             "wt-sidebar-auto-grouping",
             sidebar_auto_grouping,
@@ -1501,6 +1506,12 @@ impl Tty7App {
                     t(L10nKey::SettingsConfirmClose),
                     t(L10nKey::SettingsConfirmCloseDesc),
                     confirm,
+                    cx,
+                ),
+                self.settings_row(
+                    t(L10nKey::SettingsQuietClose),
+                    t(L10nKey::SettingsQuietCloseDesc),
+                    quiet_close,
                     cx,
                 ),
             ]

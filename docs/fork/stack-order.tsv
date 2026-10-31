@@ -15,3 +15,4 @@ github-recent-branches	the GitHub panel keeps the last five branches	github-sess
 tab-usage	the sidebar shows each tab's pid, CPU and memory	sidebar-groups
 shell-startup	pane shells can start without the user's rc files	fork-config
 spawn-trace	each new tab logs its start as one timeline	palette-tabs
+quiet-close	an untouched new tab closes without asking	fork-config,palette-tabs
