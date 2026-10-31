@@ -50,11 +50,27 @@ fn daemon_with(mode: &str, mise_first: &str, key: Option<&str>) -> Daemon {
     .unwrap();
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
+    // Logs each call as `<parent pid> <args>`. Its zsh activation ends the way
+    // mise's does, `_mise_hook --force` unless `FAKE_FORCE_LINE` says otherwise.
+    let log = home.join("mise.log");
     script(
         &bin.join("mise"),
         &format!(
             r#"{mise_first}
-[ "$1" = activate ] && echo "export FAKE_MISE=$2 FAKE_KEY=$__MISE_ENV_CACHE_KEY""#
+echo "$PPID $*" >> '{log}'
+case $1 in
+activate)
+  echo "export FAKE_MISE=$2 FAKE_KEY=$__MISE_ENV_CACHE_KEY"
+  [ "$2" = zsh ] && echo "_mise_hook() {{ eval \"\$('$0' hook-env -s zsh \"\$@\")\"; }}
+_mise_hook_chpwd() {{ _mise_hook --reason chpwd; }}
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _mise_hook_chpwd
+${{FAKE_FORCE_LINE-_mise_hook --force}}" ;;
+hook-env)
+  case $* in *--force*) echo FAKE_HOOK_WARNING >&2 ;; esac
+  echo "export FAKE_HOOK='$*'" ;;
+esac"#,
+            log = log.display()
         ),
     );
     script(&bin.join("asdf"), "exit 0");
@@ -98,6 +114,16 @@ fn endpoint(dir: &Path) -> PathBuf {
 /// Everything a zsh pane prints through its first prompt, then the line its
 /// report of the environment prints, and how long the prompt took.
 fn zsh_pane(daemon: &Daemon) -> (String, String, Duration) {
+    let (startup, line, prompt, _) = zsh_pane_running(
+        daemon,
+        "print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} KEY=${FAKE_KEY-no} PATH=$PATH",
+    );
+    (startup, line, prompt)
+}
+
+/// `zsh_pane`, typing `command` at the first prompt; its output must start with
+/// `OUT_2`. Also returns everything printed after the prompt.
+fn zsh_pane_running(daemon: &Daemon, command: &str) -> (String, String, Duration, String) {
     let mut stream = transport::connect_endpoint_at(&endpoint(daemon.dir.path())).unwrap();
     let spawned = Instant::now();
     let mut prompt = Duration::ZERO;
@@ -134,14 +160,12 @@ fn zsh_pane(daemon: &Daemon) -> (String, String, Duration) {
                     startup = Some(text);
                     prompt = spawned.elapsed();
                     seen.clear();
-                    ClientMsg::Input(
-                        b"print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} KEY=${FAKE_KEY-no} PATH=$PATH\r".to_vec(),
-                    )
-                    .encode(&mut stream)
-                    .unwrap();
+                    ClientMsg::Input(format!("{command}\r").into_bytes())
+                        .encode(&mut stream)
+                        .unwrap();
                 } else if let Some(at) = text.find("OUT_2") {
                     let line = text[at..].lines().next().unwrap_or_default().to_string();
-                    return (startup.unwrap_or_default(), line, prompt);
+                    return (startup.unwrap_or_default(), line, prompt, text);
                 }
             }
             Ok(DaemonMsg::Exited { code }) => panic!("zsh exited ({code:?})"),
@@ -207,4 +231,80 @@ fn the_users_own_mise_cache_key_is_kept() {
     let user = "dXNlcnMgb3duIGtleSwgbm90IG1pbnRlZCBieSB0dHk3IQ==";
     let (_, line, _) = zsh_pane(&daemon_with("no_rcs_envlibs", "", Some(user)));
     assert_eq!(key(&line), user);
+}
+
+/// What an immediate command, then a `cd`, see of the fake mise's hook-env,
+/// with the pane's pid, the fake mise's call log and what the pane printed.
+fn hook_pane(mise_first: &str) -> (String, String, String) {
+    let d = daemon_with("no_rcs_envlibs", mise_first, None);
+    let (_, line, _, seen) = zsh_pane_running(
+        &d,
+        "H1=$FAKE_HOOK; mkdir -p sub && cd sub; \\
+         print -r -- OUT_$((1+1)) PID=$$ H1=${H1// /_} H2=${FAKE_HOOK// /_}",
+    );
+    let log = std::fs::read_to_string(d.dir.path().join("mise.log")).unwrap();
+    (line, log, seen)
+}
+
+fn field<'a>(line: &'a str, name: &str) -> &'a str {
+    line.split_whitespace()
+        .find_map(|w| w.strip_prefix(name)?.strip_prefix('='))
+        .unwrap_or_default()
+}
+
+/// The fake mise's hook-env calls, as `(parent pid, args)`.
+fn hook_calls(log: &str) -> Vec<(&str, &str)> {
+    log.lines()
+        .filter_map(|l| l.split_once(' '))
+        .filter(|(_, args)| args.starts_with("hook-env"))
+        .collect()
+}
+
+#[test]
+fn mises_initial_hook_env_runs_off_the_foreground() {
+    let (line, log, seen) = hook_pane("");
+    let pid = field(&line, "PID");
+    assert_eq!(
+        field(&line, "H1"),
+        format!("hook-env_--shell-pid_{pid}_--force_-s_zsh"),
+        "{line}"
+    );
+    assert_eq!(
+        field(&line, "H2"),
+        "hook-env_-s_zsh_--reason_chpwd",
+        "{line}"
+    );
+    let calls = hook_calls(&log);
+    let forced: Vec<_> = calls
+        .iter()
+        .filter(|(_, a)| a.contains("--force"))
+        .collect();
+    assert_eq!(forced.len(), 1, "{log}");
+    assert_ne!(forced[0].0, pid, "{log}");
+    let chpwd: Vec<_> = calls
+        .iter()
+        .filter(|(_, a)| a.contains("--reason chpwd"))
+        .collect();
+    assert_eq!(chpwd, [&(pid, "hook-env -s zsh --reason chpwd")], "{log}");
+    assert!(seen.contains("FAKE_HOOK_WARNING"), "{seen:?}");
+}
+
+#[test]
+fn without_mises_force_line_the_activation_runs_as_given() {
+    let (line, log, _) = hook_pane("FAKE_FORCE_LINE=_mise_hook");
+    let pid = field(&line, "PID");
+    assert_eq!(field(&line, "H1"), "hook-env_-s_zsh", "{line}");
+    assert_eq!(
+        field(&line, "H2"),
+        "hook-env_-s_zsh_--reason_chpwd",
+        "{line}"
+    );
+    assert_eq!(
+        hook_calls(&log),
+        [
+            (pid, "hook-env -s zsh"),
+            (pid, "hook-env -s zsh --reason chpwd")
+        ],
+        "{log}"
+    );
 }

@@ -167,10 +167,8 @@ fn script(shell: &str, activation: Option<&Activation>) -> String {
         Some(Activation::Mise(mise)) => {
             path_add(&mut out, parent(mise));
             match shell {
-                "zsh" => out.push_str(&DEFER_ZSH.replace(
-                    "{cmd}",
-                    &format!("{} activate zsh", quote(&mise.to_string_lossy(), false)),
-                )),
+                "zsh" => out
+                    .push_str(&DEFER_ZSH.replace("{mise}", &quote(&mise.to_string_lossy(), false))),
                 _ => hook(&mut out, mise, "activate"),
             }
         }
@@ -217,7 +215,30 @@ fn quote(s: &str, fish: bool) -> String {
 // Its output already carries the directory's env, so nothing has to rerun.
 // A command entered sooner waits for it in preexec, so none runs without it.
 // tty7's precmd moves back to the end so the prompt mark still comes last.
-const DEFER_ZSH: &str = r#"exec {__tty7_defer_fd}< <({cmd} 2>/dev/null)
+//
+// The output's own last step, `_mise_hook --force`, is a full `mise hook-env`
+// (90-250ms), so that one exact line is swapped for hook-env's output, and its
+// stderr replayed, computed here too. Without that line, or if hook-env fails,
+// the output passes through untouched and runs as it always has.
+// shortcut: hook-env sees the env as of the fork; anything that edits PATH later
+// (e.g. /etc/zlogin) is overwritten. Upgrade by re-running hook-env if $PATH
+// changed since the fork.
+const DEFER_ZSH: &str = r#"__tty7_defer_activate() {
+  local out m=$'\n_mise_hook --force\n' err hook
+  out=$({mise} activate zsh 2>/dev/null) || return
+  out=$'\n'$out$'\n'
+  if [[ $out == *$m* ]]; then
+    eval "${out%%$m*}" >/dev/null 2>&1
+    err=$(mktemp 2>/dev/null) || err=/dev/null
+    if hook=$({mise} hook-env --shell-pid $$ --force -s zsh 2>$err); then
+      [[ -s $err ]] && hook+=$'\n'"print -ru2 -- ${(q)$(<$err)}"
+      out=${out%%$m*}$'\n'$hook$'\n'${out#*$m}
+    fi
+    [[ $err == /dev/null ]] || rm -f $err
+  fi
+  print -r -- "$out"
+}
+exec {__tty7_defer_fd}< <(__tty7_defer_activate)
 __tty7_defer_done() {
   local fd=$__tty7_defer_fd code= line
   [[ -n $fd ]] || return 0
@@ -370,7 +391,7 @@ mod tests {
     #[test]
     fn mise_activates_for_its_own_shell() {
         assert!(
-            script("zsh", Some(&mise())).contains("< <('/opt/x/mise' activate zsh 2>/dev/null)")
+            script("zsh", Some(&mise())).contains("out=$('/opt/x/mise' activate zsh 2>/dev/null)")
         );
         assert!(script("bash", Some(&mise())).contains("activate bash"));
         assert!(script("fish", Some(&mise())).contains("'/opt/x/mise' activate fish | source"));
