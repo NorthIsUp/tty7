@@ -103,20 +103,27 @@ A wrapper named there (`cx` above) is recognised as that agent without an
 
 In **Settings → Agents**, each agent whose hooks are installed has its launch
 options right under its row: Model and the permission dropdowns on one line,
-then one field per extra argument line and **+ Add option**, with the line the
+then one field per CLI option and **+ Add CLI option**, with the line the
 agent launches as once anything is set. Any other agent opens the same
 options with **Launch options…** in its ⋯ menu, and its row notes what is set
-under its hook path (`model: o3 · never · +2 options`). Each control adds its flag only when set;
+under its hook path (`model: o3 · Full Access · +2 options`). Each control adds its flag only when set;
 left at Default it adds nothing and the agent's own config decides.
 
-| agent | controls | flags |
-|---|---|---|
-| Claude Code | Model, Permission mode | `--model <m>`, `--permission-mode <acceptEdits\|auto\|bypassPermissions\|dontAsk\|manual\|plan>` |
-| Codex | Model, Sandbox, Approval policy | `--model <m>`, `--sandbox <read-only\|workspace-write\|danger-full-access>`, `--ask-for-approval <on-request\|never>` |
-| Pi | Model | `--model <pattern>` (`provider/id` and `:<thinking>` work) |
-| Cursor | Model, Permission mode, Sandbox | `--model <m>`, `--mode plan`, `--mode ask` or `--force`, `--sandbox <enabled\|disabled>` |
+**Permissions** offers each agent's own modes, under the names the agent
+gives them:
 
-Every agent also takes **Extra arguments**: one line per entry, read the way
+| agent | Permissions | flags |
+|---|---|---|
+| Claude Code | Manual, Accept edits, Plan, Auto, Bypass Permissions, Don't Ask (its `/permissions` modes) | `--permission-mode <manual\|acceptEdits\|plan\|auto\|bypassPermissions\|dontAsk>` |
+| Codex | Ask for approval, Approve for me, Full Access, Read Only (its `/permissions` presets) | Ask for approval: `--sandbox workspace-write --ask-for-approval on-request -c approvals_reviewer=user`; Approve for me: the same with `approvals_reviewer=auto_review`; Full Access: `--sandbox danger-full-access --ask-for-approval never -c approvals_reviewer=user`; Read Only: `--sandbox read-only --ask-for-approval on-request -c approvals_reviewer=user` |
+| Cursor | Plan, Ask, Auto-review, Run Everything; Sandbox: Enabled, Disabled | `--mode plan`, `--mode ask`, `--auto-review`, `--force`; `--sandbox <enabled\|disabled>` |
+
+Model is `--model` for Claude Code, Codex, Cursor and Pi (Pi takes
+`provider/id` and `:<thinking>`). Codex's separate Sandbox and Approval policy
+settings from earlier builds become the preset that sets the same pair, or
+stay as CLI options when none does.
+
+Every agent also takes **CLI options**: one line per entry, read the way
 a shell reads it (`--add-dir ~/src`, `--append-system-prompt "be terse"`),
 typed after the flags above. They are stored as `agent_settings` in
 `config.json` and appended to the agent's `agent_launch` line, so a wrapper

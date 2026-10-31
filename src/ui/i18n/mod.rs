@@ -1986,8 +1986,6 @@ l10n_keys! {
     SettingsAgentModelDesc,
     SettingsAgentPermission,
     SettingsAgentSandbox,
-    SettingsAgentApproval,
-    SettingsAgentChoiceDesc,
     SettingsAgentDefault,
     SettingsAgentExtraArgs,
     SettingsAgentExtraArgsDesc,

@@ -201,6 +201,33 @@ pub struct AgentLaunchSettings {
 }
 
 impl AgentLaunchSettings {
+    /// Codex's separate Sandbox and Approval policy choices, from before its
+    /// one Permissions preset: the pair a preset sets becomes that preset,
+    /// any other stays as the flags it added, now extra lines.
+    fn merge_codex_sandbox_and_approval(&mut self) {
+        let sandbox = self.choices.remove("sandbox");
+        let approval = self.choices.remove("approval");
+        let preset = match (sandbox.as_deref(), approval.as_deref()) {
+            (None, None) => return,
+            (Some("workspace-write"), Some("on-request")) => Some("ask"),
+            (Some("danger-full-access"), Some("never")) => Some("full-access"),
+            (Some("read-only"), Some("on-request")) => Some("read-only"),
+            _ => None,
+        };
+        match preset {
+            Some(p) if !self.choices.contains_key("permission") => {
+                self.choices.insert("permission".into(), p.into());
+            }
+            _ => {
+                let flags = [("--sandbox", sandbox), ("--ask-for-approval", approval)];
+                let lines = flags
+                    .into_iter()
+                    .filter_map(|(flag, v)| Some(format!("{flag} {}", v?)));
+                self.extra_args.splice(0..0, lines);
+            }
+        }
+    }
+
     /// What these settings add to `agent`'s launch line, as shell words:
     /// model, then each choice, then the extra lines. A choice value the
     /// agent does not offer (a hand-edited file) adds nothing.
@@ -246,19 +273,37 @@ impl AgentLaunchSettings {
             w.bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"-_=./,:@+~".contains(&b))
         };
-        let mut groups: Vec<Vec<&str>> = Vec::new();
-        for word in words {
-            if !plain(word) {
-                return None;
-            }
-            match (word.starts_with('-'), groups.last_mut()) {
-                (true, _) => groups.push(vec![word]),
-                (false, Some(group)) => group.push(word),
-                (false, None) => return None,
+        let words: Vec<&str> = words.collect();
+        if !words.iter().all(|w| plain(w)) {
+            return None;
+        }
+        let mut groups = flag_groups(&words)?;
+        let mut out = Self::default();
+        // A choice option can span several flags (Codex's presets), so it is
+        // taken when every one of its groups is on the line.
+        for choice in agent.launch_choices() {
+            for opt in choice.options {
+                let wanted = flag_groups(opt.argv).unwrap_or_default();
+                let at: Option<Vec<usize>> = wanted
+                    .iter()
+                    .map(|w| groups.iter().position(|g| g == w))
+                    .collect();
+                if let Some(mut at) = at {
+                    at.sort_unstable();
+                    at.dedup();
+                    if at.len() != wanted.len() {
+                        continue;
+                    }
+                    for i in at.into_iter().rev() {
+                        groups.remove(i);
+                    }
+                    out.choices
+                        .insert(choice.key.to_string(), opt.value.to_string());
+                    break;
+                }
             }
         }
-        let mut out = Self::default();
-        'group: for group in groups {
+        for group in groups {
             if let ([flag, model], Some(model_flag)) = (group.as_slice(), agent.model_flag())
                 && *flag == model_flag
                 && out.model.is_empty()
@@ -266,19 +311,24 @@ impl AgentLaunchSettings {
                 out.model = model.to_string();
                 continue;
             }
-            for choice in agent.launch_choices() {
-                if let Some(opt) = choice.options.iter().find(|o| o.argv == group.as_slice())
-                    && !out.choices.contains_key(choice.key)
-                {
-                    out.choices
-                        .insert(choice.key.to_string(), opt.value.to_string());
-                    continue 'group;
-                }
-            }
             out.extra_args.push(group.join(" "));
         }
         Some(out)
     }
+}
+
+/// `words` as flags with their values: `["-c", "k=v", "--x"]` is
+/// `[["-c", "k=v"], ["--x"]]`. `None` when a value comes before any flag.
+fn flag_groups<'a>(words: &[&'a str]) -> Option<Vec<Vec<&'a str>>> {
+    let mut groups: Vec<Vec<&str>> = Vec::new();
+    for &word in words {
+        match (word.starts_with('-'), groups.last_mut()) {
+            (true, _) => groups.push(vec![word]),
+            (false, Some(group)) => group.push(word),
+            (false, None) => return None,
+        }
+    }
+    Some(groups)
 }
 
 impl Config {
@@ -287,6 +337,11 @@ impl Config {
     /// what a launch runs. An agent that already has settings keeps its line
     /// as it is: moving it would add the same flags twice.
     pub fn move_agent_launch_into_settings(&mut self) {
+        for (slug, s) in self.fork.agent_settings.iter_mut() {
+            if CLIAgent::from_slug(slug) == Some(CLIAgent::Codex) {
+                s.merge_codex_sandbox_and_approval();
+            }
+        }
         let settings = &mut self.fork.agent_settings;
         self.agent_launch.retain(|slug, line| {
             let Some(agent) = CLIAgent::from_slug(slug) else {

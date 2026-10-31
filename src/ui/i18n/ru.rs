@@ -2644,19 +2644,15 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentModelDesc => {
             "Передаётся как {flag}. Пусто — решает собственная настройка агента."
         }
-        L10nKey::SettingsAgentPermission => "Режим разрешений",
+        L10nKey::SettingsAgentPermission => "Разрешения",
         L10nKey::SettingsAgentSandbox => "Песочница",
-        L10nKey::SettingsAgentApproval => "Политика подтверждений",
-        L10nKey::SettingsAgentChoiceDesc => {
-            "Передаётся как {flag}. «По умолчанию» — решает собственная настройка агента."
-        }
         L10nKey::SettingsAgentDefault => "По умолчанию",
-        L10nKey::SettingsAgentExtraArgs => "Дополнительные аргументы",
+        L10nKey::SettingsAgentExtraArgs => "Параметры CLI",
         L10nKey::SettingsAgentExtraArgsDesc => {
             "По одной строке аргументов, после параметров выше, в разборе оболочки: --add-dir ~/src"
         }
-        L10nKey::SettingsAgentAddArg => "+ Добавить параметр",
-        L10nKey::SettingsAgentRemoveArg => "Удалить аргумент",
+        L10nKey::SettingsAgentAddArg => "+ Добавить параметр CLI",
+        L10nKey::SettingsAgentRemoveArg => "Удалить параметр",
         L10nKey::SettingsAgentLaunchOptions => "Параметры запуска…",
         L10nKey::SettingsAgentSummaryModel => "модель: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} параметров",

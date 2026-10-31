@@ -23,6 +23,8 @@ pub(crate) enum MenuEntry {
         font: Option<SharedString>,
         danger: bool,
         trailing: Option<SharedString>,
+        /// A line under the label saying what the choice does.
+        detail: Option<SharedString>,
         on_pick: PickFn,
     },
     Heading(SharedString),
@@ -42,6 +44,7 @@ impl MenuEntry {
             font: None,
             danger: false,
             trailing: None,
+            detail: None,
             on_pick: Rc::new(on_pick),
         }
     }
@@ -176,6 +179,7 @@ impl Tty7App {
                     font,
                     danger,
                     trailing,
+                    detail,
                     on_pick,
                 } => panel.child(
                     kit::menu_row(
@@ -183,14 +187,31 @@ impl Tty7App {
                         false,
                         &tk,
                     )
+                    .when(detail.is_some(), |r| {
+                        r.h_auto()
+                            .min_h(px(26.))
+                            .py(px(5.))
+                            .items_start()
+                            .whitespace_normal()
+                    })
                     .when(ticks, |r| r.child(kit::check_mark(checked, &tk)))
                     .when(!ticks, |r| r.pl(px(12.)))
                     .child(
-                        div()
+                        v_flex()
                             .flex_1()
+                            .gap(px(2.))
                             .when_some(font, |d, f| d.font_family(f))
                             .when(danger, |d| d.text_color(tk.danger))
-                            .child(label),
+                            .child(label)
+                            .when_some(detail, |d, text| {
+                                d.max_w(px(280.)).child(
+                                    div()
+                                        .text_size(fs(11.5))
+                                        .line_height(px(16.))
+                                        .text_color(tk.k45)
+                                        .child(text),
+                                )
+                            }),
                     )
                     .when_some(trailing, |r, text| {
                         r.child(

@@ -772,86 +772,150 @@ impl CLIAgent {
         }
     }
 
-    /// The pick-one launch settings this agent's CLI takes, from the same
-    /// `--help` as [`Self::model_flag`]. Picking none adds nothing, so the
-    /// CLI's own config decides.
+    /// The pick-one launch settings this agent's CLI takes, each option under
+    /// the name the agent's own UI gives it. Picking none adds nothing, so
+    /// the CLI's own config decides.
+    ///
+    /// Claude Code's are its permission modes as `/permissions` and
+    /// shift-tab name them (2.1.285). Codex's are its `/permissions` presets
+    /// (rust-v0.166.0: `builtin_approval_presets` and
+    /// `chatwidget/permissions_menu.rs`), each the sandbox, approval policy
+    /// and approvals reviewer the picker sets; "Approve for me" is the
+    /// `auto_review` reviewer. Cursor's are its `--help` modes (2026.10.22).
     pub fn launch_choices(self) -> &'static [LaunchChoice] {
         match self {
             CLIAgent::Claude => &[LaunchChoice {
                 key: "permission",
                 options: &[
                     LaunchOption {
+                        value: "manual",
+                        label: "Manual",
+                        hint: None,
+                        argv: &["--permission-mode", "manual"],
+                    },
+                    LaunchOption {
                         value: "acceptEdits",
+                        label: "Accept edits",
+                        hint: None,
                         argv: &["--permission-mode", "acceptEdits"],
                     },
                     LaunchOption {
+                        value: "plan",
+                        label: "Plan",
+                        hint: None,
+                        argv: &["--permission-mode", "plan"],
+                    },
+                    LaunchOption {
                         value: "auto",
+                        label: "Auto",
+                        hint: None,
                         argv: &["--permission-mode", "auto"],
                     },
                     LaunchOption {
                         value: "bypassPermissions",
+                        label: "Bypass Permissions",
+                        hint: None,
                         argv: &["--permission-mode", "bypassPermissions"],
                     },
                     LaunchOption {
                         value: "dontAsk",
+                        label: "Don't Ask",
+                        hint: None,
                         argv: &["--permission-mode", "dontAsk"],
-                    },
-                    LaunchOption {
-                        value: "manual",
-                        argv: &["--permission-mode", "manual"],
-                    },
-                    LaunchOption {
-                        value: "plan",
-                        argv: &["--permission-mode", "plan"],
                     },
                 ],
             }],
-            CLIAgent::Codex => &[
-                LaunchChoice {
-                    key: "sandbox",
-                    options: &[
-                        LaunchOption {
-                            value: "read-only",
-                            argv: &["--sandbox", "read-only"],
-                        },
-                        LaunchOption {
-                            value: "workspace-write",
-                            argv: &["--sandbox", "workspace-write"],
-                        },
-                        LaunchOption {
-                            value: "danger-full-access",
-                            argv: &["--sandbox", "danger-full-access"],
-                        },
-                    ],
-                },
-                LaunchChoice {
-                    key: "approval",
-                    options: &[
-                        LaunchOption {
-                            value: "on-request",
-                            argv: &["--ask-for-approval", "on-request"],
-                        },
-                        LaunchOption {
-                            value: "never",
-                            argv: &["--ask-for-approval", "never"],
-                        },
-                    ],
-                },
-            ],
+            CLIAgent::Codex => &[LaunchChoice {
+                key: "permission",
+                options: &[
+                    LaunchOption {
+                        value: "ask",
+                        label: "Ask for approval",
+                        hint: Some(
+                            "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "workspace-write",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "approve-for-me",
+                        label: "Approve for me",
+                        hint: Some("Only ask for actions detected as potentially unsafe"),
+                        argv: &[
+                            "--sandbox",
+                            "workspace-write",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=auto_review",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "full-access",
+                        label: "Full Access",
+                        hint: Some(
+                            "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "danger-full-access",
+                            "--ask-for-approval",
+                            "never",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                    LaunchOption {
+                        value: "read-only",
+                        label: "Read Only",
+                        hint: Some(
+                            "Read workspace files, with approval required for edits or internet access",
+                        ),
+                        argv: &[
+                            "--sandbox",
+                            "read-only",
+                            "--ask-for-approval",
+                            "on-request",
+                            "-c",
+                            "approvals_reviewer=user",
+                        ],
+                    },
+                ],
+            }],
             CLIAgent::Cursor => &[
                 LaunchChoice {
                     key: "permission",
                     options: &[
                         LaunchOption {
                             value: "plan",
+                            label: "Plan",
+                            hint: Some("Read-only planning: analyze and propose plans, no edits"),
                             argv: &["--mode", "plan"],
                         },
                         LaunchOption {
                             value: "ask",
+                            label: "Ask",
+                            hint: Some("Q&A for explanations and questions, read-only"),
                             argv: &["--mode", "ask"],
                         },
                         LaunchOption {
+                            value: "auto-review",
+                            label: "Auto-review",
+                            hint: Some(
+                                "A server classifier auto-runs safe tool calls and prompts for the rest",
+                            ),
+                            argv: &["--auto-review"],
+                        },
+                        LaunchOption {
                             value: "force",
+                            label: "Run Everything",
+                            hint: Some("Allow commands unless explicitly denied"),
                             argv: &["--force"],
                         },
                     ],
@@ -861,10 +925,14 @@ impl CLIAgent {
                     options: &[
                         LaunchOption {
                             value: "enabled",
+                            label: "Enabled",
+                            hint: None,
                             argv: &["--sandbox", "enabled"],
                         },
                         LaunchOption {
                             value: "disabled",
+                            label: "Disabled",
+                            hint: None,
                             argv: &["--sandbox", "disabled"],
                         },
                     ],
@@ -1098,7 +1166,12 @@ pub struct LaunchChoice {
 
 /// A value a [`LaunchChoice`] can take, and the arguments it adds.
 pub struct LaunchOption {
+    /// What `AgentLaunchSettings::choices` stores.
     pub value: &'static str,
+    /// The agent's own name for it.
+    pub label: &'static str,
+    /// The agent's own one-line description, where it gives one.
+    pub hint: Option<&'static str>,
     pub argv: &'static [&'static str],
 }
 
