@@ -12,7 +12,11 @@ macOS, then, in `no_rcs_envlibs`, the env tools `detect` found before spawn:
 mise alone, else asdf's shims, direnv, and a `.env` parser when direnv is
 missing. In zsh, `mise activate` is read in the background (`DEFER_ZSH`: a
 process substitution, a `zle -F` handler, and a `preexec` that waits for it if
-a command comes first), so the first prompt does not wait on mise. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
+a command comes first), so the first prompt does not wait on mise. When mise is
+activated, every pane of a daemon gets the same `__MISE_ENV_CACHE_KEY`
+(`mise_cache_key`: 32 OS-random bytes in base64, minted once), so with mise's
+`env_cache` on, a new pane decrypts the cache earlier panes wrote instead of
+recomputing it; a key already in the daemon's env is left to be inherited. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
 
 ## Fork-owned files
 
@@ -31,6 +35,7 @@ a command comes first), so the first prompt does not wait on mise. User docs: `d
 | `crates/tty7-core/src/daemon/shell_integration.rs` | `setup`, after the per-shell match | `shell_startup::apply(&kind, …)`; `zsh_redirectors`/`bash_rcfile` are `pub(super)` for its tests |
 | `crates/tty7-core/src/daemon/mod.rs` | module list | `shell_startup` |
 | `crates/tty7-core/src/core/fork_config.rs` | `ForkConfig` | `shell_startup`, `ShellStartup` |
+| `crates/tty7-core/Cargo.toml` | `[dependencies]` | `getrandom` moved up from the Windows-only list, for the mise key |
 | `src/ui/mod.rs` | module list | `shell_startup` |
 | `src/ui/settings/pages.rs` | `render_shell_group`, after Arguments | `shell_startup_row` |
 | `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsShellStartup*` |

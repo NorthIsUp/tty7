@@ -34,11 +34,12 @@ fn script(path: &Path, body: &str) {
 /// A daemon whose home has a `.zshrc` that prints a marker, with a fake mise
 /// and asdf first on its PATH.
 fn daemon(mode: &str) -> Daemon {
-    daemon_with(mode, "")
+    daemon_with(mode, "", None)
 }
 
-/// `daemon`, with `mise_first` run by the fake mise before it answers.
-fn daemon_with(mode: &str, mise_first: &str) -> Daemon {
+/// `daemon`, with `mise_first` run by the fake mise before it answers, and
+/// `key` as the user's own mise env cache key.
+fn daemon_with(mode: &str, mise_first: &str, key: Option<&str>) -> Daemon {
     let dir = tempfile::TempDir::new().unwrap();
     let home = dir.path();
     std::fs::write(home.join(".zshrc"), "echo USER_RC_RAN\n").unwrap();
@@ -53,11 +54,16 @@ fn daemon_with(mode: &str, mise_first: &str) -> Daemon {
         &bin.join("mise"),
         &format!(
             r#"{mise_first}
-[ "$1" = activate ] && echo "export FAKE_MISE=$2""#
+[ "$1" = activate ] && echo "export FAKE_MISE=$2 FAKE_KEY=$__MISE_ENV_CACHE_KEY""#
         ),
     );
     script(&bin.join("asdf"), "exit 0");
-    let child = Command::new(env!("CARGO_BIN_EXE_tty7-server"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tty7-server"));
+    match key {
+        Some(key) => cmd.env("__MISE_ENV_CACHE_KEY", key),
+        None => cmd.env_remove("__MISE_ENV_CACHE_KEY"),
+    };
+    let child = cmd
         .arg("--daemon")
         .arg("--config-dir")
         .arg(home)
@@ -129,7 +135,7 @@ fn zsh_pane(daemon: &Daemon) -> (String, String, Duration) {
                     prompt = spawned.elapsed();
                     seen.clear();
                     ClientMsg::Input(
-                        b"print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} PATH=$PATH\r".to_vec(),
+                        b"print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} KEY=${FAKE_KEY-no} PATH=$PATH\r".to_vec(),
                     )
                     .encode(&mut stream)
                     .unwrap();
@@ -171,7 +177,7 @@ fn no_rcs_envlibs_activates_mise_and_not_asdf() {
 
 #[test]
 fn a_slow_mise_does_not_hold_up_the_first_prompt() {
-    let d = daemon_with("no_rcs_envlibs", "sleep 2");
+    let d = daemon_with("no_rcs_envlibs", "sleep 2", None);
     let (_, line, prompt) = zsh_pane(&d);
     assert!(
         prompt < Duration::from_secs(1),
@@ -179,4 +185,26 @@ fn a_slow_mise_does_not_hold_up_the_first_prompt() {
     );
     // The command went in at the prompt, before mise answered, and still saw it.
     assert!(line.contains("MISE=zsh"), "{line}");
+}
+
+fn key(line: &str) -> &str {
+    line.split_whitespace()
+        .find_map(|w| w.strip_prefix("KEY="))
+        .unwrap_or_default()
+}
+
+#[test]
+fn panes_of_one_daemon_share_a_mise_cache_key() {
+    let d = daemon("no_rcs_envlibs");
+    let (_, first, _) = zsh_pane(&d);
+    let (_, second, _) = zsh_pane(&d);
+    assert_eq!(key(&first).len(), 44, "{first}");
+    assert_eq!(key(&first), key(&second));
+}
+
+#[test]
+fn the_users_own_mise_cache_key_is_kept() {
+    let user = "dXNlcnMgb3duIGtleSwgbm90IG1pbnRlZCBieSB0dHk3IQ==";
+    let (_, line, _) = zsh_pane(&daemon_with("no_rcs_envlibs", "", Some(user)));
+    assert_eq!(key(&line), user);
 }
