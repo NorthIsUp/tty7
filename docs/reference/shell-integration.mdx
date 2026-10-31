@@ -122,6 +122,10 @@ before it, so a new pane is not held up by mise starting. A command entered
 before mise has answered waits for it, so it still runs with mise's
 environment.
 
+If you turn on mise's `env_cache`, every pane of one tty7 session shares one
+cache key, so a new pane reuses the environment mise cached for the panes
+before it. A `__MISE_ENV_CACHE_KEY` you set yourself is kept.
+
 zsh skips every file in your `ZDOTDIR` (the system's `/etc/zsh*` still run),
 bash skips `~/.bash_profile`, `~/.profile` and `~/.bashrc`, and fish starts
 with `--no-config`. nushell, PowerShell, cmd and remote panes always read your

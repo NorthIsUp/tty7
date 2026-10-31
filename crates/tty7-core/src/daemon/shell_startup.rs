@@ -3,6 +3,9 @@
 //! activates the env tools it finds in their place.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use base64::Engine as _;
 
 use super::shell_integration::{Injection, ShellKind};
 use crate::core::config::Config;
@@ -11,6 +14,10 @@ use crate::core::fork_config::ShellStartup;
 /// Read by the zsh redirectors and the bash rcfile: the directory whose
 /// startup files they source instead of the user's.
 pub(crate) const STARTUP_ENV: &str = "TTY7_SHELL_STARTUP";
+
+/// mise's `env_cache` encrypts its cache with this key and computes the env
+/// afresh whenever a shell brings none.
+const MISE_KEY_ENV: &str = "__MISE_ENV_CACHE_KEY";
 
 /// The env tools a no-rcs shell activates, by absolute path.
 #[derive(Debug, PartialEq)]
@@ -52,6 +59,9 @@ fn apply_mode(
         return;
     }
     let activation = (mode == ShellStartup::NoRcsEnvlibs).then(detect);
+    if let (Some(Activation::Mise(_)), Some(key)) = (&activation, mise_cache_key()) {
+        injection.env.insert(MISE_KEY_ENV.into(), key.into());
+    }
     let script = script(shell, activation.as_ref());
     if shell == "fish" {
         injection
@@ -70,6 +80,26 @@ fn apply_mode(
     injection
         .env
         .insert(STARTUP_ENV.into(), dir.to_string_lossy().into_owned());
+}
+
+/// One key for every pane of this daemon, so each new pane's `mise activate`
+/// reads the cache the panes before it wrote. `None` when the daemon already
+/// carries the user's own key, which the panes inherit instead.
+fn mise_cache_key() -> Option<&'static str> {
+    static KEY: OnceLock<Option<String>> = OnceLock::new();
+    KEY.get_or_init(|| {
+        std::env::var_os(MISE_KEY_ENV)
+            .is_none()
+            .then(mint_mise_cache_key)
+    })
+    .as_deref()
+}
+
+/// mise's own format: 32 random bytes for ChaCha20-Poly1305, standard base64.
+fn mint_mise_cache_key() -> String {
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).expect("OS RNG unavailable");
+    base64::engine::general_purpose::STANDARD.encode(key)
 }
 
 fn detect_here() -> Activation {
@@ -381,6 +411,30 @@ mod tests {
             let body = std::fs::read_to_string(dir.join(file)).unwrap();
             assert!(body.contains("activate"), "{body}");
         }
+    }
+
+    #[test]
+    fn mise_panes_share_one_cache_key_and_others_get_none() {
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(mint_mise_cache_key())
+            .unwrap();
+        assert_eq!(key.len(), 32);
+        assert_ne!(mint_mise_cache_key(), mint_mise_cache_key());
+        let pane = |mode, detect: fn() -> Activation| {
+            let t = tempfile::tempdir().unwrap();
+            let mut inj = injection(Some(t.path().into()));
+            apply_mode(mode, &ShellKind::Zsh, &mut inj, detect);
+            inj.env.get(MISE_KEY_ENV).cloned()
+        };
+        let first = pane(ShellStartup::NoRcsEnvlibs, mise);
+        assert_eq!(first.as_deref(), mise_cache_key());
+        assert_eq!(pane(ShellStartup::NoRcsEnvlibs, mise), first);
+        let others = || Activation::Others {
+            asdf: None,
+            direnv: None,
+        };
+        assert_eq!(pane(ShellStartup::NoRcsEnvlibs, others), None);
+        assert_eq!(pane(ShellStartup::NoRcs, mise), None);
     }
 
     #[test]
