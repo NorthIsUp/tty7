@@ -2633,6 +2633,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "Терминал",
         L10nKey::SettingsSplitSame => "Как в панели",
         L10nKey::SettingsSplitChoose => "Выбрать",
+        L10nKey::SettingsQuietClose => "Не спрашивать для нетронутых вкладок",
+        L10nKey::SettingsQuietCloseDesc => {
+            "Вкладка или панель, открытая в этом запуске, в которую ничего не вводили, не вставляли и не перетаскивали, закрывается без вопроса. Восстановленные вкладки по-прежнему спрашивают."
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "закрытие подтверждение пропустить нетронутая новая вкладка панель quiet close skip confirm untouched new tab pane fresh"
+        }
         L10nKey::GitHubSortRecent => "Недавние",
         L10nKey::GitHubSortNumber => "Номер",
         L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",

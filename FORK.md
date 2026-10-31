@@ -52,6 +52,7 @@ read when a sync stops on a conflict in that feature.
 - [hotkey-window](docs/fork/features/hotkey-window.md): a global hotkey window
 - [shell-startup](docs/fork/features/shell-startup.md): pane shells can start without the user's rc files
 - [spawn-trace](docs/fork/features/spawn-trace.md): each new tab logs its start as one timeline
+- [quiet-close](docs/fork/features/quiet-close.md): an untouched new tab closes without asking
 
 ## Syncing
 
