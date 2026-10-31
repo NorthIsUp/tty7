@@ -193,18 +193,40 @@ fn script(sh: Sh, activation: Option<&Activation>) -> String {
             Sh::Zsh | Sh::Bash => format!("eval \"$({bin} {verb} {})\"\n", sh.name()),
         });
     };
+    let Some(activation) = activation else {
+        return out;
+    };
+    let tool = match activation {
+        Activation::Mise(_) => "mise",
+        Activation::Others {
+            direnv: Some(_), ..
+        } => "direnv",
+        Activation::Others { direnv: None, .. } => ".env",
+    };
+    let msg = quote(&format!("loading env ({tool})..."), sh);
+    let (here, start, end) = match sh {
+        Sh::Fish => (ENV_HERE_FISH, HINT_START_FISH, HINT_END_FISH),
+        Sh::Zsh | Sh::Bash => (ENV_HERE_POSIX, HINT_START_POSIX, HINT_END_POSIX),
+    };
+    out.push_str(here);
+    // zsh's mise load runs after the prompt, so DEFER_ZSH shows its own hint.
+    let blocking = !matches!((sh, activation), (Sh::Zsh, Activation::Mise(_)));
+    if blocking {
+        out.push_str(&start.replace("{msg}", &msg));
+    }
     match activation {
-        None => {}
-        Some(Activation::Mise(mise)) => {
+        Activation::Mise(mise) => {
             path_add(&mut out, parent(mise));
             match sh {
-                Sh::Zsh => {
-                    out.push_str(&DEFER_ZSH.replace("{mise}", &quote(&mise.to_string_lossy(), sh)))
-                }
+                Sh::Zsh => out.push_str(
+                    &DEFER_ZSH
+                        .replace("{mise}", &quote(&mise.to_string_lossy(), sh))
+                        .replace("{msg}", &msg),
+                ),
                 Sh::Bash | Sh::Fish => hook(&mut out, mise, "activate"),
             }
         }
-        Some(Activation::Others { asdf, direnv }) => {
+        Activation::Others { asdf, direnv } => {
             if let Some((bin, shims)) = asdf {
                 path_add(&mut out, parent(bin));
                 path_add(&mut out, shims);
@@ -222,8 +244,46 @@ fn script(sh: Sh, activation: Option<&Activation>) -> String {
             }
         }
     }
+    if blocking {
+        out.push_str(end);
+    }
     out
 }
+
+// Whether the env tools have anything to load here: a config file in $PWD or
+// above. Builtins only, so a pane in /tmp pays nothing and shows no hint.
+const ENV_HERE_POSIX: &str = r#"__tty7_env_here() {
+  local d=$PWD f
+  while :; do
+    for f in mise.toml .mise.toml mise/config.toml .mise/config.toml .tool-versions .env .envrc; do
+      [ -e "$d/$f" ] && return 0
+    done
+    [ -n "$d" ] || return 1
+    d=${d%/*}
+  done
+}
+"#;
+
+const ENV_HERE_FISH: &str = r#"function __tty7_env_here
+  set -l d $PWD
+  while true
+    for f in mise.toml .mise.toml mise/config.toml .mise/config.toml .tool-versions .env .envrc
+      test -e "$d/$f"; and return 0
+    end
+    test -n "$d"; or return 1
+    set d (string replace -r '/[^/]*$' '' -- $d)
+  end
+end
+"#;
+
+// Shown while a load that blocks the first prompt runs, then erased.
+const HINT_START_POSIX: &str = "__tty7_env_here && { __tty7_hint=1; printf '%s' {msg} >&2; }\n";
+const HINT_END_POSIX: &str =
+    "[ -z \"$__tty7_hint\" ] || printf '\\r\\033[K' >&2; unset __tty7_hint\n";
+const HINT_START_FISH: &str =
+    "__tty7_env_here; and set -g __tty7_hint 1; and printf '%s' {msg} >&2\n";
+const HINT_END_FISH: &str =
+    "set -q __tty7_hint; and printf '\\r\\e[K' >&2; and set -e __tty7_hint\n";
 
 fn parent(bin: &Path) -> &Path {
     bin.parent().unwrap_or(Path::new("/"))
@@ -241,6 +301,10 @@ fn quote(s: &str, sh: Sh) -> String {
 // Its output already carries the directory's env, so nothing has to rerun.
 // A command entered sooner waits for it in preexec, so none runs without it.
 // tty7's precmd moves back to the end so the prompt mark still comes last.
+// While it is pending, and only if `__tty7_env_here`, a hint shows under the
+// prompt (`zle -M`) or, for a command waiting in preexec, on stderr until the
+// load lands. Both wait 150ms first, the prompt's on a timer fd, so a fast load
+// shows nothing.
 //
 // The output's own last step, `_mise_hook --force`, is a full `mise hook-env`
 // (90-250ms), so that one exact line is swapped for hook-env's output, and its
@@ -265,23 +329,61 @@ const DEFER_ZSH: &str = r#"__tty7_defer_activate() {
   print -r -- "$out"
 }
 exec {__tty7_defer_fd}< <(__tty7_defer_activate)
+zmodload zsh/zselect 2>/dev/null
+__tty7_defer_msg=
+__tty7_env_here && __tty7_defer_msg={msg}
+# The hint's delay in centiseconds; the env sets it only for tty7's tests.
+: ${__tty7_hint_cs:=15}
+__tty7_defer_ready() { zselect -t 0 -r $__tty7_defer_fd 2>/dev/null; }
 __tty7_defer_done() {
-  local fd=$__tty7_defer_fd code
+  local fd=$__tty7_defer_fd code hint=
   [[ -n $fd ]] || return 0
+  __tty7_hint_off
+  if ! zle && [[ -n $__tty7_defer_msg ]] && ! zselect -t $__tty7_hint_cs -r $fd 2>/dev/null; then
+    hint=1
+    print -rn -- "$__tty7_defer_msg" >&2
+  fi
   # A Ctrl-C here aborts the function with the fd and hooks in place, so the
   # next command or idle prompt reads it instead.
-  IFS= read -rd '' -u $fd code
+  {
+    IFS= read -rd '' -u $fd code
+  } always {
+    [[ -n $hint ]] && print -rn -- $'\r\e[K' >&2
+  }
   zle -F $fd 2>/dev/null
   exec {fd}<&-
   unset __tty7_defer_fd
   add-zsh-hook -d preexec __tty7_defer_done
-  zle && zle -I
+  if zle; then
+    [[ -n $__tty7_defer_shown ]] && zle -M ''
+    zle -I
+  fi
   eval "$code"
   # `__tty7_precmd` is shell_integration.rs's prompt-mark hook.
   [[ -n ${precmd_functions[(r)__tty7_precmd]} ]] &&
     precmd_functions=(${precmd_functions:#__tty7_precmd} __tty7_precmd)
 }
-autoload -Uz add-zsh-hook
+__tty7_hint_off() {
+  [[ -n $__tty7_hint_fd ]] || return 0
+  zle -F $__tty7_hint_fd 2>/dev/null
+  exec {__tty7_hint_fd}<&-
+  unset __tty7_hint_fd
+}
+__tty7_hint_show() {
+  __tty7_hint_off
+  [[ -n $__tty7_defer_fd ]] && ! __tty7_defer_ready || return 0
+  zle -M "$__tty7_defer_msg"
+  __tty7_defer_shown=1
+}
+__tty7_defer_hint() {
+  add-zle-hook-widget -d line-init __tty7_defer_hint
+  [[ -n $__tty7_defer_fd && -n $__tty7_defer_msg ]] || return 0
+  exec {__tty7_hint_fd}< <(sleep $(( __tty7_hint_cs / 100.0 )))
+  zle -F $__tty7_hint_fd __tty7_hint_show
+}
+autoload -Uz add-zsh-hook add-zle-hook-widget
+zle -N __tty7_defer_hint
+add-zle-hook-widget line-init __tty7_defer_hint
 add-zsh-hook preexec __tty7_defer_done
 zle -F $__tty7_defer_fd __tty7_defer_done 2>/dev/null || __tty7_defer_done
 "#;
@@ -515,6 +617,56 @@ mod tests {
         );
         assert_eq!(inj.args, ["-C", "integration"]);
         assert_eq!(inj.env[STARTUP_ENV], "");
+    }
+
+    #[test]
+    fn the_hint_names_the_tool_and_wraps_only_loads_that_block_the_prompt() {
+        let direnv = Activation::Others {
+            asdf: None,
+            direnv: Some("/d/direnv".into()),
+        };
+        let dotenv = Activation::Others {
+            asdf: None,
+            direnv: None,
+        };
+        for (activation, tool) in [(mise(), "mise"), (direnv, "direnv"), (dotenv, ".env")] {
+            for sh in [Sh::Zsh, Sh::Bash, Sh::Fish] {
+                let s = script(sh, Some(&activation));
+                assert!(
+                    s.contains(&format!("'loading env ({tool})...'")),
+                    "{sh:?}: {s}"
+                );
+                let blocking = !(sh == Sh::Zsh && tool == "mise");
+                assert_eq!(
+                    s.contains("__tty7_hint=1;") || s.contains("set -g __tty7_hint 1"),
+                    blocking,
+                    "{sh:?}: {s}"
+                );
+            }
+        }
+        assert!(!script(Sh::Zsh, None).contains("loading env"));
+    }
+
+    #[test]
+    fn env_here_finds_a_config_above_pwd_and_nothing_elsewhere() {
+        let t = tempfile::tempdir().unwrap();
+        let deep = t.path().join("a/b/c");
+        std::fs::create_dir_all(&deep).unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        std::fs::write(t.path().join("a/.tool-versions"), "").unwrap();
+        for sh in ["bash", "zsh"] {
+            let here = |dir: &Path| {
+                Command::new(sh)
+                    .arg("-c")
+                    .arg(format!("{ENV_HERE_POSIX}__tty7_env_here"))
+                    .current_dir(dir)
+                    .status()
+                    .unwrap()
+                    .success()
+            };
+            assert!(here(&deep), "{sh}");
+            assert!(!here(empty.path()), "{sh}");
+        }
     }
 
     #[test]

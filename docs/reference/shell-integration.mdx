@@ -122,6 +122,13 @@ before it, so a new pane is not held up by mise starting. A command entered
 before mise has answered waits for it, so it still runs with mise's
 environment.
 
+If the env is still loading after a moment, the pane says so: `loading env (mise)...`
+(or `direnv`, `.env`) under the zsh prompt or on the line of a command that
+waits for it, and before the first prompt in bash and fish. It shows only when
+the directory or one above it has a `mise.toml`, `.mise.toml`,
+`mise/config.toml`, `.mise/config.toml`, `.tool-versions`, `.env` or `.envrc`,
+and it is erased once the load finishes.
+
 If you turn on mise's `env_cache`, every pane of one tty7 session shares one
 cache key, so a new pane reuses the environment mise cached for the panes
 before it. A `__MISE_ENV_CACHE_KEY` you set yourself is kept.

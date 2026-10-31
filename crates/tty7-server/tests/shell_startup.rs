@@ -50,9 +50,9 @@ fn daemon_with(mode: &str, mise_first: &str, key: Option<&str>) -> Daemon {
     .unwrap();
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
-    // Logs each call as `<parent pid> <args>`. Its zsh activation creates
-    // `loaded` once evaluated and ends the way mise's does, `_mise_hook --force`
-    // unless `FAKE_FORCE_LINE` says otherwise.
+    // Logs each call as `<parent pid> <args>`. Its zsh activation ends the way
+    // mise's does, `_mise_hook --force` unless `FAKE_FORCE_LINE` says otherwise,
+    // then creates `loaded`: after that line, so only the foreground's eval does.
     let log = home.join("mise.log");
     script(
         &bin.join("mise"),
@@ -68,8 +68,8 @@ autoload -Uz add-zsh-hook
 _mise_hook_precmd() {{ :; }}
 add-zsh-hook chpwd _mise_hook_chpwd
 add-zsh-hook precmd _mise_hook_precmd
-: >| '{loaded}'
-${{FAKE_FORCE_LINE-_mise_hook --force}}" ;;
+${{FAKE_FORCE_LINE-_mise_hook --force}}
+: >| '{loaded}'" ;;
 hook-env)
   case $* in *--force*) echo FAKE_HOOK_WARNING >&2 ;; esac
   echo "export FAKE_HOOK='$*'" ;;
@@ -135,56 +135,90 @@ fn zsh_pane_running(
     before: impl FnOnce(),
     after: impl FnOnce(),
 ) -> (String, String, String) {
-    let mut stream = transport::connect_endpoint_at(&endpoint(daemon.dir.path())).unwrap();
-    let (mut before, mut after) = (Some(before), Some(after));
-    ClientMsg::Spawn {
-        cwd: Some(daemon.dir.path().to_path_buf()),
-        size: WinSize {
-            cols: 400,
-            rows: 30,
-            cell_w: 8,
-            cell_h: 16,
-        },
-        shell: Some(ShellSpec {
-            program: "/bin/zsh".into(),
-            args: Vec::new(),
-            args_are_tty7_defaults: false,
-        }),
-        owner: None,
-        workspace: None,
-        restore: None,
-        allow_remote_clipboard_write: false,
-    }
-    .encode(&mut stream)
-    .unwrap();
-    stream.set_read_timeout(Some(WITHIN)).unwrap();
-    let mut seen = Vec::new();
-    let mut startup = None;
-    let deadline = Instant::now() + WITHIN;
-    while Instant::now() < deadline {
-        match DaemonMsg::read(&mut stream) {
-            Ok(DaemonMsg::Output(bytes) | DaemonMsg::Snapshot(bytes)) => {
-                seen.extend_from_slice(&bytes);
-                let text = String::from_utf8_lossy(&seen).into_owned();
-                if startup.is_none() && text.contains(PROMPT_MARK) {
-                    startup = Some(text);
-                    seen.clear();
-                    before.take().unwrap()();
-                    ClientMsg::Input(format!("{command}\r").into_bytes())
-                        .encode(&mut stream)
-                        .unwrap();
-                    after.take().unwrap()();
-                } else if let Some(at) = text.find("OUT_2") {
-                    let line = text[at..].lines().next().unwrap_or_default().to_string();
-                    return (startup.unwrap_or_default(), line, text);
-                }
-            }
-            Ok(DaemonMsg::Exited { code }) => panic!("zsh exited ({code:?})"),
-            Ok(_) => {}
-            Err(e) => panic!("{e}; saw {:?}", String::from_utf8_lossy(&seen)),
+    let mut pane = Pane::spawn(daemon, "/bin/zsh", daemon.dir.path());
+    let startup = pane.until(PROMPT_MARK);
+    before();
+    pane.type_line(command);
+    after();
+    let text = pane.until_line("OUT_2");
+    let at = text.find("OUT_2").unwrap();
+    let line = text[at..].lines().next().unwrap_or_default().to_string();
+    (startup, line, text)
+}
+
+/// A pane of `daemon` running `shell` in `cwd`.
+struct Pane {
+    stream: transport::Stream,
+    seen: String,
+}
+
+impl Pane {
+    fn spawn(daemon: &Daemon, shell: &str, cwd: &Path) -> Pane {
+        let mut stream = transport::connect_endpoint_at(&endpoint(daemon.dir.path())).unwrap();
+        ClientMsg::Spawn {
+            cwd: Some(cwd.to_path_buf()),
+            size: WinSize {
+                cols: 400,
+                rows: 30,
+                cell_w: 8,
+                cell_h: 16,
+            },
+            shell: Some(ShellSpec {
+                program: shell.into(),
+                args: Vec::new(),
+                args_are_tty7_defaults: false,
+            }),
+            owner: None,
+            workspace: None,
+            restore: None,
+            allow_remote_clipboard_write: false,
+        }
+        .encode(&mut stream)
+        .unwrap();
+        stream.set_read_timeout(Some(WITHIN)).unwrap();
+        Pane {
+            stream,
+            seen: String::new(),
         }
     }
-    panic!("no answer; saw {:?}", String::from_utf8_lossy(&seen));
+
+    /// Everything printed since the last call, through the first `pat`.
+    fn until(&mut self, pat: &str) -> String {
+        let deadline = Instant::now() + WITHIN;
+        let mut bytes = std::mem::take(&mut self.seen).into_bytes();
+        while Instant::now() < deadline {
+            let text = String::from_utf8_lossy(&bytes);
+            if let Some(at) = text.find(pat) {
+                let end = at + pat.len();
+                self.seen = text[end..].to_string();
+                return text[..end].to_string();
+            }
+            match DaemonMsg::read(&mut self.stream) {
+                Ok(DaemonMsg::Output(b) | DaemonMsg::Snapshot(b)) => bytes.extend_from_slice(&b),
+                Ok(DaemonMsg::Exited { code }) => panic!("the shell exited ({code:?})"),
+                Ok(_) => {}
+                Err(e) => panic!("{e}; saw {:?}", String::from_utf8_lossy(&bytes)),
+            }
+        }
+        panic!("no {pat:?}; saw {:?}", String::from_utf8_lossy(&bytes));
+    }
+
+    /// `until` the line holding `pat` has ended.
+    fn until_line(&mut self, pat: &str) -> String {
+        let mut text = self.until(pat);
+        text.push_str(&self.until("\n"));
+        text
+    }
+
+    fn type_line(&mut self, line: &str) {
+        self.send(&format!("{line}\r"));
+    }
+
+    fn send(&mut self, keys: &str) {
+        ClientMsg::Input(keys.as_bytes().to_vec())
+            .encode(&mut self.stream)
+            .unwrap();
+    }
 }
 
 #[test]
@@ -341,4 +375,125 @@ fn without_mises_force_line_the_activation_runs_as_given() {
         ],
         "{log}"
     );
+}
+
+const HINT: &str = "loading env (mise)...";
+const ERASE: &str = "\r\x1b[K";
+
+/// A gated `no_rcs_envlibs` daemon whose own dir has a `mise.toml`, and a dir
+/// with nothing for mise to load.
+fn hint_daemon() -> (Daemon, tempfile::TempDir) {
+    let d = daemon_with("no_rcs_envlibs", GATE, None);
+    std::fs::write(d.dir.path().join("mise.toml"), "").unwrap();
+    (d, tempfile::TempDir::new().unwrap())
+}
+
+#[test]
+fn zsh_shows_the_hint_under_the_prompt_and_while_a_command_waits() {
+    let (d, _) = hint_daemon();
+    let mut pane = Pane::spawn(&d, "/bin/zsh", d.dir.path());
+    pane.until(PROMPT_MARK);
+    pane.until(HINT);
+    pane.type_line("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    // The waiting command's own line, erased once mise answers.
+    let waiting = pane.until(HINT);
+    assert!(waiting.contains("OUT_$((1+1))"), "{waiting:?}");
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    let after = pane.until_line("OUT_2");
+    assert!(after.starts_with(ERASE), "{after:?}");
+    assert!(after.contains("OUT_2 MISE=zsh"), "{after:?}");
+}
+
+#[test]
+fn zsh_clears_the_hint_when_mise_loads_at_the_prompt() {
+    let (d, _) = hint_daemon();
+    let mut pane = Pane::spawn(&d, "/bin/zsh", d.dir.path());
+    pane.until(PROMPT_MARK);
+    pane.until(HINT);
+    pane.send("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    let deadline = Instant::now() + WITHIN;
+    while !d.dir.path().join("loaded").exists() {
+        assert!(Instant::now() < deadline, "mise never loaded at the prompt");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    pane.send("\r");
+    let after = pane.until_line("OUT_2");
+    assert!(!after.contains(HINT), "{after:?}");
+    assert!(after.contains("OUT_2 MISE=zsh"), "{after:?}");
+}
+
+#[test]
+fn zsh_ctrl_c_while_waiting_erases_the_hint_and_the_next_command_loads_mise() {
+    let (d, _) = hint_daemon();
+    let mut pane = Pane::spawn(&d, "/bin/zsh", d.dir.path());
+    pane.until(PROMPT_MARK);
+    pane.until(HINT);
+    pane.type_line("print -r -- NEVER_$((1+1))");
+    pane.until(HINT);
+    pane.send("\x03");
+    let interrupted = pane.until(PROMPT_MARK);
+    assert!(interrupted.contains(ERASE), "{interrupted:?}");
+    pane.type_line("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    pane.until(HINT);
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    let after = pane.until_line("OUT_2");
+    assert!(after.contains("OUT_2 MISE=zsh"), "{after:?}");
+    assert!(!after.contains("NEVER_2"), "{after:?}");
+}
+
+#[test]
+fn zsh_shows_no_hint_for_a_load_faster_than_its_delay() {
+    let (d, _) = hint_daemon();
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    // A 5s delay, so a loaded machine's fake mise still beats it.
+    std::fs::write(
+        d.dir.path().join("config.json"),
+        r#"{"shell_startup": "no_rcs_envlibs", "env": {"__tty7_hint_cs": "500"}}"#,
+    )
+    .unwrap();
+    // A command at once waits in preexec; a later one finds mise loaded at the prompt.
+    let mut pane = Pane::spawn(&d, "/bin/zsh", d.dir.path());
+    let mut seen = pane.until(PROMPT_MARK);
+    pane.type_line("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    seen += &pane.until_line("OUT_2");
+    assert!(seen.contains("OUT_2 MISE=zsh"), "{seen:?}");
+    assert!(!seen.contains(HINT), "{seen:?}");
+    let mut idle = Pane::spawn(&d, "/bin/zsh", d.dir.path());
+    let mut seen = idle.until(PROMPT_MARK);
+    std::thread::sleep(Duration::from_millis(500));
+    idle.type_line("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    seen += &idle.until_line("OUT_2");
+    assert!(seen.contains("OUT_2 MISE=zsh"), "{seen:?}");
+    assert!(!seen.contains(HINT), "{seen:?}");
+}
+
+#[test]
+fn zsh_shows_no_hint_where_there_is_nothing_to_load() {
+    let (d, elsewhere) = hint_daemon();
+    let mut pane = Pane::spawn(&d, "/bin/zsh", elsewhere.path());
+    let startup = pane.until(PROMPT_MARK);
+    pane.type_line("print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    let after = pane.until_line("OUT_2");
+    assert!(
+        !startup.contains(HINT) && !after.contains(HINT),
+        "{after:?}"
+    );
+    assert!(after.contains("OUT_2 MISE=zsh"), "{after:?}");
+}
+
+#[test]
+fn bash_shows_the_hint_while_mise_blocks_the_prompt_then_erases_it() {
+    let (d, elsewhere) = hint_daemon();
+    let mut pane = Pane::spawn(&d, "/bin/bash", d.dir.path());
+    pane.until(HINT);
+    std::fs::write(d.dir.path().join("go"), "").unwrap();
+    let startup = pane.until(PROMPT_MARK);
+    assert!(startup.starts_with(ERASE), "{startup:?}");
+    pane.type_line("echo OUT_$((1+1)) MISE=${FAKE_MISE-no}");
+    assert!(pane.until_line("OUT_2").contains("OUT_2 MISE=bash"));
+
+    let mut quiet = Pane::spawn(&d, "/bin/bash", elsewhere.path());
+    assert!(!quiet.until(PROMPT_MARK).contains(HINT));
 }
