@@ -50,8 +50,9 @@ fn daemon_with(mode: &str, mise_first: &str, key: Option<&str>) -> Daemon {
     .unwrap();
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
-    // Logs each call as `<parent pid> <args>`. Its zsh activation ends the way
-    // mise's does, `_mise_hook --force` unless `FAKE_FORCE_LINE` says otherwise.
+    // Logs each call as `<parent pid> <args>`. Its zsh activation creates
+    // `loaded` once evaluated and ends the way mise's does, `_mise_hook --force`
+    // unless `FAKE_FORCE_LINE` says otherwise.
     let log = home.join("mise.log");
     script(
         &bin.join("mise"),
@@ -64,13 +65,17 @@ activate)
   [ "$2" = zsh ] && echo "_mise_hook() {{ eval \"\$('$0' hook-env -s zsh \"\$@\")\"; }}
 _mise_hook_chpwd() {{ _mise_hook --reason chpwd; }}
 autoload -Uz add-zsh-hook
+_mise_hook_precmd() {{ :; }}
 add-zsh-hook chpwd _mise_hook_chpwd
+add-zsh-hook precmd _mise_hook_precmd
+: >| '{loaded}'
 ${{FAKE_FORCE_LINE-_mise_hook --force}}" ;;
 hook-env)
   case $* in *--force*) echo FAKE_HOOK_WARNING >&2 ;; esac
   echo "export FAKE_HOOK='$*'" ;;
 esac"#,
-            log = log.display()
+            log = log.display(),
+            loaded = home.join("loaded").display(),
         ),
     );
     script(&bin.join("asdf"), "exit 0");
@@ -111,22 +116,27 @@ fn endpoint(dir: &Path) -> PathBuf {
     dir.join("daemon.sock")
 }
 
+const REPORT: &str = "print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} KEY=${FAKE_KEY-no} \\
+    LAST=${precmd_functions[-1]} PATH=$PATH";
+
 /// Everything a zsh pane prints through its first prompt, then the line its
-/// report of the environment prints, and how long the prompt took.
-fn zsh_pane(daemon: &Daemon) -> (String, String, Duration) {
-    let (startup, line, prompt, _) = zsh_pane_running(
-        daemon,
-        "print -r -- OUT_$((1+1)) MISE=${FAKE_MISE-no} KEY=${FAKE_KEY-no} PATH=$PATH",
-    );
-    (startup, line, prompt)
+/// report of the environment prints.
+fn zsh_pane(daemon: &Daemon) -> (String, String) {
+    let (startup, line, _) = zsh_pane_running(daemon, REPORT, || {}, || {});
+    (startup, line)
 }
 
-/// `zsh_pane`, typing `command` at the first prompt; its output must start with
-/// `OUT_2`. Also returns everything printed after the prompt.
-fn zsh_pane_running(daemon: &Daemon, command: &str) -> (String, String, Duration, String) {
+/// `zsh_pane`, typing `command` at the first prompt between `before` and
+/// `after`; its output must start with `OUT_2`. Also returns everything printed
+/// after the prompt.
+fn zsh_pane_running(
+    daemon: &Daemon,
+    command: &str,
+    before: impl FnOnce(),
+    after: impl FnOnce(),
+) -> (String, String, String) {
     let mut stream = transport::connect_endpoint_at(&endpoint(daemon.dir.path())).unwrap();
-    let spawned = Instant::now();
-    let mut prompt = Duration::ZERO;
+    let (mut before, mut after) = (Some(before), Some(after));
     ClientMsg::Spawn {
         cwd: Some(daemon.dir.path().to_path_buf()),
         size: WinSize {
@@ -158,14 +168,15 @@ fn zsh_pane_running(daemon: &Daemon, command: &str) -> (String, String, Duration
                 let text = String::from_utf8_lossy(&seen).into_owned();
                 if startup.is_none() && text.contains(PROMPT_MARK) {
                     startup = Some(text);
-                    prompt = spawned.elapsed();
                     seen.clear();
+                    before.take().unwrap()();
                     ClientMsg::Input(format!("{command}\r").into_bytes())
                         .encode(&mut stream)
                         .unwrap();
+                    after.take().unwrap()();
                 } else if let Some(at) = text.find("OUT_2") {
                     let line = text[at..].lines().next().unwrap_or_default().to_string();
-                    return (startup.unwrap_or_default(), line, prompt, text);
+                    return (startup.unwrap_or_default(), line, text);
                 }
             }
             Ok(DaemonMsg::Exited { code }) => panic!("zsh exited ({code:?})"),
@@ -178,14 +189,14 @@ fn zsh_pane_running(daemon: &Daemon, command: &str) -> (String, String, Duration
 
 #[test]
 fn user_mode_reads_the_users_zshrc() {
-    let (startup, line, _) = zsh_pane(&daemon("user"));
+    let (startup, line) = zsh_pane(&daemon("user"));
     assert!(startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(line.contains("MISE=no"), "{line}");
 }
 
 #[test]
 fn no_rcs_skips_the_users_zshrc_but_keeps_the_prompt_marks() {
-    let (startup, line, _) = zsh_pane(&daemon("no_rcs"));
+    let (startup, line) = zsh_pane(&daemon("no_rcs"));
     assert!(!startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(startup.contains(PROMPT_MARK));
     assert!(line.contains("MISE=no"), "{line}");
@@ -193,22 +204,43 @@ fn no_rcs_skips_the_users_zshrc_but_keeps_the_prompt_marks() {
 
 #[test]
 fn no_rcs_envlibs_activates_mise_and_not_asdf() {
-    let (startup, line, _) = zsh_pane(&daemon("no_rcs_envlibs"));
+    let (startup, line) = zsh_pane(&daemon("no_rcs_envlibs"));
     assert!(!startup.contains("USER_RC_RAN"), "{startup:?}");
     assert!(line.contains("MISE=zsh"), "{line}");
     assert!(!line.contains(".asdf/shims"), "{line}");
 }
 
+const GATE: &str = r#"while [ ! -e "$HOME/go" ]; do sleep 0.05; done"#;
+
 #[test]
-fn a_slow_mise_does_not_hold_up_the_first_prompt() {
-    let d = daemon_with("no_rcs_envlibs", "sleep 2", None);
-    let (_, line, prompt) = zsh_pane(&d);
-    assert!(
-        prompt < Duration::from_secs(1),
-        "the prompt waited {prompt:?} for mise"
-    );
-    // The command went in at the prompt, before mise answered, and still saw it.
+fn a_command_entered_before_mise_answers_waits_for_it() {
+    // The prompt comes up while mise is still held at the gate.
+    let d = daemon_with("no_rcs_envlibs", GATE, None);
+    let go = d.dir.path().join("go");
+    let (_, line, _) = zsh_pane_running(&d, REPORT, || {}, || std::fs::write(&go, "").unwrap());
     assert!(line.contains("MISE=zsh"), "{line}");
+    assert!(line.contains("LAST=__tty7_precmd "), "{line}");
+}
+
+#[test]
+fn mise_loads_at_the_idle_prompt_and_the_prompt_mark_hook_stays_last() {
+    let d = daemon_with("no_rcs_envlibs", GATE, None);
+    let home = d.dir.path().to_path_buf();
+    let (_, line, _) = zsh_pane_running(
+        &d,
+        REPORT,
+        || {
+            std::fs::write(home.join("go"), "").unwrap();
+            let deadline = Instant::now() + WITHIN;
+            while !home.join("loaded").exists() {
+                assert!(Instant::now() < deadline, "mise never loaded at the prompt");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        },
+        || {},
+    );
+    assert!(line.contains("MISE=zsh"), "{line}");
+    assert!(line.contains("LAST=__tty7_precmd "), "{line}");
 }
 
 fn key(line: &str) -> &str {
@@ -220,8 +252,8 @@ fn key(line: &str) -> &str {
 #[test]
 fn panes_of_one_daemon_share_a_mise_cache_key() {
     let d = daemon("no_rcs_envlibs");
-    let (_, first, _) = zsh_pane(&d);
-    let (_, second, _) = zsh_pane(&d);
+    let (_, first) = zsh_pane(&d);
+    let (_, second) = zsh_pane(&d);
     assert_eq!(key(&first).len(), 44, "{first}");
     assert_eq!(key(&first), key(&second));
 }
@@ -229,7 +261,7 @@ fn panes_of_one_daemon_share_a_mise_cache_key() {
 #[test]
 fn the_users_own_mise_cache_key_is_kept() {
     let user = "dXNlcnMgb3duIGtleSwgbm90IG1pbnRlZCBieSB0dHk3IQ==";
-    let (_, line, _) = zsh_pane(&daemon_with("no_rcs_envlibs", "", Some(user)));
+    let (_, line) = zsh_pane(&daemon_with("no_rcs_envlibs", "", Some(user)));
     assert_eq!(key(&line), user);
 }
 
@@ -237,10 +269,12 @@ fn the_users_own_mise_cache_key_is_kept() {
 /// with the pane's pid, the fake mise's call log and what the pane printed.
 fn hook_pane(mise_first: &str) -> (String, String, String) {
     let d = daemon_with("no_rcs_envlibs", mise_first, None);
-    let (_, line, _, seen) = zsh_pane_running(
+    let (_, line, seen) = zsh_pane_running(
         &d,
         "H1=$FAKE_HOOK; mkdir -p sub && cd sub; \\
          print -r -- OUT_$((1+1)) PID=$$ H1=${H1// /_} H2=${FAKE_HOOK// /_}",
+        || {},
+        || {},
     );
     let log = std::fs::read_to_string(d.dir.path().join("mise.log")).unwrap();
     (line, log, seen)

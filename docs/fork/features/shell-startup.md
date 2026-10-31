@@ -16,11 +16,10 @@ a command comes first), so the first prompt does not wait on mise. The
 background subshell also runs the initial `mise hook-env --force` that
 activate's output ends with: the exact line `_mise_hook --force` is replaced by
 hook-env's precomputed output, and when the line is missing the output is
-evaluated unchanged. When mise is
-activated, every pane of a daemon gets the same `__MISE_ENV_CACHE_KEY`
-(`mise_cache_key`: 32 OS-random bytes in base64, minted once), so with mise's
-`env_cache` on, a new pane decrypts the cache earlier panes wrote instead of
-recomputing it; a key already in the daemon's env is left to be inherited. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
+evaluated unchanged. `mise activate` mints its own `__MISE_ENV_CACHE_KEY`
+unless it inherits one, so panes could not read each other's `env_cache`;
+`mise_cache_key` gives every mise pane of a daemon one key, unless the daemon
+already carries the user's. User docs: `docs/reference/shell-integration.mdx#skipping-your-rc-files`.
 
 ## Fork-owned files
 
