@@ -27,8 +27,21 @@ Remote workspaces keep the plain New Tab. Set `"new_tab_page": false` in
 
 ## Splits
 
-Turn on **Settings → Agents → Split asks what to open** (`"split_page": true`)
-and <kbd>⌘ D</kbd> / <kbd>⌘ ⇧ D</kbd> open the same page, and what you pick
-opens as a split beside the focused pane instead of a new tab. The directory
-list starts on the pane's own. A split of an SSH or remote pane still dials the
-same host again.
+<kbd>⌘ D</kbd> / <kbd>⌘ ⇧ D</kbd> open the same page, and what you pick opens
+as a split beside the focused pane instead of a new tab. The page starts on the
+pane being split: its directory is selected, and its kind is whatever runs
+there — Codex for a Codex pane, Terminal for a plain shell or an agent the page
+does not offer. A split of an SSH or remote pane still dials the same host
+again.
+
+Two settings under **Settings → Agents** decide what the page asks:
+
+| Setting | `config.json` | Values |
+| --- | --- | --- |
+| **Split runs** | `split_harness` | `terminal`: a plain shell. `same`: what the pane runs, its agent started fresh or a shell. `choose` (default): the page asks |
+| **Split directory** | `split_dir` | `same`: the pane's directory. `choose` (default): the page asks |
+
+When only one is `choose`, the page still opens, with the other fixed: a single
+kind on the row, or the pane's directory as the only row. When neither is, ⌘D
+splits straight away; `terminal` and `same` is upstream's split. An older
+`"split_page": false` is read as that.

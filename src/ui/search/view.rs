@@ -1725,6 +1725,12 @@ mod tests {
     fn a_query_after_one_that_found_nothing_still_arms_its_first_row(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         crate::ui::i18n::set_locale("en");
+        // Split Right splits at once, rather than opening the new tab page.
+        vcx.update(|_, cx| {
+            let fork = &mut cx.global_mut::<crate::core::config::Config>().fork;
+            fork.split_harness = tty7_core::core::fork_config::SplitHarness::Terminal;
+            fork.split_dir = tty7_core::core::fork_config::SplitDir::Same;
+        });
         app.update_in(&mut vcx, |app, window, cx| {
             app.open_search(SearchTab::Actions, "", window, cx)
         });

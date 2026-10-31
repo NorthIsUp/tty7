@@ -242,17 +242,22 @@ mod tests {
     }
 
     #[gpui::test]
-    fn split_opens_the_new_tab_page_only_when_split_page_is_on(cx: &mut TestAppContext) {
+    fn split_opens_the_new_tab_page_unless_set_to_upstream_s_split(cx: &mut TestAppContext) {
+        use tty7_core::core::fork_config::{SplitDir, SplitHarness};
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let set = |vcx: &mut VisualTestContext, harness, dir| {
+            vcx.update(|_, cx| {
+                let fork = &mut cx.global_mut::<Config>().fork;
+                (fork.split_harness, fork.split_dir) = (harness, dir);
+            })
+        };
+        set(&mut vcx, SplitHarness::Terminal, SplitDir::Same);
         let opened = app.update_in(&mut vcx, |app, window, cx| {
             app.open_split_page(gpui::Axis::Horizontal, window, cx)
         });
-        assert!(
-            !opened,
-            "off by default: ⌘D copies the pane as upstream does"
-        );
+        assert!(!opened, "⌘D copies the pane as upstream does");
 
-        vcx.update(|_, cx| cx.global_mut::<Config>().fork.split_page = true);
+        set(&mut vcx, SplitHarness::Choose, SplitDir::Choose);
         let leaves = |app: &Entity<Tty7App>, vcx: &mut VisualTestContext| {
             app.read_with(vcx, |app, _| app.tabs[app.active].pane.leaves().len())
         };

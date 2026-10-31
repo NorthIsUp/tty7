@@ -802,8 +802,13 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: Agents,
-            title: SettingsSplitPage,
-            keywords: SettingsSearchSplitPageKeywords,
+            title: SettingsSplitHarness,
+            keywords: SettingsSearchSplitHarnessKeywords,
+        },
+        SearchEntry {
+            section: Agents,
+            title: SettingsSplitDir,
+            keywords: SettingsSearchSplitDirKeywords,
         },
         SearchEntry {
             section: Agents,
@@ -883,7 +888,8 @@ impl SearchEntry {
             L10nKey::SettingsTrimTrailingSpaces => "clipboard_trim_trailing_spaces",
             L10nKey::SettingsCopyJoinWrapped => "copy_join_wrapped",
             L10nKey::SettingsNewTabAgents => "new_tab_hidden_agents",
-            L10nKey::SettingsSplitPage => "split_page",
+            L10nKey::SettingsSplitHarness => "split_harness",
+            L10nKey::SettingsSplitDir => "split_dir",
             L10nKey::SettingsCopyOnSelect => "copy_on_select",
             L10nKey::SettingsSmartSelection => "smart_select",
             L10nKey::SettingsPromptEditor => "prompt_editor",
@@ -977,7 +983,8 @@ impl SearchEntry {
             L10nKey::SettingsTrimTrailingSpaces => t(L10nKey::SettingsTrimTrailingSpacesDesc),
             L10nKey::SettingsCopyJoinWrapped => t(L10nKey::SettingsCopyJoinWrappedDesc),
             L10nKey::SettingsNewTabAgents => t(L10nKey::SettingsNewTabAgentsDesc),
-            L10nKey::SettingsSplitPage => t(L10nKey::SettingsSplitPageDesc),
+            L10nKey::SettingsSplitHarness => t(L10nKey::SettingsSplitHarnessDesc),
+            L10nKey::SettingsSplitDir => t(L10nKey::SettingsSplitDirDesc),
             L10nKey::SettingsVerifyHostKeys => t(L10nKey::SettingsVerifyHostKeysDesc),
             L10nKey::SettingsStartupWindow => t(L10nKey::SettingsStartupWindowDesc),
             L10nKey::SettingsRememberWindowSize => t(L10nKey::SettingsRememberWindowSizeDesc),
@@ -1079,7 +1086,8 @@ impl SearchEntry {
             L10nKey::SettingsNewTabAgents => {
                 cfg.fork.new_tab_hidden_agents != defaults.fork.new_tab_hidden_agents
             }
-            L10nKey::SettingsSplitPage => cfg.fork.split_page != defaults.fork.split_page,
+            L10nKey::SettingsSplitHarness => cfg.fork.split_harness != defaults.fork.split_harness,
+            L10nKey::SettingsSplitDir => cfg.fork.split_dir != defaults.fork.split_dir,
             L10nKey::SettingsCopyOnSelect => cfg.copy_on_select != defaults.copy_on_select,
             L10nKey::SettingsSmartSelection => cfg.smart_select != defaults.smart_select,
             L10nKey::SettingsPromptEditor => cfg.prompt_editor != defaults.prompt_editor,

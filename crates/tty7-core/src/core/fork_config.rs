@@ -35,9 +35,18 @@ pub struct ForkConfig {
     /// New Tab opens the new tab page — pick an agent or a terminal and a
     /// directory — instead of a shell in the current tab's directory.
     pub new_tab_page: bool,
-    /// ⌘D and ⌘⇧D open the new tab page to pick the split's kind and
-    /// directory, instead of copying the pane being split.
-    pub split_page: bool,
+    /// What ⌘D and ⌘⇧D run in the split.
+    #[serde(deserialize_with = "de_lenient")]
+    pub split_harness: SplitHarness,
+    /// Where ⌘D and ⌘⇧D start the split.
+    #[serde(deserialize_with = "de_lenient")]
+    pub split_dir: SplitDir,
+    /// Retired for `split_harness` and `split_dir`: read once by [`migrate`]
+    /// and never written back.
+    ///
+    /// [`migrate`]: ForkConfig::migrate
+    #[serde(skip_serializing)]
+    pub split_page: Option<bool>,
     /// Agents the new tab page leaves out, by slug, though they are on `PATH`.
     pub new_tab_hidden_agents: BTreeSet<String>,
     /// Directories whose children the new tab page offers (`~` expands).
@@ -100,7 +109,9 @@ impl Default for ForkConfig {
             agent_resume_mode: AgentResumeMode::Typed,
             continue_interrupted_agents: false,
             new_tab_page: true,
-            split_page: false,
+            split_harness: SplitHarness::Choose,
+            split_dir: SplitDir::Choose,
+            split_page: None,
             new_tab_hidden_agents: BTreeSet::new(),
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
             dir_frecency: HashMap::new(),
@@ -124,6 +135,41 @@ impl Default for ForkConfig {
             global_hotkey_fade_ms: 150,
         }
     }
+}
+
+impl ForkConfig {
+    /// After load: `split_page: false` was upstream's ⌘D, a plain shell in
+    /// the pane's directory.
+    pub(crate) fn migrate(&mut self) {
+        if self.split_page.take() == Some(false) {
+            self.split_harness = SplitHarness::Terminal;
+            self.split_dir = SplitDir::Same;
+        }
+    }
+}
+
+/// What a split runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitHarness {
+    /// A plain shell, as upstream.
+    Terminal,
+    /// What the pane being split runs: its agent, started fresh, else a shell.
+    Same,
+    /// The new tab page asks, starting on the pane's harness.
+    #[default]
+    Choose,
+}
+
+/// Where a split starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitDir {
+    /// The pane's own directory, as upstream.
+    Same,
+    /// The new tab page asks, starting on the pane's directory.
+    #[default]
+    Choose,
 }
 
 /// Where a sidebar group header's outline or fill takes its colour from.
@@ -187,7 +233,8 @@ mod tests {
         "agent_resume_mode": "program",
         "continue_interrupted_agents": true,
         "new_tab_page": false,
-        "split_page": true,
+        "split_harness": "same",
+        "split_dir": "same",
         "dir_roots": ["~/work"],
         "dir_frecency": {"/Users/me/src/x": {"count": 2, "last_used": 9}},
         "group_colors": {"clawmux": "#ffd7d7"},
@@ -285,6 +332,37 @@ mod tests {
         assert!(saved.get("github_panel_default_list").is_none());
         assert!(saved.get("github_panel_session_filter").is_none());
         assert!(saved.get("continue_stagger_ms").is_none());
+    }
+
+    /// `split_page: false` becomes upstream's split; true or absent, the
+    /// page asking both.
+    #[test]
+    fn split_page_migrates_to_the_split_settings() {
+        use super::{SplitDir, SplitHarness};
+        let load = |text: &str| {
+            let dir = tempfile::TempDir::new().unwrap();
+            let path = dir.path().join("config.json");
+            std::fs::write(&path, text).unwrap();
+            let cfg = Config::load_from(&path).0;
+            (cfg.fork.split_harness, cfg.fork.split_dir)
+        };
+        let asks = (SplitHarness::Choose, SplitDir::Choose);
+        assert_eq!(
+            load(r#"{"split_page": false}"#),
+            (SplitHarness::Terminal, SplitDir::Same)
+        );
+        assert_eq!(load(r#"{"split_page": true}"#), asks);
+        assert_eq!(load("{}"), asks);
+        assert_eq!(
+            load(r#"{"split_harness": "same", "split_dir": "same"}"#),
+            (SplitHarness::Same, SplitDir::Same)
+        );
+
+        let mut cfg = Config::default();
+        cfg.fork.split_page = Some(false);
+        let saved = serde_json::to_value(&cfg).unwrap();
+        assert!(saved.get("split_page").is_none(), "never written back");
+        assert_eq!(saved["split_harness"], "choose");
     }
 
     /// Upstream's behaviour until the user opts in.

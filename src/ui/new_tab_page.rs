@@ -29,6 +29,7 @@ use crate::ui::path_display::{abbreviate_home, local_home};
 use crate::ui::search::view as search;
 use crate::ui::search::view::SearchRow;
 use crate::ui::search::{CARD_MAX_W, SearchTab, fuzzy_score};
+use tty7_core::core::fork_config::{SplitDir, SplitHarness};
 use tty7_core::host::Host;
 use tty7_core::host::local::LocalHost;
 
@@ -68,7 +69,7 @@ impl Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Target {
     Tab,
-    /// Beside the focused pane (`split_page`), on ⌘D's or ⌘⇧D's axis.
+    /// Beside the focused pane, on ⌘D's or ⌘⇧D's axis.
     Split(Axis),
 }
 
@@ -85,6 +86,8 @@ pub(crate) struct NewTabPage {
     /// thread, and only for the query it was asked for.
     typed: Option<(String, Dir)>,
     rows: Vec<PathBuf>,
+    /// `split_dir: same`: the one row is the pane's directory, whatever is typed.
+    dir_fixed: bool,
     selected: usize,
     home: Option<PathBuf>,
     scroll: ScrollHandle,
@@ -284,6 +287,14 @@ fn initial_kind(offered: &[CLIAgent], usage: &HashMap<String, ProfileUsage>) -> 
         .map_or(0, |at| at + 1)
 }
 
+/// The kind a split starts on: what the pane being split is running, or
+/// Terminal when that is a plain shell or an agent the page does not offer.
+fn split_kind(running: Option<CLIAgent>, offered: &[CLIAgent]) -> usize {
+    running
+        .and_then(|agent| offered.iter().position(|&o| o == agent))
+        .map_or(0, |at| at + 1)
+}
+
 /// Only [`Tty7App::open_from_new_tab_page`] calls this: a cancelled page is
 /// not a use.
 fn bump_frecency(cfg: &mut Config, dir: &Path, now: u64) {
@@ -305,6 +316,7 @@ impl NewTabPage {
         listing: impl FnOnce(&dyn Host) -> Vec<Dir> + Send + 'static,
         kinds: Vec<Kind>,
         kind: usize,
+        dir_fixed: bool,
         home: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -353,6 +365,7 @@ impl NewTabPage {
             kind,
             rows: dirs.iter().map(|(d, _)| d.clone()).collect(),
             dirs,
+            dir_fixed,
             typed: None,
             selected: 0,
             home,
@@ -363,6 +376,9 @@ impl NewTabPage {
     }
 
     fn refilter(&mut self, cx: &App) {
+        if self.dir_fixed {
+            return;
+        }
         let query = self.query.read(cx).value();
         let typed = self
             .typed
@@ -596,29 +612,58 @@ impl Tty7App {
         if !cx.global::<Config>().fork.new_tab_page {
             return false;
         }
-        self.open_page(Target::Tab, window, cx)
+        self.open_page(Target::Tab, None, None, window, cx)
     }
 
-    /// ⌘D's and ⌘⇧D's first stop when `split_page` is on. False leaves the
-    /// split to upstream: off, or the pane is a remote one, which a split
-    /// dials again rather than opening a local pick beside it.
+    /// ⌘D and ⌘⇧D, per `split_harness` and `split_dir`: the page when either
+    /// is `choose`, asking only that and starting on the pane's harness and
+    /// directory; with neither, the split itself. False leaves the split to
+    /// upstream: a plain shell in the pane's directory, or a remote pane,
+    /// which a split dials again rather than opening a local pick beside it.
     pub(crate) fn open_split_page(
         &mut self,
         axis: Axis,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let remote = self.focused_leaf(window, cx).is_some_and(|leaf| {
-            let leaf = leaf.read(cx);
-            leaf.ssh_spec().is_some() || leaf.remote_context().is_some()
-        });
-        if !cx.global::<Config>().fork.split_page || remote {
+        let Some(leaf) = self.focused_leaf(window, cx) else {
+            return false;
+        };
+        let leaf = leaf.read(cx);
+        if leaf.ssh_spec().is_some() || leaf.remote_context().is_some() {
             return false;
         }
-        self.open_page(Target::Split(axis), window, cx)
+        let (running, cwd) = (leaf.agent(), leaf.spawnable_cwd());
+        let fork = &cx.global::<Config>().fork;
+        let kind = match fork.split_harness {
+            SplitHarness::Terminal => Some(Kind::Terminal),
+            SplitHarness::Same => Some(running.map_or(Kind::Terminal, Kind::Agent)),
+            SplitHarness::Choose => None,
+        };
+        // A pane with no known directory leaves the page to ask for one.
+        let dir = match fork.split_dir {
+            SplitDir::Same => cwd,
+            SplitDir::Choose => None,
+        };
+        match (kind, fork.split_dir) {
+            (Some(Kind::Terminal), SplitDir::Same) => false,
+            (Some(Kind::Agent(agent)), SplitDir::Same) => {
+                self.split_agent_in(agent, axis, None, window, cx);
+                true
+            }
+            _ => self.open_page(Target::Split(axis), kind, dir, window, cx),
+        }
     }
 
-    fn open_page(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// `kind` and `dir`, when given, are the only ones the page offers.
+    fn open_page(
+        &mut self,
+        target: Target,
+        kind: Option<Kind>,
+        dir: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.can_spawn_locally(cx) {
             return false;
         }
@@ -639,29 +684,52 @@ impl Tty7App {
             })
             .collect();
         let active = cwds.get(self.active).cloned().flatten();
+        let running = match target {
+            Target::Tab => None,
+            Target::Split(_) => self
+                .focused_leaf(window, cx)
+                .and_then(|leaf| leaf.read(cx).agent()),
+        };
         let tab_cwds: Vec<PathBuf> = cwds.into_iter().flatten().collect();
         let mut offered = self.offered_agents(cx);
         let home = local_home();
         let cfg = cx.global::<Config>();
         offered.retain(|a| !cfg.fork.new_tab_hidden_agents.contains(a.slug()));
-        let kind = initial_kind(&offered, &cfg.agent_frecency);
+        let (kinds, kind) = match kind {
+            Some(kind) => (vec![kind], 0),
+            None => {
+                let kind = match target {
+                    Target::Tab => initial_kind(&offered, &cfg.agent_frecency),
+                    Target::Split(_) => split_kind(running, &offered),
+                };
+                let kinds = std::iter::once(Kind::Terminal)
+                    .chain(offered.into_iter().map(Kind::Agent))
+                    .collect();
+                (kinds, kind)
+            }
+        };
         // The open tabs are directories already, so they show at once; the
         // listing that has to touch the disk lands a moment later.
         let mut seen = HashSet::new();
-        let dirs: Vec<Dir> = active
-            .iter()
-            .chain(&tab_cwds)
-            .filter(|d| seen.insert((*d).clone()))
-            .map(|d| (d.clone(), d.clone()))
-            .collect();
+        let dirs: Vec<Dir> = match &dir {
+            Some(dir) => vec![(dir.clone(), dir.clone())],
+            None => active
+                .iter()
+                .chain(&tab_cwds)
+                .filter(|d| seen.insert((*d).clone()))
+                .map(|d| (d.clone(), d.clone()))
+                .collect(),
+        };
         let (frecency, roots, now) = (
             cfg.fork.dir_frecency.clone(),
             cfg.fork.dir_roots.clone(),
             unix_now(),
         );
         let listing_home = home.clone();
-        let listing = move |host: &dyn Host| {
-            candidates(
+        let fixed = dir.clone();
+        let listing = move |host: &dyn Host| match fixed {
+            Some(dir) => vec![(dir.clone(), dir)],
+            None => candidates(
                 host,
                 active.as_deref(),
                 &tab_cwds,
@@ -669,14 +737,15 @@ impl Tty7App {
                 &roots,
                 listing_home.as_deref(),
                 now,
-            )
+            ),
         };
-        let kinds = std::iter::once(Kind::Terminal)
-            .chain(offered.into_iter().map(Kind::Agent))
-            .collect();
         let app = cx.entity().downgrade();
-        let page =
-            cx.new(|cx| NewTabPage::new(app, target, dirs, listing, kinds, kind, home, window, cx));
+        let dir_fixed = dir.is_some();
+        let page = cx.new(|cx| {
+            NewTabPage::new(
+                app, target, dirs, listing, kinds, kind, dir_fixed, home, window, cx,
+            )
+        });
         self.open_search(SearchTab::NewTab, "", window, cx);
         if let Some(search) = &self.search {
             search.update(cx, |search, cx| {
@@ -756,6 +825,8 @@ mod tests {
 
     use super::*;
     use crate::core::session::Session;
+    use crate::daemon::protocol::DaemonMsg;
+    use crate::ui::app::test_window::harness_with_tabs;
     use crate::ui::windows::WindowRegistry;
 
     const NOW: u64 = 1_800_000_000;
@@ -1039,5 +1110,116 @@ mod tests {
                 "Esc counts no use"
             );
         });
+    }
+
+    #[gpui::test]
+    fn a_split_asks_only_what_its_settings_leave_to_choose(cx: &mut TestAppContext) {
+        let (app, mut vcx, mut streams) = harness_with_tabs(cx, 1);
+        // Offered whatever is on this machine's `PATH`: any executable will do.
+        let exe = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        vcx.update(|_, cx| {
+            let cfg = cx.global_mut::<Config>();
+            assert_eq!(cfg.fork.split_harness, SplitHarness::Choose);
+            assert_eq!(cfg.fork.split_dir, SplitDir::Choose);
+            cfg.agent_launch.insert(CLIAgent::Codex.slug().into(), exe);
+        });
+        let dir = std::env::temp_dir();
+        let set = |vcx: &mut VisualTestContext, harness, split_dir| {
+            vcx.update(|_, cx| {
+                let fork = &mut cx.global_mut::<Config>().fork;
+                (fork.split_harness, fork.split_dir) = (harness, split_dir);
+            })
+        };
+        // The page's kinds, the one it starts on, and its rows; `None` when
+        // the split went ahead without it.
+        let open = |vcx: &mut VisualTestContext| {
+            let opened = app.update_in(vcx, |app, window, cx| {
+                app.open_split_page(Axis::Horizontal, window, cx)
+            });
+            vcx.run_until_parked();
+            let page = app.read_with(vcx, |app, cx| {
+                app.search.as_ref().and_then(|s| s.read(cx).new_tab_page())
+            });
+            let Some(page) = page else {
+                return (opened, None);
+            };
+            let seen = page.read_with(vcx, |p, _| (p.kinds.clone(), p.kind, p.rows.clone()));
+            app.update_in(vcx, |app, window, cx| app.close_search(window, cx));
+            (opened, Some(seen))
+        };
+        // The reader thread brings the pane's reports in on its own time.
+        let settle = |vcx: &mut VisualTestContext, agent: Option<CLIAgent>| {
+            for _ in 0..200 {
+                let seen = app.read_with(vcx, |app, cx| {
+                    let leaf = app.tabs[0].pane.first_leaf()?.terminal()?.clone();
+                    let leaf = leaf.read(cx);
+                    Some((leaf.agent(), leaf.cwd()))
+                });
+                if seen == Some((agent, Some(dir.clone()))) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            panic!("the pane never reported {agent:?} in {dir:?}");
+        };
+
+        DaemonMsg::Cwd(dir.clone()).encode(&mut streams[0]).unwrap();
+        settle(&mut vcx, None);
+        let (_, page) = open(&mut vcx);
+        let (kinds, kind, rows) = page.expect("both choose: the page");
+        assert_eq!(
+            kinds[kind],
+            Kind::Terminal,
+            "a plain shell starts on Terminal"
+        );
+        assert_eq!(rows[0], dir, "on the pane's directory");
+
+        DaemonMsg::Agent(Some(CLIAgent::Codex))
+            .encode(&mut streams[0])
+            .unwrap();
+        settle(&mut vcx, Some(CLIAgent::Codex));
+        let codex = Kind::Agent(CLIAgent::Codex);
+        let (_, page) = open(&mut vcx);
+        let (kinds, kind, rows) = page.unwrap();
+        assert!(kinds.len() > 1, "every kind offered");
+        assert_eq!(
+            (kinds[kind], &rows[0]),
+            (codex, &dir),
+            "a Codex pane starts on Codex"
+        );
+
+        set(&mut vcx, SplitHarness::Choose, SplitDir::Same);
+        let (_, page) = open(&mut vcx);
+        let (kinds, kind, rows) = page.unwrap();
+        assert_eq!(
+            (kinds[kind], rows),
+            (codex, vec![dir.clone()]),
+            "the directory fixed"
+        );
+        assert!(kinds.len() > 1);
+
+        set(&mut vcx, SplitHarness::Same, SplitDir::Choose);
+        let (kinds, _, rows) = open(&mut vcx).1.unwrap();
+        assert_eq!((kinds, &rows[0]), (vec![codex], &dir), "the kind fixed");
+
+        set(&mut vcx, SplitHarness::Terminal, SplitDir::Choose);
+        assert_eq!(open(&mut vcx).1.unwrap().0, vec![Kind::Terminal]);
+
+        set(&mut vcx, SplitHarness::Terminal, SplitDir::Same);
+        assert_eq!(open(&mut vcx), (false, None), "upstream's split");
+
+        set(&mut vcx, SplitHarness::Same, SplitDir::Same);
+        assert_eq!(open(&mut vcx), (true, None), "Codex split beside, no page");
+    }
+
+    #[test]
+    fn a_split_falls_back_to_terminal_for_an_agent_not_offered() {
+        let offered = [CLIAgent::Claude, CLIAgent::Codex];
+        assert_eq!(split_kind(Some(CLIAgent::Codex), &offered), 2);
+        assert_eq!(split_kind(None, &offered), 0);
+        assert_eq!(split_kind(Some(CLIAgent::Codex), &[CLIAgent::Claude]), 0);
     }
 }

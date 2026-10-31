@@ -2563,13 +2563,23 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
         }
-        L10nKey::SettingsSplitPage => "分割時に開くものを選ぶ",
-        L10nKey::SettingsSplitPageDesc => {
-            "⌘D と ⌘⇧D で新しいタブのピッカーを開き、分割をターミナルまたはエージェントにして任意のディレクトリで開けます。"
+        L10nKey::SettingsSplitHarness => "分割で開くもの",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "⌘D と ⌘⇧D でペインの隣に開くもの: ターミナル、ペインと同じエージェント、または新しいタブのピッカーで選ぶ。"
         }
-        L10nKey::SettingsSearchSplitPageKeywords => {
-            "分割 ペイン ピッカー エージェント ターミナル split pane picker agent terminal claude codex cmd d"
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "分割 ペイン エージェント ターミナル ピッカー split pane harness agent terminal picker claude codex cmd d"
         }
+        L10nKey::SettingsSplitDir => "分割のディレクトリ",
+        L10nKey::SettingsSplitDirDesc => {
+            "⌘D と ⌘⇧D の開始場所: ペインのディレクトリ、または新しいタブのピッカーで選ぶ。"
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "分割 ペイン ディレクトリ フォルダ split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "ターミナル",
+        L10nKey::SettingsSplitSame => "ペインと同じ",
+        L10nKey::SettingsSplitChoose => "選ぶ",
         L10nKey::GitHubSortRecent => "最近",
         L10nKey::GitHubSortNumber => "番号",
         L10nKey::GitHubReviewPlaceholder => "レビューを書く…",
