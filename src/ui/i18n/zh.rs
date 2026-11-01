@@ -1870,6 +1870,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
             "已删除 worktree；分支“{branch}”有未合并的提交，已保留"
         }
         L10nKey::AppPaneNoCodingAgent => "此窗格未运行编码 agent",
+        L10nKey::AppCodexServerDraining => "Codex 的后台服务器正在关闭",
+        L10nKey::AppCodexServerRestart => "重启 Codex 服务器",
+        L10nKey::AppCodexServerRestartFailed => "无法重启 Codex 的后台服务器",
         L10nKey::AppForkNoCommand => "tty7 没有用于 {name} 的 fork 命令",
         L10nKey::AppForkLocalOnly => "无法在 SSH 或 WSL 会话里 fork {name} 会话",
         L10nKey::AppForkNoSessionId => {

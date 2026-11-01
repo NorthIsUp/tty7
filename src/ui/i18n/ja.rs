@@ -2070,6 +2070,11 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "ワークツリーを削除しました。ブランチ「{branch}」には未マージのコミットがあるため残しました"
         }
         L10nKey::AppPaneNoCodingAgent => "このペインはコーディングエージェントを実行していません",
+        L10nKey::AppCodexServerDraining => "Codex のバックグラウンドサーバーが終了しています",
+        L10nKey::AppCodexServerRestart => "Codex サーバーを再起動",
+        L10nKey::AppCodexServerRestartFailed => {
+            "Codex のバックグラウンドサーバーを再起動できませんでした"
+        }
         L10nKey::AppForkNoCommand => "tty7 には {name} 用のフォークコマンドがありません",
         L10nKey::AppForkLocalOnly => {
             "SSH または WSL セッション内の {name} のセッションはフォークできません"

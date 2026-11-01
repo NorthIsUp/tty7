@@ -16,7 +16,7 @@ const PROMPT_POLL: Duration = Duration::from_millis(50);
 
 /// Whether `view`'s shell, and so its agent session, runs on this machine:
 /// not a remote workspace's pane, not SSH (native or typed), not WSL.
-fn on_this_machine(view: &TerminalView) -> bool {
+pub(crate) fn on_this_machine(view: &TerminalView) -> bool {
     view.pane_route().is_local() && view.ssh_spec().is_none() && view.remote_context().is_none()
 }
 

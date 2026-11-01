@@ -1026,11 +1026,20 @@ impl CLIAgent {
         match self {
             // codex 0.166 `resume` from another directory: Esc picks the
             // session's directory in one key, where `1` only moves the cursor.
-            CLIAgent::Codex => &[StartupPrompt {
-                name: "resume-cwd",
-                screen: r"(?s)Use session directory.*Use current directory.*esc use session",
-                answer: Answer::Keys(b"\x1b"),
-            }],
+            CLIAgent::Codex => &[
+                StartupPrompt {
+                    name: "resume-cwd",
+                    screen: r"(?s)Use session directory.*Use current directory.*esc use session",
+                    answer: Answer::Keys(b"\x1b"),
+                },
+                // Every resume fails while the shared app-server drains, and
+                // restarting it cuts off running sessions: the user decides.
+                StartupPrompt {
+                    name: "app-server-draining",
+                    screen: r"Server is draining|serverShuttingDown",
+                    answer: Answer::Offer(Offer::RestartCodexServer),
+                },
+            ],
             _ => &[],
         }
     }
@@ -1206,6 +1215,22 @@ pub struct StartupPrompt {
 pub enum Answer {
     /// Typed into the agent while it still runs.
     Keys(&'static [u8]),
+    /// Offered to the user, once per incident however many panes show it.
+    Offer(Offer),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offer {
+    RestartCodexServer,
+}
+
+impl Offer {
+    /// Run by the agent's own binary.
+    pub fn args(self) -> &'static [&'static str] {
+        match self {
+            Offer::RestartCodexServer => &["app-server", "daemon", "restart"],
+        }
+    }
 }
 
 /// Watches a pane whose agent just started for [`STARTUP_WINDOW`], to answer
@@ -1635,6 +1660,24 @@ enter continue · esc use session · ^c quit";
                 .answer("1. Use session directory (/path)\nUse current directory")
                 .is_none(),
             "only the picker whose footer says what esc does"
+        );
+    }
+
+    #[test]
+    fn a_draining_codex_app_server_offers_a_restart() {
+        let watch = StartupWatch::new(CLIAgent::Codex, Instant::now()).unwrap();
+        let screen = "Error: Failed to resume session from /x thread/resume failed during TUI \
+                      bootstrap: thread/resume failed: Server is draining; retry after \
+                      reconnecting (code -32600), data: {\"reason\":\"serverShuttingDown\"}";
+        let prompt = watch.answer(screen).unwrap();
+        assert_eq!(prompt.name, "app-server-draining");
+        assert!(matches!(
+            prompt.answer,
+            Answer::Offer(Offer::RestartCodexServer)
+        ));
+        assert_eq!(
+            Offer::RestartCodexServer.args(),
+            ["app-server", "daemon", "restart"]
         );
     }
 

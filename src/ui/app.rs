@@ -11180,6 +11180,14 @@ fn build_terminal_view(
     cx.subscribe_in(
         &view,
         window,
+        |_, view, ev: &crate::terminal::view::StartupOffer, window, cx| {
+            crate::ui::agent_resume::offer(ev.0, view, window, cx);
+        },
+    )
+    .detach();
+    cx.subscribe_in(
+        &view,
+        window,
         |app, view, _: &crate::terminal::view::AuthPromptReady, window, cx| {
             app.on_auth_prompt_ready(view.clone(), window, cx);
         },
