@@ -2152,6 +2152,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRestartServerSubtitle => "завершить все оболочки, сохранить расположение",
         L10nKey::CmdQuitTty7 => "Выйти из tty7",
         L10nKey::CmdQuitTty7Subtitle => "остановить сервер и завершить все оболочки",
+        L10nKey::CmdGoToPane => "Перейти к панели %{n}",
+        L10nKey::CmdGoToTabAddress => "Перейти к вкладке @{n}",
         L10nKey::CmdQuickConnect => "Подключиться к «{target}»",
         L10nKey::CmdQuickConnectSaveProfile => "Сохранить «{target}» как профиль…",
         L10nKey::CmdRecent => "Недавние",

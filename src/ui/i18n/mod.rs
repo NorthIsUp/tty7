@@ -1644,6 +1644,8 @@ l10n_keys! {
     CmdRestartServerSubtitle,
     CmdQuitTty7,
     CmdQuitTty7Subtitle,
+    CmdGoToPane,
+    CmdGoToTabAddress,
     CmdQuickConnect,
     CmdQuickConnectSaveProfile,
     CmdRecent,

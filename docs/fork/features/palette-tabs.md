@@ -48,3 +48,7 @@ New Tab opens a picker for what to open and where, drawn as Search Everywhere's 
 | `src/ui/panel_search.rs` | module list | `pub(crate) mod model` for `split_relative` |
 | `src/ui/app.rs` | `open_search` | `catalog.live = palette_live_tabs(..)` |
 | `src/ui/app.rs` | `run_command` | dispatch `CommandKind::SearchText` |
+| `src/ui/search/sources.rs` | `Terminals::search`, `parse_goto`, `goto_rows` | a typed `%N`/`@N` (or `pane N`/`tab N`) leads with a row that goes there, numbered as `tty7 pane ls` and `tty7 ls` number them |
+| `src/ui/search/command.rs`, `src/ui/app.rs` | `CommandKind::GoToPane`; `run_command` | the pane row lands on its tab (waking it) and focuses the pane |
+| `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | before `CmdQuickConnect` | `CmdGoToPane`, `CmdGoToTabAddress` |
+| `docs/window/search-everywhere.mdx` | Tabs table, Terminals | the pane and tab addresses |

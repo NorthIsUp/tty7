@@ -7199,6 +7199,34 @@ impl Tty7App {
                 self.open_file_in_editor_at(&path, Some(line + 1), Some(column + 1), window, cx)
             }
             GoToTab { workspace, tab } => self.go_to_tab(workspace, tab, false, window, cx),
+            GoToPane {
+                workspace,
+                tab,
+                pane,
+            } => {
+                self.go_to_tab(workspace, tab, false, window, cx);
+                // A tab that was asleep woke with new pane ids, and one in
+                // another window is that window's to focus: landing on the
+                // tab is all either gets.
+                let leaf = self.tabs.get(self.active).and_then(|t| {
+                    t.pane
+                        .leaves()
+                        .into_iter()
+                        .find(|l| l.terminal().is_some_and(|v| v.read(cx).pane_id == pane))
+                });
+                if let Some(leaf) = leaf {
+                    if self
+                        .maximized
+                        .as_ref()
+                        .is_some_and(|m| m.entity_id() != leaf.entity_id())
+                    {
+                        self.maximized = None;
+                    }
+                    self.tabs[self.active].last_focused = Some(leaf.entity_id());
+                    self.focus_leaf(&leaf, window, cx);
+                    cx.notify();
+                }
+            }
             ResumeSession {
                 agent,
                 session_id,
@@ -13737,6 +13765,51 @@ mod displayed_gpui_tests {
                 None,
                 "a closed pane's flag does not outlive it"
             );
+        });
+    }
+}
+
+#[cfg(test)]
+mod palette_goto_gpui_tests {
+    use gpui::TestAppContext;
+
+    use crate::terminal::view::quiet_test_pane;
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::pane::{Pane, PaneSlot};
+    use crate::ui::search::CommandKind;
+
+    #[gpui::test]
+    fn go_to_pane_lands_on_its_tab_with_that_pane_focused(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            let (view, stream) = quiet_test_pane(891, window, cx);
+            let first = app.tabs[1].pane.first_leaf().expect("tab 1 has a pane");
+            app.tabs[1].pane = Pane::split_node(
+                gpui::Axis::Horizontal,
+                0.5,
+                Pane::leaf(first),
+                Pane::leaf(PaneSlot::Ready(view)),
+            );
+            let (workspace, tab) = (app.workspace, app.tabs[1].tree_id.get());
+
+            app.run_command(
+                CommandKind::GoToPane {
+                    workspace,
+                    tab,
+                    pane: 891,
+                },
+                window,
+                cx,
+            );
+
+            assert_eq!(app.active, 1, "the pane's tab is in front");
+            let focused = app.tabs[1]
+                .pane
+                .focused_leaf(window, cx)
+                .and_then(|l| l.terminal().map(|v| v.read(cx).pane_id));
+            assert_eq!(focused, Some(891), "and the pane itself has focus");
+            drop(stream);
         });
     }
 }
