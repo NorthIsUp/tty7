@@ -70,7 +70,13 @@ impl Job {
 struct Slot {
     since: Instant,
     foreground: Option<Instant>,
+    /// The session each pane's agent had reported when the pool first saw it.
+    reported: HashMap<EntityId, Option<String>>,
 }
+
+/// A pane as a tick sees it: whether an agent is in front, whether that
+/// agent has a session, and the session its hooks reported, if any.
+type Leaf = (EntityId, bool, bool, Option<String>);
 
 /// The queue, the slots, and what each tab is started with (`T`, the window
 /// it lives in, its job, and its prompt).
@@ -128,6 +134,7 @@ impl<T: Clone> Pool<T> {
                 Slot {
                     since: now,
                     foreground: None,
+                    reported: HashMap::new(),
                 },
             );
             admitted.push((id, at, job, prompt));
@@ -170,6 +177,34 @@ impl<T: Clone> Pool<T> {
             self.finish(id);
         }
         done
+    }
+
+    /// What tab `id` adds up to, from whether it sleeps and its panes (`None`
+    /// when it is gone). A starting tab is up only on a session its agent
+    /// reported after the pool first saw the pane: an id read off the resume's
+    /// own argv, or the status the daemon replays on attach, was there before
+    /// this start.
+    fn sight(&mut self, id: TabId, sight: Option<(bool, Vec<Leaf>)>) -> Seen {
+        let Some((asleep, leaves)) = sight else {
+            return Seen::Gone;
+        };
+        if asleep {
+            return Seen::Asleep;
+        }
+        let mut slot = self.starting.get_mut(&id);
+        let leaves: Vec<(bool, bool)> = leaves
+            .into_iter()
+            .map(
+                |(pane, agent, session, reported)| match slot.as_deref_mut() {
+                    Some(slot) => {
+                        let before = slot.reported.entry(pane).or_insert(reported.clone());
+                        (agent, reported.is_some() && *before != reported)
+                    }
+                    None => (agent, session),
+                },
+            )
+            .collect();
+        classify(false, leaves)
     }
 
     fn finish(&mut self, id: TabId) {
@@ -318,14 +353,15 @@ fn start(id: TabId, (app, window): &Window, job: &Job, prompt: Option<&str>, cx:
 fn tick(cx: &mut App) -> bool {
     let now = Instant::now();
     let pool = &cx.global::<WakePool>().pool;
-    let seen: Vec<(TabId, Seen)> = pool
+    let sights: Vec<_> = pool
         .jobs
         .iter()
         .map(|(id, ((app, _), job, _))| (*id, see(*id, app, job, cx)))
         .collect();
     let pool = &mut cx.global_mut::<WakePool>().pool;
     let mut changed = false;
-    for (id, seen) in seen {
+    for (id, sight) in sights {
+        let seen = pool.sight(id, sight);
         if pool.observe(id, seen, now) {
             changed = true;
             log::info!(
@@ -346,22 +382,25 @@ fn tick(cx: &mut App) -> bool {
 
 /// Tab `id` as `job` sees it: a resume looks only at its own panes, so a live
 /// agent in a split beside them does not count as theirs.
-fn see(id: TabId, app: &WeakEntity<Tty7App>, job: &Job, cx: &App) -> Seen {
-    let Some(app) = app.upgrade() else {
-        return Seen::Gone;
-    };
-    let Some(tab) = app.read(cx).tabs.iter().find(|t| t.tree_id.get() == id) else {
-        return Seen::Gone;
-    };
-    let terminals = tab.pane.terminals();
-    let leaves = terminals
+fn see(id: TabId, app: &WeakEntity<Tty7App>, job: &Job, cx: &App) -> Option<(bool, Vec<Leaf>)> {
+    let app = app.upgrade()?;
+    let tab = app.read(cx).tabs.iter().find(|t| t.tree_id.get() == id)?;
+    let leaves = tab
+        .pane
+        .terminals()
         .iter()
         .filter(|v| job.covers(v.entity_id()))
         .map(|view| {
-            let view = view.read(cx);
-            (view.agent().is_some(), view.agent_session().is_some())
-        });
-    classify(tab.is_asleep(), leaves)
+            let session = view.read(cx).agent_session();
+            let reported = session
+                .as_ref()
+                .filter(|s| s.rich)
+                .and_then(|s| s.session_id.clone());
+            let agent = view.read(cx).agent().is_some();
+            (view.entity_id(), agent, session.is_some(), reported)
+        })
+        .collect();
+    Some((tab.is_asleep(), leaves))
 }
 
 /// What a tab is, from whether it sleeps and, for each of its panes, whether
@@ -490,6 +529,49 @@ pub(super) mod tests {
             classify(false, [(true, false), (true, true)]),
             Seen::Session
         );
+    }
+
+    /// A tab used to leave its slot a tick after it started, on the session
+    /// its resume's argv named or the daemon replayed, long before Codex did.
+    #[test]
+    fn a_starting_tab_is_up_only_on_a_session_reported_after_it_started() {
+        let (tab, queued) = (TabId::new(), TabId::new());
+        let pane = gpui::EntityId::from(1u64);
+        let mut pool = Pool::default();
+        pool.enqueue(
+            [tab, queued].map(|id| (id, Job::ResumeDead(vec![pane]))),
+            (),
+            None,
+        );
+        pool.admit(1, Instant::now());
+        let leaf = |reported: Option<&str>| {
+            Some((
+                false,
+                vec![(pane, true, true, reported.map(str::to_string))],
+            ))
+        };
+        assert_eq!(
+            pool.sight(queued, leaf(None)),
+            Seen::Session,
+            "a queued tab's agent is up by any session"
+        );
+        assert_eq!(
+            pool.sight(tab, leaf(Some("s1"))),
+            Seen::Foreground,
+            "replayed"
+        );
+        assert_eq!(pool.sight(tab, leaf(Some("s1"))), Seen::Foreground);
+        assert_eq!(pool.sight(tab, leaf(Some("s2"))), Seen::Session, "reported");
+
+        let fresh = TabId::new();
+        pool.enqueue([(fresh, Job::Wake)], (), None);
+        pool.finish(tab);
+        pool.admit(2, Instant::now());
+        assert_eq!(pool.sight(fresh, leaf(None)), Seen::Foreground, "argv only");
+        assert_eq!(pool.sight(fresh, leaf(Some("s1"))), Seen::Session);
+
+        assert_eq!(pool.sight(fresh, None), Seen::Gone);
+        assert_eq!(pool.sight(fresh, Some((true, Vec::new()))), Seen::Asleep);
     }
 
     #[test]
