@@ -2800,11 +2800,18 @@ impl DaemonPane {
     /// [`codex_report_target`].
     pub fn codex_candidate(&self, agent: crate::core::cli_agent::CLIAgent) -> CodexCandidate {
         let st = self.state.lock().unwrap();
+        let session = st.agent_session.as_ref().and_then(|s| s.session_id.clone());
+        let resuming = st
+            .agent_argv
+            .as_deref()
+            .and_then(|argv| agent.session_id_in_argv(argv))
+            .filter(|id| session.as_ref() != Some(id));
         CodexCandidate {
             pane: self.id,
             runs_codex: st.alive && st.agent == Some(agent),
             cwd: st.cwd.clone(),
-            session: st.agent_session.as_ref().and_then(|s| s.session_id.clone()),
+            session,
+            resuming,
             entered: st.fork.entered_at.map(|at| at.elapsed()),
         }
     }
@@ -4056,6 +4063,9 @@ pub struct CodexCandidate {
     pub runs_codex: bool,
     pub cwd: Option<PathBuf>,
     pub session: Option<String>,
+    /// The session its `codex resume <id>` names, while it has yet to report
+    /// it: the one report it can be sent next.
+    pub resuming: Option<String>,
     /// How long ago Enter was last typed into it.
     pub entered: Option<Duration>,
 }
@@ -4121,10 +4131,15 @@ pub fn codex_report_target(
 ) -> Option<u64> {
     let codex = || panes.iter().filter(|p| p.runs_codex);
     if let Some(session) = session
-        && let Some(owner) = codex().find(|p| p.session.as_deref() == Some(session))
+        && let Some(owner) = codex().find(|p| {
+            p.session.as_deref() == Some(session) || p.resuming.as_deref() == Some(session)
+        })
     {
         return Some(owner.pane);
     }
+    // A pane resuming a session reports that one first, so no other report is
+    // its: in a burst of resumes, the tie below would pin one on the wrong pane.
+    let codex = || codex().filter(|p| p.resuming.is_none());
     let here: Vec<&CodexCandidate> = codex()
         .filter(|p| {
             cwd.zip(p.cwd.as_deref())
@@ -4756,6 +4771,39 @@ mod tests {
         let _ = std::fs::remove_file(&file);
     }
 
+    /// Continue All types `codex resume <id>` into many panes in the one
+    /// directory within a second; each report is the pane's that resumes it,
+    /// never the one Enter went to last.
+    #[test]
+    fn a_burst_of_resumes_keeps_each_report_on_its_own_pane() {
+        let pane = |pane: u64, resuming: Option<&str>, ago: u64| CodexCandidate {
+            pane,
+            runs_codex: true,
+            cwd: Some(PathBuf::from("/home")),
+            session: None,
+            resuming: resuming.map(str::to_string),
+            entered: Some(Duration::from_secs(ago)),
+        };
+        let panes = [
+            pane(1, Some("s-1"), 3),
+            pane(2, Some("s-2"), 2),
+            pane(3, Some("s-3"), 1),
+        ];
+        let target = |session| {
+            codex_report_target(&panes, 1, Some(session), Some(Path::new("/home")), false)
+        };
+        assert_eq!(target("s-1"), Some(1), "not pane 3, entered last");
+        assert_eq!(target("s-2"), Some(2));
+        assert_eq!(target("s-other"), None, "every pane waits on its own");
+
+        let mixed = [pane(1, Some("s-1"), 1), pane(2, None, 5)];
+        assert_eq!(
+            codex_report_target(&mixed, 1, Some("s-new"), Some(Path::new("/home")), false),
+            Some(2),
+            "a fresh Codex beside them still gets its new session"
+        );
+    }
+
     /// A hook's report that arrives over the socket lands like one read off
     /// the output — but only from a process that runs in the pane.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -4766,6 +4814,7 @@ mod tests {
             runs_codex: codex,
             cwd: Some(PathBuf::from(cwd)),
             session: session.map(str::to_string),
+            resuming: None,
             entered: None,
         };
         let panes = [
@@ -4875,6 +4924,7 @@ mod tests {
                 runs_codex: true,
                 cwd: Some(PathBuf::from("/work/f")),
                 session: None,
+                resuming: None,
                 entered: None,
             }
         };
