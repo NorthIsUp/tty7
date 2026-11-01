@@ -2,11 +2,15 @@
 //! sidebar, per machine, and the `tty7` command on PATH.
 
 use crate::core::agent_hooks::{HookAgent, HooksState};
+use crate::core::cli_agent::CLIAgent;
 use tty7_core::core::fork_config::{SplitDir, SplitHarness};
 
 use super::kit::{self, BtnKind, Tk, fs};
 use super::shell::MenuEntry;
 use super::*;
+
+/// The integrations list's New Tab column: wide enough for its header.
+const NEW_TAB_COL: f32 = 80.;
 
 /// The agent the tab bar draws for this hook, so the two show the same mark.
 fn cli_agent(agent: HookAgent) -> crate::core::cli_agent::CLIAgent {
@@ -64,59 +68,76 @@ impl Tty7App {
     pub(crate) fn render_settings_agents(&self, cx: &mut Context<Self>) -> AnyElement {
         Self::settings_page([
             self.render_agent_hooks_group(cx),
-            self.render_new_tab_agents_rows(cx),
+            self.render_split_rows(cx),
             self.render_command_line_rows(cx),
         ])
     }
 
-    /// A switch per agent on `PATH`: the ones the New Tab page offers.
-    fn render_new_tab_agents_rows(&self, cx: &mut Context<Self>) -> AnyElement {
-        let cfg = cx.global::<Config>();
-        let hidden = &cfg.fork.new_tab_hidden_agents;
-        let agents = crate::ui::agent_launch::installed_on(
-            &std::env::var_os("PATH").unwrap_or_default(),
-            &cfg.agent_launch,
-        );
+    /// The New Tab column's cell for `agent`: its switch when the New Tab page
+    /// can offer it, else empty so every row's column lines up.
+    fn new_tab_cell(&self, agent: Option<CLIAgent>, cx: &mut Context<Self>) -> AnyElement {
+        let cell = h_flex().w(px(NEW_TAB_COL)).flex_shrink_0().justify_center();
+        let Some(agent) = agent else {
+            return cell.into_any_element();
+        };
+        let on = !cx
+            .global::<Config>()
+            .fork
+            .new_tab_hidden_agents
+            .contains(agent.slug());
+        cell.debug_selector(move || format!("new-tab-agent-{}", agent.slug()))
+            .child(
+                kit::switch(("new-tab-agent", agent as usize))
+                    .small()
+                    .label(format!(
+                        "{} {}",
+                        agent.display_name(),
+                        t(L10nKey::SettingsNewTabAgents)
+                    ))
+                    .checked(on)
+                    .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                        let on = *on;
+                        this.update_config(cx, |c| {
+                            let hidden = &mut c.fork.new_tab_hidden_agents;
+                            match on {
+                                true => hidden.remove(agent.slug()),
+                                false => hidden.insert(agent.slug().to_string()),
+                            };
+                        })
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// A row for an agent on `PATH` that has no hooks, so its New Tab switch
+    /// still has a place in the list.
+    fn render_new_tab_only_row(&self, agent: CLIAgent, cx: &mut Context<Self>) -> AnyElement {
         let tk = Tk::of(cx);
-        // `Switch::label` is only the screen-reader name, so each switch
-        // draws its agent beside it.
-        let switches = agents.into_iter().map(|agent| {
-            h_flex()
-                .gap(px(6.))
-                .items_center()
-                .debug_selector(move || format!("new-tab-agent-{}", agent.slug()))
-                .child(agent_disc(agent, tk))
-                .child(
-                    div()
-                        .text_size(fs(12.5))
-                        .text_color(tk.fg)
-                        .child(agent.display_name()),
-                )
-                .child(
-                    kit::switch(("new-tab-agent", agent as usize))
-                        .small()
-                        .label(agent.display_name())
-                        .checked(!hidden.contains(agent.slug()))
-                        .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                            let on = *on;
-                            this.update_config(cx, |c| {
-                                let hidden = &mut c.fork.new_tab_hidden_agents;
-                                match on {
-                                    true => hidden.remove(agent.slug()),
-                                    false => hidden.insert(agent.slug().to_string()),
-                                };
-                            })
-                        })),
-                )
-        });
-        // The control column never shrinks, so the cap is what makes it wrap.
-        let control = h_flex()
-            .flex_wrap()
-            .max_w(px(360.))
-            .gap_x(px(16.))
-            .gap_y(px(8.))
-            .children(switches)
-            .into_any_element();
+        h_flex()
+            .min_h(px(52.))
+            .py(px(8.))
+            .gap(px(12.))
+            .items_center()
+            .child(agent_disc(agent, tk))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
+                    .child(agent.display_name())
+                    .child(
+                        div()
+                            .text_size(fs(11.5))
+                            .text_color(tk.k45)
+                            .truncate()
+                            .child(t(L10nKey::SettingsAgentNoHooks)),
+                    ),
+            )
+            .child(self.new_tab_cell(Some(agent), cx))
+            .into_any_element()
+    }
+
+    fn render_split_rows(&self, cx: &mut Context<Self>) -> AnyElement {
         let fork = &cx.global::<Config>().fork;
         let (harness, dir) = (fork.split_harness, fork.split_dir);
         let harnesses = [
@@ -156,13 +177,6 @@ impl Tty7App {
             None,
             None,
             [
-                self.settings_row(
-                    t(L10nKey::SettingsNewTabAgents),
-                    t(L10nKey::SettingsNewTabAgentsDesc),
-                    control,
-                    cx,
-                )
-                .into_any_element(),
                 self.settings_row(
                     t(L10nKey::SettingsSplitHarness),
                     t(L10nKey::SettingsSplitHarnessDesc),
@@ -385,8 +399,19 @@ impl Tty7App {
                     .filter(|r| self.agent_launch_open(cli_agent(r.agent), cx))
                     .map(|r| r.agent)
                     .collect();
+                // The New Tab page is this Mac's, so only the local list
+                // carries its column.
+                let new_tab = match selected.is_local() {
+                    true => crate::ui::agent_launch::installed_on(
+                        &std::env::var_os("PATH").unwrap_or_default(),
+                        &cx.global::<Config>().agent_launch,
+                    ),
+                    false => Vec::new(),
+                };
                 let has = |r: &AgentHookRow| {
-                    r.state != HooksState::NotInstalled || launch_open.contains(&r.agent)
+                    r.state != HooksState::NotInstalled
+                        || launch_open.contains(&r.agent)
+                        || new_tab.contains(&cli_agent(r.agent))
                 };
                 let is_focused =
                     |r: &AgentHookRow| focused.is_some_and(|k| t(k) == r.agent.display_name());
@@ -415,7 +440,16 @@ impl Tty7App {
                             .unwrap_or(0),
                     )
                 });
-                let none = list.is_empty();
+                let unhooked: Vec<CLIAgent> = new_tab
+                    .iter()
+                    .copied()
+                    .filter(|a| !HookAgent::ALL.iter().any(|h| cli_agent(*h) == *a))
+                    .filter(|a| {
+                        query.is_empty() || a.display_name().to_lowercase().contains(&query)
+                    })
+                    .collect();
+                let hidden = rows.len() - list.len();
+                let none = list.is_empty() && unhooked.is_empty();
                 let bounded = !query.is_empty() || show_all;
                 let scroll = s.agent_list_scroll.clone();
                 let mut col = v_flex().id("agent-hook-list-rows").when(bounded, |c| {
@@ -429,14 +463,42 @@ impl Tty7App {
                         .as_ref()
                         .filter(|(a, _)| *a == row.agent)
                         .map(|(_, text)| text.clone());
+                    let cell = selected.is_local().then(|| {
+                        let mark = cli_agent(row.agent);
+                        self.new_tab_cell(new_tab.contains(&mark).then_some(mark), cx)
+                    });
                     col = col.child(self.render_agent_row(
                         i,
                         row,
                         busy.contains(&row.agent),
                         row_note,
                         menu_open.as_deref(),
+                        cell,
                         cx,
                     ));
+                }
+                for agent in unhooked {
+                    col = col.child(self.render_new_tab_only_row(agent, cx));
+                }
+                if selected.is_local() && !none {
+                    let label = t(L10nKey::SettingsNewTabAgents);
+                    body.push(
+                        h_flex()
+                            .id("new-tab-col-header")
+                            .anchor_scroll(self.first_hit_anchor(label, cx))
+                            .justify_end()
+                            .child(
+                                h_flex()
+                                    .debug_selector(|| "new-tab-col-header".into())
+                                    .w(px(NEW_TAB_COL))
+                                    .justify_center()
+                                    .whitespace_nowrap()
+                                    .text_size(fs(11.))
+                                    .text_color(tk.k45)
+                                    .child(label),
+                            )
+                            .into_any_element(),
+                    );
                 }
                 body.push(
                     div()
@@ -466,7 +528,7 @@ impl Tty7App {
                     );
                 }
                 let rest = total - installed;
-                if query.is_empty() && rest > 0 {
+                if query.is_empty() && rest > 0 && (show_all || hidden > 0) {
                     body.push(
                         h_flex()
                             .h(px(40.))
@@ -475,7 +537,7 @@ impl Tty7App {
                             .text_size(fs(12.))
                             .text_color(tk.k45)
                             .when(!show_all, |r| {
-                                r.child(t_plural(L10nKey::SettingsMoreAgents, rest, &[]))
+                                r.child(t_plural(L10nKey::SettingsMoreAgents, hidden, &[]))
                             })
                             .child(
                                 kit::button(
@@ -518,6 +580,7 @@ impl Tty7App {
         busy: bool,
         note: Option<String>,
         menu_open: Option<&str>,
+        new_tab: Option<AnyElement>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let tk = Tk::of(cx);
@@ -704,7 +767,8 @@ impl Tty7App {
                                 )
                             })
                             .children(menu),
-                    ),
+                    )
+                    .children(new_tab),
             )
             .children(launch_panel)
             .when_some(note, |col, text| {

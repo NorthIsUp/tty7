@@ -2603,10 +2603,11 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "Параметры запуска…",
         L10nKey::SettingsAgentSummaryModel => "модель: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} параметров",
-        L10nKey::SettingsNewTabAgents => "Агенты в новой вкладке",
+        L10nKey::SettingsNewTabAgents => "В новой вкладке",
         L10nKey::SettingsNewTabAgentsDesc => {
             "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
         }
+        L10nKey::SettingsAgentNoHooks => "Для этого агента нет хуков статуса",
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
         }

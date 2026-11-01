@@ -2323,10 +2323,11 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "启动选项…",
         L10nKey::SettingsAgentSummaryModel => "模型：{model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} 个选项",
-        L10nKey::SettingsNewTabAgents => "新标签页中的 Agent",
+        L10nKey::SettingsNewTabAgents => "在新标签页中",
         L10nKey::SettingsNewTabAgentsDesc => {
             "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
         }
+        L10nKey::SettingsAgentNoHooks => "此 Agent 没有状态钩子",
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
         }

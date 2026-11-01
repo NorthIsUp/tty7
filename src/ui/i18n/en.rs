@@ -2502,10 +2502,11 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsAgentLaunchOptions => "Launch options…",
         L10nKey::SettingsAgentSummaryModel => "model: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} options",
-        L10nKey::SettingsNewTabAgents => "Agents in New Tab",
+        L10nKey::SettingsNewTabAgents => "In New Tab",
         L10nKey::SettingsNewTabAgentsDesc => {
             "The agents the New Tab page offers beside Terminal. One switched off is still on PATH and everywhere else"
         }
+        L10nKey::SettingsAgentNoHooks => "No status hooks for this agent",
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "agents new tab page offer hide claude codex pi"
         }

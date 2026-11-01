@@ -2573,10 +2573,11 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "起動オプション…",
         L10nKey::SettingsAgentSummaryModel => "モデル: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} 個のオプション",
-        L10nKey::SettingsNewTabAgents => "新しいタブのエージェント",
+        L10nKey::SettingsNewTabAgents => "新しいタブに表示",
         L10nKey::SettingsNewTabAgentsDesc => {
             "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
         }
+        L10nKey::SettingsAgentNoHooks => "このエージェントにはステータスフックがありません",
         L10nKey::SettingsSearchNewTabAgentsKeywords => {
             "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
         }

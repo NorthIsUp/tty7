@@ -21,9 +21,9 @@ New Tab opens a picker for what to open and where, drawn as Search Everywhere's 
 | file | function / site | why |
 |---|---|---|
 | `crates/tty7-core/src/core/fork_config.rs` | `new_tab_hidden_agents` | the agents the page leaves out |
-| `src/ui/settings/agents.rs` | `render_new_tab_agents_rows` | Agents in New Tab: a switch per agent on `PATH` |
-| `src/ui/settings.rs`, `src/ui/app.rs` | search entries, config key, description, modified check; reset | Agents in New Tab as a setting like any other |
-| `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsNewTabAgents`(`Desc`), `SettingsSearchNewTabAgentsKeywords`; `SettingsSplitHarness`(`Desc`), `SettingsSplitDir`(`Desc`), their `SettingsSearch…Keywords`, `SettingsSplitTerminal`/`Same`/`Choose` |
+| `src/ui/settings/agents.rs` | `new_tab_cell`, `render_new_tab_only_row`, `render_split_rows`; `render_agent_hooks_group` (header, `has`, "more agents" count), `render_agent_row` (`new_tab` cell) | In New Tab: a column of the local integrations list, a switch per agent on `PATH`; an agent on `PATH` with no hooks gets a row of its own; agents on `PATH` are listed without Show all |
+| `src/ui/settings.rs`, `src/ui/app.rs` | search entries, config key, description, modified check; reset | In New Tab as a setting like any other |
+| `src/ui/i18n/{mod,en,ja,ru,zh}.rs` | after `GitHubOpenInGraphite` | `SettingsNewTabAgents`(`Desc`), `SettingsAgentNoHooks`, `SettingsSearchNewTabAgentsKeywords`; `SettingsSplitHarness`(`Desc`), `SettingsSplitDir`(`Desc`), their `SettingsSearch…Keywords`, `SettingsSplitTerminal`/`Same`/`Choose` |
 | `src/ui/app.rs` | `new_tab` | open Search Everywhere's New Tab tab when `new_tab_page` is on |
 | `src/ui/app.rs` | `split`, `split_slot_in` (`split_slot` with a start directory) | ⌘D/⌘⇧D go through `open_split_page`: the page with a split as its target, or the split per `split_harness` and `split_dir` |
 | `src/ui/agent_launch.rs` | `split_agent_in`, which `launch_agent`'s split also goes through | an agent picked for a split starts in the pane the split placed, in the picked directory |
