@@ -5,6 +5,7 @@
 //! and dialog copy, and the line a restored agent pane types.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, EntityId, Global, IntoElement as _,
@@ -23,13 +24,13 @@ use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingSpawn;
 use crate::ui::wake_pool::Job;
 use crate::ui::windows::WindowRegistry;
-use tty7_core::core::agent_history::Roots;
+use tty7_core::core::agent_history::{self, Roots};
 use tty7_core::core::claude_background::{self, ResumePlan};
 use tty7_core::core::cli_agent::CLIAgent;
 use tty7_core::core::fork_config::AgentResumeMode;
 use tty7_core::core::last_session;
 use tty7_core::core::machine::{AgentFacts, TabId};
-use tty7_core::core::shell_quote::{quote_for_shell, runs_once};
+use tty7_core::core::shell_quote::{quote_for_shell, runs_once, runs_or_list};
 use tty7_core::core::shells::login_shell;
 use tty7_core::daemon::protocol::FEATURE_RUN_ONCE;
 use tty7_core::daemon::spawn::local_daemon_supports;
@@ -63,10 +64,11 @@ pub(crate) struct Resume {
 }
 
 impl Resume {
-    /// The command to run under `plan`, quoted for `shell`. Attach and a
-    /// fresh start take no prompt: a running session needs no nudge, and a
-    /// new one has nothing to continue.
-    fn line(&self, plan: ResumePlan, shell: &str) -> Option<String> {
+    /// The command to run under `plan`, quoted for `shell`, a resume from
+    /// `dir`, its session's own directory. Attach and a fresh start take no
+    /// prompt: a running session needs no nudge, and a new one has nothing to
+    /// continue.
+    fn line(&self, plan: ResumePlan, shell: &str, dir: Option<&Path>) -> Option<String> {
         let (session_id, prompt, on_interrupt) = match &self.reopen {
             Reopen::Launch(line) => return Some(line.clone()),
             Reopen::Session {
@@ -76,7 +78,7 @@ impl Resume {
             } => (session_id, prompt.as_deref(), on_interrupt.as_deref()),
         };
         let argv = self.launch_argv.as_deref();
-        let resumed = |prompt| self.resumed(session_id, argv, prompt, shell);
+        let resumed = |prompt| self.resumed(session_id, argv, prompt, shell, dir);
         match plan {
             ResumePlan::Attach(job) => Some(format!("claude attach {job}")),
             ResumePlan::Fresh => self
@@ -95,14 +97,30 @@ impl Resume {
         argv: Option<&[String]>,
         prompt: Option<&str>,
         shell: &str,
+        dir: Option<&Path>,
     ) -> Option<String> {
         let cmd = self.agent.resume_command(session_id, argv)?;
-        Some(
-            match prompt.filter(|p| !p.is_empty() && self.agent.resume_takes_prompt()) {
-                Some(p) => format!("{cmd} {}", quote_for_shell(p, Some(shell))),
-                None => cmd,
-            },
-        )
+        let cmd = match prompt.filter(|p| !p.is_empty() && self.agent.resume_takes_prompt()) {
+            Some(p) => format!("{cmd} {}", quote_for_shell(p, Some(shell))),
+            None => cmd,
+        };
+        // The shells without `||` lack `&&` too.
+        Some(match dir.filter(|_| runs_or_list(shell)) {
+            Some(dir) => format!(
+                "cd {} && {cmd}",
+                quote_for_shell(&dir.to_string_lossy(), Some(shell))
+            ),
+            None => cmd,
+        })
+    }
+
+    /// The directory its session ran in, when that is on this machine.
+    fn session_dir(&self) -> Option<PathBuf> {
+        let Reopen::Session { session_id, .. } = &self.reopen else {
+            return None;
+        };
+        let roots = Roots::local()?;
+        agent_history::session_cwd(&roots, self.agent, session_id).filter(|d| d.is_dir())
     }
 
     /// What a restored pane that ran `agent` reopens: nothing when session
@@ -227,7 +245,9 @@ impl PaneResume {
 
     /// Off the UI thread.
     fn line(&self) -> Option<String> {
-        self.resume.line(self.resume.plan(self.local), &self.shell)
+        let dir = self.local.then(|| self.resume.session_dir()).flatten();
+        self.resume
+            .line(self.resume.plan(self.local), &self.shell, dir.as_deref())
     }
 }
 
@@ -958,6 +978,7 @@ mod tests {
         with_minted_session,
     };
     use gpui::Entity;
+    use std::path::Path;
 
     use crate::core::config::Config;
     use crate::core::session::{RemoteTarget, SessionAxis, SessionPane, SessionTab, WorkspaceId};
@@ -1342,12 +1363,12 @@ mod tests {
             reopen: session(ID, None, Some("continue")),
         };
         assert_eq!(
-            resume.line(ResumePlan::Resume, "zsh").as_deref(),
+            resume.line(ResumePlan::Resume, "zsh", None).as_deref(),
             Some(format!("claude --model opus --resume {ID}").as_str()),
             "an ended turn resumes quiet"
         );
         assert_eq!(
-            resume.line(ResumePlan::Interrupted, "zsh").as_deref(),
+            resume.line(ResumePlan::Interrupted, "zsh", None).as_deref(),
             Some(format!("claude --model opus --resume {ID} continue").as_str()),
             "a cut-off turn is told to carry on"
         );
@@ -1356,22 +1377,24 @@ mod tests {
             ..resume.clone()
         };
         assert_eq!(
-            continue_all.line(ResumePlan::Resume, "zsh").as_deref(),
+            continue_all
+                .line(ResumePlan::Resume, "zsh", None)
+                .as_deref(),
             Some(format!("claude --model opus --resume {ID} 'go on'").as_str()),
             "Continue All's prompt goes either way"
         );
         assert_eq!(
-            resume.line(ResumePlan::Fresh, "zsh").as_deref(),
+            resume.line(ResumePlan::Fresh, "zsh", None).as_deref(),
             Some(format!("claude --model opus --session-id {ID}").as_str())
         );
         assert_eq!(
             resume
-                .line(ResumePlan::Attach("6011098d".into()), "zsh")
+                .line(ResumePlan::Attach("6011098d".into()), "zsh", None)
                 .as_deref(),
             Some("claude attach 6011098d")
         );
         for plan in [ResumePlan::Resume, ResumePlan::Fresh] {
-            assert!(!resume.line(plan, "zsh").unwrap().contains("||"));
+            assert!(!resume.line(plan, "zsh", None).unwrap().contains("||"));
         }
 
         let codex = Resume {
@@ -1380,7 +1403,7 @@ mod tests {
             reopen: session("th_1", None, None),
         };
         assert_eq!(
-            codex.line(ResumePlan::Fresh, "zsh").as_deref(),
+            codex.line(ResumePlan::Fresh, "zsh", None).as_deref(),
             Some("codex resume th_1"),
             "an agent that can't name a new session resumes"
         );
@@ -1388,7 +1411,37 @@ mod tests {
             reopen: session("$(boom)", None, None),
             ..resume
         };
-        assert_eq!(unsafe_id.line(ResumePlan::Resume, "zsh"), None);
+        assert_eq!(unsafe_id.line(ResumePlan::Resume, "zsh", None), None);
+    }
+
+    #[test]
+    fn a_resume_starts_in_its_sessions_directory() {
+        let codex = Resume {
+            agent: CLIAgent::Codex,
+            launch_argv: None,
+            reopen: Reopen::Session {
+                session_id: "th_1".into(),
+                prompt: Some("go on".into()),
+                on_interrupt: None,
+            },
+        };
+        let dir = Some(Path::new("/work/my api"));
+        assert_eq!(
+            codex.line(ResumePlan::Resume, "zsh", dir).as_deref(),
+            Some("cd '/work/my api' && codex resume th_1 'go on'"),
+            "Codex's picker never asks which directory"
+        );
+        assert_eq!(
+            codex.line(ResumePlan::Resume, "nu", dir).as_deref(),
+            Some("codex resume th_1 'go on'"),
+            "a shell without `&&` resumes where it is"
+        );
+        assert_eq!(
+            codex
+                .line(ResumePlan::Attach("6011098d".into()), "zsh", dir)
+                .as_deref(),
+            Some("claude attach 6011098d")
+        );
     }
 
     #[test]
@@ -1402,7 +1455,7 @@ mod tests {
                 on_interrupt: None,
             },
         };
-        let line = resume.line(ResumePlan::Resume, "/bin/zsh").unwrap();
+        let line = resume.line(ResumePlan::Resume, "/bin/zsh", None).unwrap();
         assert!(line.ends_with("'go `rm -rf ~` $HOME'"), "{line}");
     }
 
