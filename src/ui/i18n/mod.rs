@@ -1963,6 +1963,7 @@ l10n_keys! {
     SettingsAgentSummaryExtras,
     SettingsNewTabAgents,
     SettingsNewTabAgentsDesc,
+    SettingsAgentNoHooks,
     SettingsSearchNewTabAgentsKeywords,
     SettingsSplitHarness,
     SettingsSplitHarnessDesc,

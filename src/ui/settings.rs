@@ -3951,27 +3951,58 @@ mod gpui_tests {
         assert_eq!(inner.offset().y, px(0.));
     }
 
-    /// Each New Tab agent switch draws its agent's name beside it: the
-    /// switch's own label only reaches a screen reader.
+    /// The New Tab switches are a column of the integrations list, under its
+    /// header, on hooked rows and on a row for an agent with no hooks alike.
     #[gpui::test]
-    fn new_tab_agent_switches_show_their_agent(cx: &mut TestAppContext) {
+    fn new_tab_switches_line_up_under_their_header(cx: &mut TestAppContext) {
+        use crate::core::agent_hooks::{HookAgent, HooksState};
+
         let (app, mut vcx) = harness(cx);
         app.update_in(&mut vcx, |app, window, cx| {
-            // An override with a path makes Claude "installed" whatever PATH holds.
-            cx.global_mut::<Config>()
-                .agent_launch
-                .insert("claude".into(), "/bin/sh".into());
+            // An override with a path puts an agent on PATH whatever PATH holds.
+            for slug in ["claude", "codex", "aider"] {
+                cx.global_mut::<Config>()
+                    .agent_launch
+                    .insert(slug.into(), "/bin/sh".into());
+            }
             app.open_settings_section(SettingsSection::Agents, window, cx);
+        });
+        vcx.run_until_parked();
+        app.update_in(&mut vcx, |app, _, cx| {
+            let s = app.active_settings_mut().unwrap();
+            s.agent_hooks_seq += 1;
+            s.agent_hooks_states = super::AgentHooksView::Ready(
+                HookAgent::ALL
+                    .iter()
+                    .map(|&agent| super::AgentHookRow {
+                        agent,
+                        state: match agent {
+                            HookAgent::Claude => HooksState::Installed,
+                            _ => HooksState::NotInstalled,
+                        },
+                        target: String::new(),
+                    })
+                    .collect(),
+            );
+            cx.notify();
         });
         vcx.simulate_resize(size(px(1100.), px(700.)));
         vcx.run_until_parked();
-        let item = vcx
-            .debug_bounds("new-tab-agent-claude")
-            .expect("Claude's switch is drawn with its name");
-        assert!(
-            item.size.width > px(90.),
-            "the name takes room beside the switch"
-        );
+        let header = vcx
+            .debug_bounds("new-tab-col-header")
+            .expect("the column has a header");
+        for slug in [
+            "new-tab-agent-claude",
+            "new-tab-agent-codex",
+            "new-tab-agent-aider",
+        ] {
+            let cell = vcx
+                .debug_bounds(slug)
+                .unwrap_or_else(|| panic!("{slug} has a New Tab switch"));
+            assert_eq!(cell.left(), header.left(), "{slug} is under the header");
+            assert_eq!(cell.right(), header.right(), "{slug} is under the header");
+            assert!(cell.top() > header.top());
+        }
     }
 
     /// #1221: the SSH page's "Show all" list scrolls on its own, and only an
