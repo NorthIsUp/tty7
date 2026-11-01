@@ -85,3 +85,14 @@
 | `src/ui/i18n/{mod,en,zh,ja,ru}.rs` | after `SettingsShellStartupEnvlibs` | `SettingsAgentLaunchesAs`, `SettingsAgentModel`(`Desc`), `SettingsAgentPermission`, `SettingsAgentSandbox`, `SettingsAgentApproval`, `SettingsAgentChoiceDesc`, `SettingsAgentDefault`, `SettingsAgentExtraArgs`(`Desc`), `SettingsAgentAddArg`, `SettingsAgentRemoveArg`, `SettingsAgentLaunchOptions`, `SettingsAgentSummaryModel`, `SettingsAgentSummaryExtras` (plural) |
 | `docs/agents/overview.mdx`, `docs/reference/configuration.mdx` | Quick launch; the agents table | the per-agent settings, what each maps to, which launches use them |
 | `docs/agents/sessions.mdx` | resume section | restore asleep, Continue All Agents, `--continue`, hook-free Claude resume |
+
+## Startup prompts
+
+An agent that starts in a pane this view spawned is watched for `STARTUP_WINDOW` (10s): the first of its `CLIAgent::startup_prompts` whose `screen` regex matches the pane's visible text is answered, once, and the watch ends. Each answer logs `agent startup prompt answered: <agent> <name>`, never the screen. An `Answer::Keys` is typed while the agent still runs.
+
+- `resume-cwd`: codex 0.166's directory picker on `codex resume` from another directory, answered with Esc ("esc use session"), since `1` only moves its cursor.
+
+| file | function / site | why |
+|---|---|---|
+| `crates/tty7-core/src/core/cli_agent.rs` | `CLIAgent::startup_prompts`, `StartupPrompt`, `Answer`, `StartupWatch` (+ tests) | the per-agent table and its window |
+| `src/terminal/view.rs` | `TerminalView::startup_watch`, armed in `poll_agent_detection` beside `AgentDetected`; `answer_startup_prompt` (+ test) | the 300ms foreground poll reads the screen and writes the keys |

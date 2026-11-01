@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1018,6 +1020,21 @@ impl CLIAgent {
         Some(out)
     }
 
+    /// The questions this agent can ask as it starts that tty7 answers for
+    /// the user ([`StartupWatch`]).
+    pub fn startup_prompts(self) -> &'static [StartupPrompt] {
+        match self {
+            // codex 0.166 `resume` from another directory: Esc picks the
+            // session's directory in one key, where `1` only moves the cursor.
+            CLIAgent::Codex => &[StartupPrompt {
+                name: "resume-cwd",
+                screen: r"(?s)Use session directory.*Use current directory.*esc use session",
+                answer: Answer::Keys(b"\x1b"),
+            }],
+            _ => &[],
+        }
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn detect_from_argv(argv: &[String]) -> Option<CLIAgent> {
         Self::detect_from_argv_with(argv, &HashMap::new())
@@ -1176,6 +1193,50 @@ pub struct LaunchOption {
     /// The agent's own one-line description, where it gives one.
     pub hint: Option<&'static str>,
     pub argv: &'static [&'static str],
+}
+
+/// Something an agent shows as it starts ([`CLIAgent::startup_prompts`]),
+/// recognised by `screen` matching the pane's visible text.
+pub struct StartupPrompt {
+    pub name: &'static str,
+    pub screen: &'static str,
+    pub answer: Answer,
+}
+
+pub enum Answer {
+    /// Typed into the agent while it still runs.
+    Keys(&'static [u8]),
+}
+
+/// Watches a pane whose agent just started for [`STARTUP_WINDOW`], to answer
+/// the first of its [`StartupPrompt`]s that shows up, once.
+pub struct StartupWatch {
+    pub agent: CLIAgent,
+    until: Instant,
+}
+
+pub const STARTUP_WINDOW: Duration = Duration::from_secs(10);
+
+impl StartupWatch {
+    /// `None` for an agent with nothing to answer.
+    pub fn new(agent: CLIAgent, now: Instant) -> Option<StartupWatch> {
+        (!agent.startup_prompts().is_empty()).then(|| StartupWatch {
+            agent,
+            until: now + STARTUP_WINDOW,
+        })
+    }
+
+    pub fn expired(&self, now: Instant) -> bool {
+        now >= self.until
+    }
+
+    /// The prompt `screen` shows, if any.
+    pub fn answer(&self, screen: &str) -> Option<&'static StartupPrompt> {
+        self.agent
+            .startup_prompts()
+            .iter()
+            .find(|p| Regex::new(p.screen).is_ok_and(|re| re.is_match(screen)))
+    }
 }
 
 /// The program a launch command line runs: its first word that is not an
@@ -1550,6 +1611,44 @@ pub fn parse_agent_event_body(json: &[u8]) -> Option<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// codex 0.166's picker for `codex resume` from another directory.
+    const CODEX_CWD_PICKER: &str = "Working directory · resume
+Session = latest cwd recorded in the resumed session
+Current = your current working directory
+1. Use session directory (/path)
+2. Use current directory (/path)
+3. Always use session directory
+4. Always use current directory
+enter continue · esc use session · ^c quit";
+
+    #[test]
+    fn codex_resume_cwd_picker_is_answered_with_esc() {
+        let now = Instant::now();
+        let watch = StartupWatch::new(CLIAgent::Codex, now).unwrap();
+        let prompt = watch.answer(CODEX_CWD_PICKER).unwrap();
+        assert_eq!(prompt.name, "resume-cwd");
+        assert!(matches!(prompt.answer, Answer::Keys(b"\x1b")));
+        assert!(watch.answer("› Ask Codex to do anything").is_none());
+        assert!(
+            watch
+                .answer("1. Use session directory (/path)\nUse current directory")
+                .is_none(),
+            "only the picker whose footer says what esc does"
+        );
+    }
+
+    #[test]
+    fn a_startup_watch_lasts_its_window() {
+        let now = Instant::now();
+        let watch = StartupWatch::new(CLIAgent::Codex, now).unwrap();
+        assert!(!watch.expired(now + STARTUP_WINDOW - Duration::from_millis(1)));
+        assert!(watch.expired(now + STARTUP_WINDOW));
+        assert!(
+            StartupWatch::new(CLIAgent::Claude, now).is_none(),
+            "nothing to answer"
+        );
+    }
 
     /// A later event that leaves a field out keeps what an earlier one said.
     #[test]

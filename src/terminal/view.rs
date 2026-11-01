@@ -463,6 +463,9 @@ pub struct TerminalView {
     /// counted when it started, so it arms only once its shell is seen back
     /// at the prompt with no agent in front.
     agent_detection_armed: bool,
+    /// The agent that just started here, watched for a startup question to
+    /// answer.
+    startup_watch: Option<crate::core::cli_agent::StartupWatch>,
     last_agent_status: Option<crate::core::cli_agent::AgentStatus>,
     last_agent_session: (Option<String>, Option<Vec<String>>),
     agent_turn_started: Option<std::time::Instant>,
@@ -2058,6 +2061,7 @@ impl TerminalView {
             running_agent: None,
             seen_agent: None,
             agent_detection_armed,
+            startup_watch: None,
             last_agent_status: None,
             last_agent_session: (None, None),
             agent_turn_started: None,
@@ -4706,12 +4710,53 @@ impl TerminalView {
             if let Some(agent) = agent
                 && self.agent_detection_armed
             {
+                self.startup_watch =
+                    crate::core::cli_agent::StartupWatch::new(agent, std::time::Instant::now());
                 cx.emit(AgentDetected(agent));
             }
         }
+        self.answer_startup_prompt(std::time::Instant::now());
         if agent.is_none() && at_prompt {
             self.agent_detection_armed = true;
         }
+    }
+
+    /// Answer the startup question on screen, once, within the watch's window.
+    fn answer_startup_prompt(&mut self, now: std::time::Instant) {
+        use crate::core::cli_agent::Answer;
+        let Some(watch) = &self.startup_watch else {
+            return;
+        };
+        if watch.expired(now) {
+            self.startup_watch = None;
+            return;
+        }
+        let screen = {
+            let term = self.terminal.term.lock();
+            let grid = term.grid();
+            (0..grid.screen_lines() as i32)
+                .map(|line| {
+                    let row = &grid[Line(line)];
+                    let text: String = (0..grid.columns()).map(|c| row[Column(c)].c).collect();
+                    text.trim_end().to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let running = self.terminal.foreground_agent() == Some(watch.agent);
+        let Some(prompt) = watch.answer(&screen) else {
+            return;
+        };
+        match prompt.answer {
+            Answer::Keys(_) if !running => return,
+            Answer::Keys(keys) => self.terminal.write(keys),
+        }
+        log::info!(
+            "agent startup prompt answered: {} {}",
+            watch.agent.slug(),
+            prompt.name
+        );
+        self.startup_watch = None;
     }
 
     fn poll_agent_status(
@@ -17854,6 +17899,75 @@ mod gpui_tests {
             *detected.borrow(),
             vec![CLIAgent::Codex, CLIAgent::Claude],
             "a spawned pane counts its first agent, once"
+        );
+    }
+
+    /// A Codex pane that just started gets one Esc for its resume
+    /// directory picker, and nothing once the watch is answered or over.
+    #[gpui::test]
+    fn a_codex_startup_picker_is_answered_once_within_its_window(cx: &mut TestAppContext) {
+        use crate::core::cli_agent::{CLIAgent, STARTUP_WINDOW};
+
+        crate::core::config::pin_test_config_dir();
+        let (window, _root_daemon) = harness(cx);
+        let picker = "Working directory \u{b7} resume\r\n\
+                      1. Use session directory (/a)\r\n\
+                      2. Use current directory (/b)\r\n\
+                      enter continue \u{b7} esc use session \u{b7} ^c quit\r\n";
+        let start = |output: &str, cx: &mut TestAppContext| {
+            let (pane, mut daemon) = window
+                .update(cx, |_, window, cx| super::quiet_test_pane(3, window, cx))
+                .unwrap();
+            DaemonMsg::Output(output.as_bytes().to_vec())
+                .encode(&mut daemon)
+                .unwrap();
+            DaemonMsg::Agent(Some(CLIAgent::Codex))
+                .encode(&mut daemon)
+                .unwrap();
+            for _ in 0..200 {
+                let landed = pane.read_with(cx, |p, _| {
+                    p.terminal.foreground_agent().is_some()
+                        && (output.is_empty()
+                            || p.terminal.term.lock().grid().cursor.point.line.0 > 0)
+                });
+                if landed {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            (pane, daemon)
+        };
+        let inputs = |daemon: &mut Stream| {
+            daemon
+                .set_read_timeout(Some(std::time::Duration::from_millis(300)))
+                .unwrap();
+            let mut keys = Vec::new();
+            while let Ok(msg) = ClientMsg::read(daemon) {
+                if let ClientMsg::Input(bytes) = msg {
+                    keys.push(bytes);
+                }
+            }
+            keys
+        };
+
+        let (pane, mut daemon) = start(picker, cx);
+        pane.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        pane.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        assert_eq!(inputs(&mut daemon), vec![b"\x1b".to_vec()], "answered once");
+
+        let (late, mut late_daemon) = start("", cx);
+        late.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        DaemonMsg::Output(picker.as_bytes().to_vec())
+            .encode(&mut late_daemon)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        late.update(cx, |p, _| {
+            p.answer_startup_prompt(std::time::Instant::now() + STARTUP_WINDOW)
+        });
+        late.update(cx, |p, cx| p.poll_agent_detection(false, cx));
+        assert!(
+            inputs(&mut late_daemon).is_empty(),
+            "the window closed first"
         );
     }
 
