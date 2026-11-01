@@ -2010,6 +2010,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
             "Removed worktree; kept branch \"{branch}\", which has unmerged commits"
         }
         L10nKey::AppPaneNoCodingAgent => "This pane isn't running a coding agent",
+        L10nKey::AppCodexServerDraining => "Codex's background server is shutting down",
+        L10nKey::AppCodexServerRestart => "Restart Codex server",
+        L10nKey::AppCodexServerRestartFailed => "Couldn't restart Codex's background server",
         L10nKey::AppForkNoCommand => "tty7 has no fork command for {name}",
         L10nKey::AppForkLocalOnly => {
             "{name} sessions can't be forked from inside an SSH or WSL session"

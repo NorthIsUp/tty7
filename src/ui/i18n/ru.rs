@@ -2230,6 +2230,9 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
             "Worktree удалён, ветка «{branch}» с невлитыми коммитами сохранена"
         }
         L10nKey::AppPaneNoCodingAgent => "В этой панели не работает агент",
+        L10nKey::AppCodexServerDraining => "Фоновый сервер Codex завершает работу",
+        L10nKey::AppCodexServerRestart => "Перезапустить сервер Codex",
+        L10nKey::AppCodexServerRestartFailed => "Не удалось перезапустить фоновый сервер Codex",
         L10nKey::AppForkNoCommand => "У tty7 нет команды форка для {name}",
         L10nKey::AppForkLocalOnly => "Форк сеансов {name} недоступен из SSH или WSL",
         L10nKey::AppForkNoSessionId => {
