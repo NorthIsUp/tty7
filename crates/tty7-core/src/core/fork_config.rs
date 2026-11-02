@@ -82,6 +82,16 @@ pub struct ForkConfig {
     /// The GitHub panel shows `origin` (the fork) until a remote is picked,
     /// instead of `upstream`.
     pub github_panel_prefer_origin: bool,
+    /// The system-wide chord that shows and hides tty7, in keymap syntax
+    /// (`alt-space`, `cmd-shift-t`); `null` or `""` turns it off. macOS only.
+    pub global_hotkey: Option<String>,
+    /// The hotkey summons the window over the whole screen the mouse is on,
+    /// floating above other apps.
+    pub global_hotkey_fullscreen: bool,
+    /// Hide tty7 whenever it loses focus after the hotkey summoned it.
+    pub global_hotkey_hide_on_blur: bool,
+    /// How long the hotkey's fade in and out takes; 0 is instant.
+    pub global_hotkey_fade_ms: u64,
     /// Settings → Agents' launch settings, by agent slug. Appended to the
     /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
     #[serde(deserialize_with = "de_lenient")]
@@ -117,6 +127,10 @@ impl Default for ForkConfig {
             animations: true,
             nice: 5,
             github_panel_prefer_origin: true,
+            global_hotkey: Some("alt-space".into()),
+            global_hotkey_fullscreen: false,
+            global_hotkey_hide_on_blur: false,
+            global_hotkey_fade_ms: 150,
             agent_settings: HashMap::new(),
         }
     }
