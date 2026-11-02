@@ -2391,6 +2391,14 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsShellStartupUser => "你的 rc 文件",
         L10nKey::SettingsShellStartupNoRcs => "不读取 rc 文件",
         L10nKey::SettingsShellStartupEnvlibs => "不读取 rc 文件 + 环境工具",
+        // quiet-close
+        L10nKey::SettingsQuietClose => "未操作的标签页关闭时不确认",
+        L10nKey::SettingsQuietCloseDesc => {
+            "本次启动打开、且从未输入、粘贴或拖放过的标签页或窗格，关闭时不再询问。恢复的标签页仍会询问。"
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "关闭 确认 跳过 未操作 新建 标签页 窗格 quiet close skip confirm untouched new tab pane fresh"
+        }
     })
 }
 
