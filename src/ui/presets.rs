@@ -105,10 +105,10 @@ pub mod state {
     pub const CURSOR: f32 = 1.70;
     /// The side panels' own, lighter rungs (see `Theme::panel_surface`).
     /// A panel lists many rows at once, and at the window's 1.30 the current
-    /// one read as a dark slab; these land on #ededec / #e8e8e7 on the
-    /// default light rail (#f5f5f4).
+    /// one read as a dark slab; the current tab still has to be found at a
+    /// glance in a long column, so its rung sits well above hover.
     pub const PANEL_HOVER: f32 = 1.07;
-    pub const PANEL_SELECTED: f32 = 1.12;
+    pub const PANEL_SELECTED: f32 = 1.22;
     pub const TEXT_RESTING: f32 = 4.6;
     pub const TEXT_STEP: f32 = 1.4;
 }
@@ -125,6 +125,12 @@ pub struct Surface {
     pub cursor: u32,
     pub text_resting: u32,
     pub text_selected: u32,
+}
+
+/// A panel's selected rung on `base` and its ink.
+fn panel_selected(base: u32, fg: u32, text_resting: u32) -> (u32, u32) {
+    let selected = raise(base, shade_of(base, fg), state::PANEL_SELECTED);
+    (selected, stepped_ink(selected, base, fg, text_resting))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -298,13 +304,12 @@ impl Theme {
     /// tint out of a rung this faint, and the row reads as a grey patch on
     /// cream.
     fn panel_surface(&self, base: u32, text_resting: u32, fg: u32) -> Surface {
-        let shade = shade_of(base, fg);
-        let selected = raise(base, shade, state::PANEL_SELECTED);
+        let (selected, text_selected) = panel_selected(base, fg, text_resting);
         Surface {
-            hover: raise(base, shade, state::PANEL_HOVER),
+            hover: raise(base, shade_of(base, fg), state::PANEL_HOVER),
             selected,
             text_resting,
-            text_selected: stepped_ink(selected, base, fg, text_resting),
+            text_selected,
             ..self.surface(base)
         }
     }
@@ -429,7 +434,7 @@ impl Theme {
         let fg = legible_foreground(self.background_color(), self.foreground);
         // The panels once climbed a rung *above* the window (1.50), when a
         // regular-weight current tab was the faintest mark in its column. The
-        // current title is SEMIBOLD now and carries that on its own; a heavy
+        // current title is BOLD now and carries that on its own; a heavy
         // fill on top of it read as a pressed button rather than as a place.
         let sidebar = self.panel_surface(m.sidebar, m.sidebar_fg, fg);
         let rail = self.panel_surface(m.rail, m.rail_fg, fg);
