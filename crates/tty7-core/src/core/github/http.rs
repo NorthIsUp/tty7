@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use ureq::http::Method;
+
 use super::api::{ApiError, Reply, Transport, classify, link_has_next};
 use super::token::Token;
 
@@ -93,7 +95,19 @@ impl Transport for HttpTransport {
     }
 
     fn post(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
-        self.request(path, "application/vnd.github+json", Some(body))
+        self.request(
+            path,
+            "application/vnd.github+json",
+            Some((Method::POST, body)),
+        )
+    }
+
+    fn put(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
+        self.request(
+            path,
+            "application/vnd.github+json",
+            Some((Method::PUT, body)),
+        )
     }
 
     fn authenticated(&self) -> bool {
@@ -102,8 +116,13 @@ impl Transport for HttpTransport {
 }
 
 impl HttpTransport {
-    /// A GET, or a POST of `body` as JSON.
-    fn request(&self, path: &str, accept: &str, body: Option<&[u8]>) -> Result<Reply, ApiError> {
+    /// A GET, or a POST or PUT of `body` as JSON.
+    fn request(
+        &self,
+        path: &str,
+        accept: &str,
+        body: Option<(Method, &[u8])>,
+    ) -> Result<Reply, ApiError> {
         let url = format!("{API}{path}");
         // Only a plain GET is revalidated: `get_full` carries signed
         // attachment URLs that expire, so its old body must not be replayed.
@@ -117,10 +136,18 @@ impl HttpTransport {
                 }
                 request.call()
             }
-            Some(body) => self
-                .headers(self.agent.post(url), accept)
-                .header("Content-Type", "application/json")
-                .send(body),
+            Some((method, body)) => {
+                let request = match method {
+                    Method::POST => self.agent.post(url),
+                    Method::PUT => self.agent.put(url),
+                    other => {
+                        return Err(ApiError::Network(format!("unsupported method {other}")));
+                    }
+                };
+                self.headers(request, accept)
+                    .header("Content-Type", "application/json")
+                    .send(body)
+            }
         };
         // ureq's error text names the URL and the transport failure, never
         // the request headers, so it is safe to show.
@@ -265,6 +292,16 @@ mod tests {
     #[test]
     fn a_redirect_to_another_host_does_not_receive_the_token() {
         assert_eq!(redirected_auth("localhost", 301), (404, vec![true, false]));
+    }
+
+    #[test]
+    fn an_unsupported_method_is_an_error_not_a_post() {
+        let transport = HttpTransport::new(None, None);
+        let got = transport.request("/x", "application/json", Some((Method::DELETE, b"{}")));
+        assert_eq!(
+            got.err(),
+            Some(ApiError::Network("unsupported method DELETE".into()))
+        );
     }
 
     fn reply(body: &str) -> Reply {
