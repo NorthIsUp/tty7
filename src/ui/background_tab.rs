@@ -84,9 +84,9 @@ impl Tty7App {
         background: bool,
         open: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        self.open_in_background = background;
+        let outer = std::mem::replace(&mut self.open_in_background, background);
         let out = open(self);
-        self.open_in_background = false;
+        self.open_in_background = outer;
         out
     }
 
@@ -158,6 +158,19 @@ mod tests {
         assert_eq!(seat(&app, &mut vcx, true), (3, 1), "added, still on tab 1");
         assert!(!app.update(&mut vcx, |app, _| app.open_in_background));
         assert_eq!(seat(&app, &mut vcx, false), (4, 2), "foreground: activated");
+    }
+
+    #[gpui::test]
+    fn a_nested_open_leaves_the_outer_background_open_in_force(cx: &mut gpui::TestAppContext) {
+        let (app, mut vcx, _streams) = test_window::harness_with_tabs(cx, 1);
+        let after_inner = app.update(&mut vcx, |app, _| {
+            app.in_background(true, |app| {
+                app.in_background(false, |_| ());
+                app.open_in_background
+            })
+        });
+        assert!(after_inner, "the inner open must not clear the outer one");
+        assert!(!app.update(&mut vcx, |app, _| app.open_in_background));
     }
 
     /// ⇧Enter confirms the row too: the list binds only a bare Enter.
