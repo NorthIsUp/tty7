@@ -2529,6 +2529,11 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppCodexServerRestartFailed => {
             "Codex のバックグラウンドサーバーを再起動できませんでした"
         }
+        // search-text
+        L10nKey::CmdSearchText => "ファイル内のテキストを検索…",
+        L10nKey::SearchTabText => "テキスト",
+        L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
+        L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
     })
 }
 

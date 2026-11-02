@@ -1931,6 +1931,11 @@ l10n_keys! {
     AppCodexServerDraining,
     AppCodexServerRestart,
     AppCodexServerRestartFailed,
+    // search-text
+    CmdSearchText,
+    SearchTabText,
+    SearchPlaceholderText,
+    SearchTextTooShort,
 }
 
 /// The source control strings that are translated but not yet displayed.
