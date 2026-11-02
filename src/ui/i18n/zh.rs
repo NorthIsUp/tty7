@@ -2372,6 +2372,17 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
         // github-row-links
         L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
+        // tab-usage
+        L10nKey::SettingsTabUsagePid => "显示每个标签页的 PID",
+        L10nKey::SettingsTabUsagePidDesc => "在侧边栏标签行末尾显示前台窗格的 shell 进程 ID",
+        L10nKey::SettingsTabUsageCpu => "显示每个标签页的 CPU",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "标签页所有窗格中全部进程（含子进程）的 CPU 占用。100% 为一个核心"
+        }
+        L10nKey::SettingsTabUsageMemory => "显示每个标签页的内存",
+        L10nKey::SettingsTabUsageMemoryDesc => "标签页所有窗格中全部进程（含子进程）的常驻内存",
+        L10nKey::SettingsTabUsageAnnotate => "标注高资源占用的标签页",
+        L10nKey::SettingsTabUsageAnnotateDesc => "占用较高时，以警告色显示该标签页的 CPU 或内存",
     })
 }
 

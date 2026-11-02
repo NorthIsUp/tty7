@@ -2620,6 +2620,23 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
         // github-row-links
         L10nKey::GitHubOpenInGraphite => "Graphite で開く",
+        // tab-usage
+        L10nKey::SettingsTabUsagePid => "各タブの PID を表示",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "サイドバーのタブ行の末尾に、前面ペインのシェルのプロセス ID を表示します"
+        }
+        L10nKey::SettingsTabUsageCpu => "各タブの CPU を表示",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の CPU 使用率。100% は 1 コア分です"
+        }
+        L10nKey::SettingsTabUsageMemory => "各タブのメモリを表示",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "タブ内の全ペインの全プロセス（子プロセスを含む）の常駐メモリ"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "リソースを多く使うタブを強調",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "使用量が多い間、そのタブの CPU・メモリを警告色で表示します"
+        }
     })
 }
 
