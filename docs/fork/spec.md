@@ -1,6 +1,6 @@
-# Fork spec: clawmux parity on tty7
+# Fork spec: predecessor parity on tty7
 
-This fork (NorthIsUp/tty7) succeeds clawmux. clawmux's features land on tty7's
+This fork (NorthIsUp/tty7) succeeds an earlier private multiplexer, whose features land on tty7's
 own server; tmux is not used. The fork stays easy to rebase on upstream `main`:
 fork logic lives in fork-owned files, and upstream files carry only short hook
 calls, each listed in `FORK.md`.

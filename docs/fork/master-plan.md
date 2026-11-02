@@ -1,4 +1,4 @@
-# Master plan: clawmux parity (F1–F4)
+# Master plan: predecessor parity (F1–F4)
 
 Spec: `docs/fork/spec.md`. Integration branch: `feat/new-tab-page`.
 
