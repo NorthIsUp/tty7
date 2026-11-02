@@ -2456,6 +2456,10 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsCopyJoinWrappedDesc => {
             "В панели Claude Code склеивать строки, которые Claude перенёс у края панели, чтобы абзац вставлялся одной строкой. ⌘⌥C или «Копировать как есть» копируют их как на экране"
         }
+        // dev-build-guard
+        L10nKey::SettingsAgentHooksDevBuild => {
+            "Чтобы установить хуки, запустите установленное приложение tty7; эта сборка запущена из {path}"
+        }
     })
 }
 
