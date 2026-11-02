@@ -5,14 +5,14 @@
 // Every feature's fields use these; the empty section itself does not.
 #[allow(unused_imports)]
 use std::collections::HashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::cli_agent::CLIAgent;
 #[allow(unused_imports)]
 use super::config::de_lenient;
-use super::config::Config;
+use super::config::{Config, ProfileUsage};
 use super::shell_quote::quote_for_shell;
 
 /// Every default is in [`Default`] below: the struct-level `serde(default)`
@@ -39,6 +39,28 @@ pub struct ForkConfig {
     /// turn was cut off or left background work unfinished; off resumes every
     /// agent without a word.
     pub continue_interrupted_agents: bool,
+    /// New Tab opens the new tab page — pick an agent or a terminal and a
+    /// directory — instead of a shell in the current tab's directory.
+    pub new_tab_page: bool,
+    /// What ⌘D and ⌘⇧D run in the split.
+    #[serde(deserialize_with = "de_lenient")]
+    pub split_harness: SplitHarness,
+    /// Where ⌘D and ⌘⇧D start the split.
+    #[serde(deserialize_with = "de_lenient")]
+    pub split_dir: SplitDir,
+    /// Retired for `split_harness` and `split_dir`: read once by [`migrate`]
+    /// and never written back.
+    ///
+    /// [`migrate`]: ForkConfig::migrate
+    #[serde(skip_serializing)]
+    pub split_page: Option<bool>,
+    /// Agents the new tab page leaves out, by slug, though they are on `PATH`.
+    pub new_tab_hidden_agents: BTreeSet<String>,
+    /// Directories whose children the new tab page offers (`~` expands).
+    pub dir_roots: Vec<String>,
+    /// How often and how recently each directory was launched into from the
+    /// new tab page, keyed by its absolute path.
+    pub dir_frecency: HashMap<String, ProfileUsage>,
     /// Settings → Agents' launch settings, by agent slug. Appended to the
     /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
     #[serde(deserialize_with = "de_lenient")]
@@ -58,9 +80,51 @@ impl Default for ForkConfig {
             resume_agents_on_launch: false,
             agent_resume_mode: AgentResumeMode::Typed,
             continue_interrupted_agents: false,
+            new_tab_page: true,
+            split_harness: SplitHarness::Choose,
+            split_dir: SplitDir::Choose,
+            split_page: None,
+            new_tab_hidden_agents: BTreeSet::new(),
+            dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
+            dir_frecency: HashMap::new(),
             agent_settings: HashMap::new(),
         }
     }
+}
+
+impl ForkConfig {
+    /// After load: `split_page: false` was upstream's ⌘D, a plain shell in
+    /// the pane's directory.
+    pub(crate) fn migrate(&mut self) {
+        if self.split_page.take() == Some(false) {
+            self.split_harness = SplitHarness::Terminal;
+            self.split_dir = SplitDir::Same;
+        }
+    }
+}
+
+/// What a split runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitHarness {
+    /// A plain shell, as upstream.
+    Terminal,
+    /// What the pane being split runs: its agent, started fresh, else a shell.
+    Same,
+    /// The new tab page asks, starting on the pane's harness.
+    #[default]
+    Choose,
+}
+
+/// Where a split starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitDir {
+    /// The pane's own directory, as upstream.
+    Same,
+    /// The new tab page asks, starting on the pane's directory.
+    #[default]
+    Choose,
 }
 
 /// One agent's launch settings. Every part left empty adds nothing, so the
@@ -323,6 +387,37 @@ mod tests {
             "every fork key reaches the file"
         );
     }
+    /// `split_page: false` becomes upstream's split; true or absent, the
+    /// page asking both.
+    #[test]
+    fn split_page_migrates_to_the_split_settings() {
+        use super::{SplitDir, SplitHarness};
+        let load = |text: &str| {
+            let dir = tempfile::TempDir::new().unwrap();
+            let path = dir.path().join("config.json");
+            std::fs::write(&path, text).unwrap();
+            let cfg = Config::load_from(&path).0;
+            (cfg.fork.split_harness, cfg.fork.split_dir)
+        };
+        let asks = (SplitHarness::Choose, SplitDir::Choose);
+        assert_eq!(
+            load(r#"{"split_page": false}"#),
+            (SplitHarness::Terminal, SplitDir::Same)
+        );
+        assert_eq!(load(r#"{"split_page": true}"#), asks);
+        assert_eq!(load("{}"), asks);
+        assert_eq!(
+            load(r#"{"split_harness": "same", "split_dir": "same"}"#),
+            (SplitHarness::Same, SplitDir::Same)
+        );
+
+        let mut cfg = Config::default();
+        cfg.fork.split_page = Some(false);
+        let saved = serde_json::to_value(&cfg).unwrap();
+        assert!(saved.get("split_page").is_none(), "never written back");
+        assert_eq!(saved["split_harness"], "choose");
+    }
+
     /// Upstream's behaviour until the user opts in.
     #[test]
     fn the_resume_settings_default_to_upstream_behaviour() {
