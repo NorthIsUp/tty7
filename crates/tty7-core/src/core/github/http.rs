@@ -137,10 +137,12 @@ impl HttpTransport {
                 request.call()
             }
             Some((method, body)) => {
-                let request = if method == Method::PUT {
-                    self.agent.put(url)
-                } else {
-                    self.agent.post(url)
+                let request = match method {
+                    Method::POST => self.agent.post(url),
+                    Method::PUT => self.agent.put(url),
+                    other => {
+                        return Err(ApiError::Network(format!("unsupported method {other}")));
+                    }
                 };
                 self.headers(request, accept)
                     .header("Content-Type", "application/json")
@@ -290,6 +292,16 @@ mod tests {
     #[test]
     fn a_redirect_to_another_host_does_not_receive_the_token() {
         assert_eq!(redirected_auth("localhost", 301), (404, vec![true, false]));
+    }
+
+    #[test]
+    fn an_unsupported_method_is_an_error_not_a_post() {
+        let transport = HttpTransport::new(None, None);
+        let got = transport.request("/x", "application/json", Some((Method::DELETE, b"{}")));
+        assert_eq!(
+            got.err(),
+            Some(ApiError::Network("unsupported method DELETE".into()))
+        );
     }
 
     fn reply(body: &str) -> Reply {
