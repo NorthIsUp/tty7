@@ -103,6 +103,8 @@ pub(crate) struct Catalog {
     /// Asked with every query the Symbols tab is given; its answer comes
     /// back through `SearchView::set_project_symbols`.
     pub live_query: Option<LiveQuery>,
+    /// The tabs the window answers as they are typed in (`text::LiveTab`).
+    pub live: Vec<super::text::LiveTab>,
 }
 
 /// Something that answers a query later — a language server.
@@ -129,6 +131,7 @@ impl Catalog {
             locations: Vec::new(),
             project_symbols: Vec::new(),
             live_query: None,
+            live: Vec::new(),
         }
     }
 
@@ -145,6 +148,7 @@ impl Catalog {
             SearchTab::Files => Some(Box::new(Files(&self.files))),
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
+            SearchTab::Text => self.live_source(tab),
         }
     }
 
@@ -194,6 +198,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
+            .filter(|tab| !matches!(tab, SearchTab::Text))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing

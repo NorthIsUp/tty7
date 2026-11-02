@@ -120,6 +120,8 @@ pub enum CommandKind {
     SearchHosts,
     /// Moves the search to its Files tab — quick open by name.
     QuickOpenFile,
+    /// Opens the search on its Text tab — find in files.
+    SearchText,
     /// A file the Files tab found, opened in the editor — on `line` and
     /// `column` when the query named them (`main.rs:120:5`).
     OpenFile {
@@ -305,6 +307,7 @@ impl CommandKind {
             OpenThemePicker => "change-theme",
             SearchHosts => "ssh-add-connection",
             QuickOpenFile => "go-to-file",
+            SearchText => "search-text",
             OpenSshProfiles => "ssh-manage-profiles",
             SaveSshSessionAsHost => "ssh-save-connection",
             OpenSshConnect(_)
@@ -461,6 +464,7 @@ impl CommandKind {
             | OpenWorkspacePicker
             | OpenThemePicker
             | SearchHosts
+            | SearchText
             | OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
@@ -705,6 +709,7 @@ impl Item {
             ),
             Item::localized(L10nKey::CmdShowCodePanel, ToggleCodePanel),
             Item::localized(L10nKey::CmdGoToFile, QuickOpenFile),
+            Item::localized(L10nKey::CmdSearchText, SearchText),
             Item::localized(
                 if document_filled {
                     L10nKey::CmdDocumentDock
