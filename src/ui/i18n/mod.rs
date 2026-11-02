@@ -2034,6 +2034,12 @@ l10n_keys! {
     SettingsTabUsageMemoryDesc,
     SettingsTabUsageAnnotate,
     SettingsTabUsageAnnotateDesc,
+    // shell-startup
+    SettingsShellStartup,
+    SettingsShellStartupDesc,
+    SettingsShellStartupUser,
+    SettingsShellStartupNoRcs,
+    SettingsShellStartupEnvlibs,
 }
 
 /// The source control strings that are translated but not yet displayed.
