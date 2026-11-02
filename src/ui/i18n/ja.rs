@@ -2438,6 +2438,24 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentHooksDevBuild => {
             "フックをインストールするには、インストール済みの tty7 アプリを実行してください。このビルドの場所: {path}"
         }
+        // agent-launch-settings
+        L10nKey::SettingsAgentLaunchesAs => "起動コマンド: {command}",
+        L10nKey::SettingsAgentModel => "モデル",
+        L10nKey::SettingsAgentModelDesc => {
+            "{flag} として渡します。空欄ならエージェント自身の設定に従います。"
+        }
+        L10nKey::SettingsAgentPermission => "権限",
+        L10nKey::SettingsAgentSandbox => "サンドボックス",
+        L10nKey::SettingsAgentDefault => "デフォルト",
+        L10nKey::SettingsAgentExtraArgs => "CLI オプション",
+        L10nKey::SettingsAgentExtraArgsDesc => {
+            "1 行に 1 つの引数行。上のオプションの後にシェルと同じ解釈で付きます: --add-dir ~/src"
+        }
+        L10nKey::SettingsAgentAddArg => "+ CLI オプションを追加",
+        L10nKey::SettingsAgentRemoveArg => "オプションを削除",
+        L10nKey::SettingsAgentLaunchOptions => "起動オプション…",
+        L10nKey::SettingsAgentSummaryModel => "モデル: {model}",
+        L10nKey::SettingsAgentSummaryExtras => "+{count} 個のオプション",
     })
 }
 
@@ -2461,6 +2479,9 @@ pub fn translate_variant_ja(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsMoreAgents, "zero") => "ほかのエージェントはありません",
         (L10nKey::SettingsMoreAgents, "one") => "ほかに 1 件のエージェント",
         (L10nKey::SettingsMoreAgents, "other") => "ほかに {count} 件のエージェント",
+        (L10nKey::SettingsAgentSummaryExtras, "one") => "+1 個のオプション",
+        (L10nKey::SettingsAgentSummaryExtras, "zero") => "オプションなし",
+        (L10nKey::SettingsAgentSummaryExtras, "other") => "+{count} 個のオプション",
         (L10nKey::SettingsDeleteProfileCascade, "one") => {
             "{endpoint} を参照しているリモートワークスペースのエントリが 1 件あり、\
              プロファイルと一緒にこのコンピュータから削除されます。リモートマシン上のセッションは\

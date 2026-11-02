@@ -1153,6 +1153,7 @@ impl Config {
         if !SUPPORTED_GUI_LANGUAGES.contains(&self.gui_language.as_str()) {
             self.gui_language = default_gui_language();
         }
+        self.move_agent_launch_into_settings();
     }
 
     pub fn save(&self) {

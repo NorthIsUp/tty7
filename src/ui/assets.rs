@@ -72,6 +72,7 @@ fn agent_icon(path: &str) -> Option<&'static [u8]> {
             include_bytes!("../../assets/icons/settings/chevron-right.svg")
         }
         "icons/settings/close.svg" => include_bytes!("../../assets/icons/settings/close.svg"),
+        "icons/settings/trash.svg" => include_bytes!("../../assets/icons/settings/trash.svg"),
         "icons/settings/mobile.svg" => include_bytes!("../../assets/icons/settings/mobile.svg"),
         "icons/settings/general.svg" => include_bytes!("../../assets/icons/settings/general.svg"),
         "icons/settings/integrations.svg" => {
