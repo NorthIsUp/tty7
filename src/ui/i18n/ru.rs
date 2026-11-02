@@ -2571,6 +2571,37 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitChoose => "Выбрать",
         // background-tabs
         L10nKey::SearchHintBackground => "Открыть в фоне",
+        // sidebar-groups
+        L10nKey::SettingsGroupOutline => "Контур группы",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "Тонкий контур вокруг каждой группы: заголовка и её вкладок."
+        }
+        L10nKey::SettingsGroupOutlineColor => "Цвет контура",
+        L10nKey::SettingsGroupOutlineColorDesc => {
+            "Цвет рамки из темы или собственный цвет каждой группы."
+        }
+        L10nKey::SettingsGroupBackground => "Фон группы",
+        L10nKey::SettingsGroupBackgroundDesc => "Цветная заливка за заголовком каждой группы.",
+        L10nKey::SettingsGroupBackgroundColor => "Цвет фона",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "Нейтральный цвет из темы или собственный цвет каждой группы."
+        }
+        L10nKey::SettingsGroupColorTheme => "Тема",
+        L10nKey::SettingsGroupColorHashed => "Цвет группы",
+        L10nKey::SettingsGroupBackgroundScope => "Фон закрывает",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "Только заголовок или заголовок вместе с вкладками одним блоком."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Заголовок",
+        L10nKey::SettingsGroupScopeGroup => "Всю группу",
+        L10nKey::SettingsGroupAnimations => "Анимировать сворачивание",
+        L10nKey::SettingsGroupAnimationsDesc => {
+            "Группы плавно раскрываются и закрываются, а не переключаются мгновенно."
+        }
+        L10nKey::SidebarDeleteGroupTitle => "Удалить группу «{name}»?",
+        L10nKey::SidebarDeleteGroupBody => {
+            "Её название удалится вместе с ней. Вкладки останутся открытыми и вернутся в автоматические группы."
+        }
     })
 }
 

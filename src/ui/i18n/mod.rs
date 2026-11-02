@@ -1943,6 +1943,25 @@ l10n_keys! {
     SettingsSplitChoose,
     // background-tabs
     SearchHintBackground,
+    // sidebar-groups
+    SettingsGroupOutline,
+    SettingsGroupOutlineDesc,
+    SettingsGroupOutlineColor,
+    SettingsGroupOutlineColorDesc,
+    SettingsGroupBackground,
+    SettingsGroupBackgroundDesc,
+    SettingsGroupBackgroundColor,
+    SettingsGroupBackgroundColorDesc,
+    SettingsGroupColorTheme,
+    SettingsGroupColorHashed,
+    SettingsGroupBackgroundScope,
+    SettingsGroupBackgroundScopeDesc,
+    SettingsGroupScopeHeader,
+    SettingsGroupScopeGroup,
+    SettingsGroupAnimations,
+    SettingsGroupAnimationsDesc,
+    SidebarDeleteGroupTitle,
+    SidebarDeleteGroupBody,
 }
 
 /// The source control strings that are translated but not yet displayed.
