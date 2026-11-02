@@ -79,6 +79,9 @@ pub struct ForkConfig {
     /// Niceness every pane's shell starts at, so typing stays responsive while
     /// agents build; 0 leaves it alone. Unix only.
     pub nice: i32,
+    /// The GitHub panel shows `origin` (the fork) until a remote is picked,
+    /// instead of `upstream`.
+    pub github_panel_prefer_origin: bool,
     /// Settings → Agents' launch settings, by agent slug. Appended to the
     /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
     #[serde(deserialize_with = "de_lenient")]
@@ -113,6 +116,7 @@ impl Default for ForkConfig {
             group_background_scope: GroupBackgroundScope::Header,
             animations: true,
             nice: 5,
+            github_panel_prefer_origin: true,
             agent_settings: HashMap::new(),
         }
     }

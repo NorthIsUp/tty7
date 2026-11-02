@@ -25,6 +25,7 @@ pub enum StateFilter {
     #[default]
     Open,
     Closed,
+    All,
 }
 
 impl StateFilter {
@@ -32,6 +33,16 @@ impl StateFilter {
         match self {
             StateFilter::Open => "open",
             StateFilter::Closed => "closed",
+            StateFilter::All => "all",
+        }
+    }
+
+    /// Whether an item in `state` belongs on this side of the switch.
+    pub fn admits(self, state: ItemState) -> bool {
+        match self {
+            StateFilter::All => true,
+            StateFilter::Open => matches!(state, ItemState::Open | ItemState::Draft),
+            StateFilter::Closed => !matches!(state, ItemState::Open | ItemState::Draft),
         }
     }
 }
