@@ -2262,6 +2262,11 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppCodexServerDraining => "Codex 的后台服务器正在关闭",
         L10nKey::AppCodexServerRestart => "重启 Codex 服务器",
         L10nKey::AppCodexServerRestartFailed => "无法重启 Codex 的后台服务器",
+        // search-text
+        L10nKey::CmdSearchText => "在文件中搜索文本…",
+        L10nKey::SearchTabText => "文本",
+        L10nKey::SearchPlaceholderText => "搜索文件内容…",
+        L10nKey::SearchTextTooShort => "输入至少 3 个字符以搜索文件内容。",
     })
 }
 
