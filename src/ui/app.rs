@@ -1191,6 +1191,8 @@ pub struct Tty7App {
     window_title: std::cell::RefCell<String>,
     pub(crate) connect: Option<crate::ui::remote_workspace::ConnectFlow>,
     pub(crate) switcher: Option<crate::ui::switcher::Switcher>,
+    /// Set only inside [`Tty7App::in_background`]; see `background_tab.rs`.
+    pub(crate) open_in_background: bool,
     pub(crate) host_snapshots: std::collections::HashMap<
         crate::ui::host_registry::HostId,
         crate::ui::switcher::HostSnapshot,
@@ -1860,6 +1862,7 @@ impl Tty7App {
             window_title: std::cell::RefCell::new(String::new()),
             connect: None,
             switcher: None,
+            open_in_background: false,
             host_snapshots: std::collections::HashMap::new(),
             remote_host_errors: std::collections::HashMap::new(),
             parked_dismissed: std::collections::HashSet::new(),
@@ -4565,14 +4568,9 @@ impl Tty7App {
         };
         // Something opened, so whatever the last failure was is stale.
         self.startup_error = None;
-        self.remember_active_pane(window, cx);
-        self.maximized = None;
-        let insert_at = self.new_tab_insert_at(cx);
         let new_tab = Tab::new(Pane::leaf(tab.clone()));
         group.seat(&new_tab);
-        self.tabs.insert(insert_at, new_tab);
-        self.active = insert_at;
-        self.focus_active(window, cx);
+        self.seat_new_tab(new_tab, window, cx);
         self.save_session(cx);
         cx.notify();
         Some(tab)
@@ -7068,7 +7066,9 @@ impl Tty7App {
             // is: a split beside the focused pane instead of a tab.
             LaunchAgent(agent) => {
                 let at = SpawnWhere::from_modifiers(window.modifiers());
-                self.launch_agent(agent, at, window, cx)
+                self.maybe_background(window, |this, window| {
+                    this.launch_agent(agent, at, window, cx)
+                })
             }
             CopyAgentSessionId => self.copy_agent_session_id(self.active, window, cx),
             RenameWorkspace => self.start_workspace_rename(window, cx),
@@ -7211,12 +7211,16 @@ impl Tty7App {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, false, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, false, window, cx)
+            }),
             ForkSession {
                 agent,
                 session_id,
                 cwd,
-            } => self.resume_session(agent, &session_id, cwd, true, window, cx),
+            } => self.maybe_background(window, |this, window| {
+                this.resume_session(agent, &session_id, cwd, true, window, cx)
+            }),
             CopySessionId(id) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(id)),
             HideSession { agent, session_id } => self.update_config(cx, |cfg| {
                 cfg.hidden_agent_sessions
