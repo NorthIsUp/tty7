@@ -2334,6 +2334,13 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         }
         // group-follow
         L10nKey::SidebarPinToCurrentGroup => "固定在当前分组",
+        // github-session
+        L10nKey::GitHubSession => "会话",
+        L10nKey::GitHubAll => "全部",
+        L10nKey::GitHubNoSessionMentions => "本会话未提及任何 issue 或 PR",
+        L10nKey::GitHubNoSessionMatches => "本会话提及的内容均不匹配",
+        L10nKey::GitHubSortRecent => "最近",
+        L10nKey::GitHubSortNumber => "编号",
     })
 }
 
