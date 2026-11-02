@@ -2472,6 +2472,33 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSplitChoose => "Choose",
         // background-tabs
         L10nKey::SearchHintBackground => "Open in background",
+        // sidebar-groups
+        L10nKey::SettingsGroupOutline => "Group outline",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "A thin outline round each group, its header and its tabs."
+        }
+        L10nKey::SettingsGroupOutlineColor => "Outline colour",
+        L10nKey::SettingsGroupOutlineColorDesc => "The theme's border, or each group's own colour.",
+        L10nKey::SettingsGroupBackground => "Group background",
+        L10nKey::SettingsGroupBackgroundDesc => "A tinted fill behind each group header.",
+        L10nKey::SettingsGroupBackgroundColor => "Background colour",
+        L10nKey::SettingsGroupBackgroundColorDesc => {
+            "A neutral from the theme, or each group's own colour."
+        }
+        L10nKey::SettingsGroupColorTheme => "Theme",
+        L10nKey::SettingsGroupColorHashed => "Group colour",
+        L10nKey::SettingsGroupBackgroundScope => "Background covers",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "The header alone, or the header and its tabs as one block."
+        }
+        L10nKey::SettingsGroupScopeHeader => "Header",
+        L10nKey::SettingsGroupScopeGroup => "Whole group",
+        L10nKey::SettingsGroupAnimations => "Animate folding",
+        L10nKey::SettingsGroupAnimationsDesc => "Groups slide open and shut instead of snapping.",
+        L10nKey::SidebarDeleteGroupTitle => "Delete the group “{name}”?",
+        L10nKey::SidebarDeleteGroupBody => {
+            "Its name goes with it. Its tabs stay open and go back to their automatic groups."
+        }
     }
 }
 

@@ -2311,6 +2311,27 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitChoose => "选择",
         // background-tabs
         L10nKey::SearchHintBackground => "在后台打开",
+        // sidebar-groups
+        L10nKey::SettingsGroupOutline => "分组轮廓",
+        L10nKey::SettingsGroupOutlineDesc => "在每个分组（标题及其标签页）周围绘制细轮廓。",
+        L10nKey::SettingsGroupOutlineColor => "轮廓颜色",
+        L10nKey::SettingsGroupOutlineColorDesc => "使用主题边框色，或每个分组自己的颜色。",
+        L10nKey::SettingsGroupBackground => "分组背景",
+        L10nKey::SettingsGroupBackgroundDesc => "在每个分组标题后绘制浅色填充。",
+        L10nKey::SettingsGroupBackgroundColor => "背景颜色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "使用主题中性色，或每个分组自己的颜色。",
+        L10nKey::SettingsGroupColorTheme => "主题",
+        L10nKey::SettingsGroupColorHashed => "分组颜色",
+        L10nKey::SettingsGroupBackgroundScope => "背景范围",
+        L10nKey::SettingsGroupBackgroundScopeDesc => "仅标题，或标题连同其标签页作为一个整体。",
+        L10nKey::SettingsGroupScopeHeader => "标题",
+        L10nKey::SettingsGroupScopeGroup => "整个分组",
+        L10nKey::SettingsGroupAnimations => "折叠动画",
+        L10nKey::SettingsGroupAnimationsDesc => "分组展开和收起时平滑过渡，而不是立即切换。",
+        L10nKey::SidebarDeleteGroupTitle => "删除分组“{name}”？",
+        L10nKey::SidebarDeleteGroupBody => {
+            "分组名称也会一起删除。其中的标签页保持打开，回到自动分组。"
+        }
     })
 }
 
