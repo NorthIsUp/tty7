@@ -59,7 +59,7 @@ pub struct ForkConfig {
     /// How often and how recently each directory was launched into from the
     /// new tab page, keyed by its absolute path.
     pub dir_frecency: HashMap<String, ProfileUsage>,
-    /// Sidebar group colour overrides, by group name: `"clawmux": "#ffd7d7"`.
+    /// Sidebar group colour overrides, by group name: `"gamma": "#ffd7d7"`.
     pub group_colors: HashMap<String, String>,
     /// A 1px outline round each sidebar group header.
     pub group_outline: bool,
@@ -457,7 +457,7 @@ mod tests {
         "split_dir": "same",
         "dir_roots": ["~/work"],
         "dir_frecency": {"/Users/me/src/x": {"count": 2, "last_used": 9}},
-        "group_colors": {"clawmux": "#ffd7d7"},
+        "group_colors": {"gamma": "#ffd7d7"},
         "group_outline": true,
         "group_background": false,
         "group_outline_color": "theme",
