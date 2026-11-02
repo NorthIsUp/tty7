@@ -31,6 +31,7 @@ use crate::ui::host_ops::HostId;
 use crate::ui::i18n::{L10nKey, t, t_fmt, t_plural};
 use crate::ui::presets;
 
+mod agent_launch;
 mod agents;
 mod editor;
 mod hosts;
