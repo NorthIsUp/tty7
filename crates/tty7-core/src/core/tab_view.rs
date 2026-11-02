@@ -428,6 +428,7 @@ mod tests {
                     launch_argv: None,
                     status: None,
                 }),
+                last_session: None,
                 ..PaneRecord::new(2)
             },
         ];

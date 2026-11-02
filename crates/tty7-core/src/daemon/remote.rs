@@ -209,9 +209,10 @@ fn parse_macos_procargs(buf: &[u8]) -> Option<Vec<String>> {
         if i > start {
             argv.push(String::from_utf8_lossy(&buf[start..i]).into_owned());
         }
-        while i < buf.len() && buf[i] == 0 {
-            i += 1;
-        }
+        // One NUL ends each argument. A process that retitles itself (node's
+        // `process.title`) leaves its old argv as a run of NULs, and skipping
+        // the run would read the environment as arguments.
+        i += 1;
     }
     (!argv.is_empty()).then_some(argv)
 }
@@ -300,6 +301,44 @@ mod procargs_tests {
                 "{pad} bytes of padding"
             );
         }
+    }
+
+    /// A retitled process (`process.title = "pi"`) leaves `pi` and NULs where
+    /// its argv was, with argc unchanged; the environment after them stays out.
+    #[test]
+    fn a_retitled_argv_does_not_run_into_the_environment() {
+        let mut buf = procargs(4, "/bin/node", &["pi"], 0);
+        buf.extend([0u8; 30]);
+        buf.extend_from_slice(b"COLORTERM=truecolor\0HOME=/me\0");
+        assert_eq!(parse_macos_procargs(&buf), Some(vec!["pi".to_string()]));
+    }
+
+    /// The same against a live node, which is how Pi retitles itself.
+    #[test]
+    fn a_live_retitled_node_reads_back_as_its_title() {
+        let Ok(mut child) = std::process::Command::new("node")
+            .args([
+                "-e",
+                "process.title = 'pi'; setTimeout(() => {}, 30000)",
+                "a",
+                "b",
+            ])
+            .env("TTY7_PROCARGS_PROBE", "1")
+            .spawn()
+        else {
+            return;
+        };
+        let pid = child.id() as i32;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut argv = platform_foreground_argv(pid);
+        while argv.as_deref() != Some(&["pi".to_string()][..])
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            argv = platform_foreground_argv(pid);
+        }
+        let _ = child.kill();
+        assert_eq!(argv, Some(vec!["pi".to_string()]));
     }
 
     /// argc counts what to read, so anything after it — the environment —

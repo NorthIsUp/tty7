@@ -191,6 +191,7 @@ pub mod mock {
                 home: "C:\\Users\\mock".into(),
                 features: vec![feature::CONTROL.into(), feature::MACHINE_TREE.into()],
                 instance: "mock-instance".into(),
+                pid: 0,
             })
         }
 

@@ -158,6 +158,7 @@ mod tests {
             home: "/home/unit".into(),
             features: vec![feature::CONTROL.into()],
             instance: "unit-instance".into(),
+            pid: 0,
         }
     }
 

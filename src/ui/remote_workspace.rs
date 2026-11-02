@@ -1358,7 +1358,7 @@ pub(crate) struct RemoteLinks {
     /// disconnected from the switcher, or — since #820 — an authentication
     /// the user closed the sheet on rather than answered.
     suspended: std::collections::HashSet<HostId>,
-    instances: std::collections::HashMap<HostId, String>,
+    instances: std::collections::HashMap<HostId, crate::ui::tree_sync::ServerSeen>,
     #[allow(
         dead_code,
         reason = "read by the prompt relay's drain, which lands with the routed auth sheet"
@@ -2435,6 +2435,30 @@ fn pump_pane_relinks(cx: &mut gpui::App, host: HostId) {
     }
 }
 
+/// Asks the local daemon for this computer's dead panes back, once its
+/// control link is up again on the same process: an in-place handoff closes
+/// every pane link but keeps the panes. Workspaces another client took are
+/// left released.
+///
+/// shortcut: one batch per link-up, so a pane whose relink misses stays
+/// dead until the next link-up; give local windows a pump if that bites.
+pub(crate) fn relink_local_panes(cx: &mut gpui::App) {
+    for (id, _) in crate::ui::windows::WindowRegistry::open_windows(cx) {
+        if !WorkspaceStore::host_of(cx, id).is_local()
+            || crate::ui::local_link::LocalLink::is_preempted(cx, id)
+        {
+            continue;
+        }
+        let dead: Vec<_> = panes_of(cx, id)
+            .into_iter()
+            .filter(|view| view.read(cx).wants_relink())
+            .collect();
+        if !dead.is_empty() {
+            relink_dead_panes(cx, id, dead);
+        }
+    }
+}
+
 /// One batch of relinks for one workspace's dead panes. Every pane dials
 /// concurrently; the batch reports back as a whole, and one transient failure
 /// puts the whole workspace on the next backoff step. A refusal is final for
@@ -2446,9 +2470,8 @@ fn relink_dead_panes(
     panes: Vec<gpui::Entity<crate::terminal::view::TerminalView>>,
 ) {
     let route = pane_route_for(cx, workspace);
-    if route.header().is_none() {
-        // Local can't happen for a workspace with a host; Unroutable means
-        // the route stopped resolving, which is the machine supervisor's
+    if matches!(route, crate::terminal::PaneRoute::Unroutable(_)) {
+        // The route stopped resolving, which is the machine supervisor's
         // problem — count it as a miss and let the clock run.
         note_pane_relink_outcome(cx, workspace, panes.len());
         return;
@@ -2542,9 +2565,10 @@ fn note_pane_relink_outcome(cx: &mut gpui::App, workspace: WorkspaceId, misses: 
 }
 
 fn server_restarted(cx: &mut gpui::App, host: HostId, peer: &RemoteHost) -> bool {
-    let instance = peer.peer().instance.clone();
+    let hello = peer.peer();
+    let (instance, pid) = (hello.instance.clone(), hello.pid);
     let seen = &mut cx.default_global::<RemoteLinks>().instances;
-    crate::ui::tree_sync::note_instance(seen.entry(host).or_default(), &instance)
+    crate::ui::tree_sync::note_instance(seen.entry(host).or_default(), &instance, pid)
 }
 
 fn refresh_window_shells(cx: &mut gpui::App, workspace: WorkspaceId) {
@@ -3140,18 +3164,21 @@ mod tests {
 
         assert!(!crate::ui::tree_sync::note_instance(
             seen.entry(a).or_default(),
-            "a1"
+            "a1",
+            0
         ));
         assert!(!crate::ui::tree_sync::note_instance(
             seen.entry(b).or_default(),
-            "b1"
+            "b1",
+            0
         ));
         assert!(crate::ui::tree_sync::note_instance(
             seen.entry(a).or_default(),
-            "a2"
+            "a2",
+            0
         ));
         assert!(
-            !crate::ui::tree_sync::note_instance(seen.entry(b).or_default(), "b1"),
+            !crate::ui::tree_sync::note_instance(seen.entry(b).or_default(), "b1", 0),
             "box-b never changed; box-a restarting is not its business"
         );
     }

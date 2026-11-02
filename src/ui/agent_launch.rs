@@ -137,6 +137,13 @@ pub(crate) fn remember_launch_line(cfg: &mut Config, agent: CLIAgent, line: Stri
     }
 }
 
+/// `launch` as argv for a resume or fork to replay; a quote that never
+/// closes falls back to whitespace, which the replay then refuses whole.
+fn launch_argv(launch: &str) -> Vec<String> {
+    crate::ui::app::split_shell_args(launch)
+        .unwrap_or_else(|_| launch.split_whitespace().map(str::to_string).collect())
+}
+
 /// The line that resumes `agent`'s session `session_id`, carrying the flags
 /// `overrides` ([`Config::launch_lines`]) gives the agent: a session started
 /// with `--dangerously-skip-permissions` comes back with it.
@@ -145,8 +152,7 @@ pub(crate) fn resume_line(
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.resume_command(session_id, Some(&argv))
 }
 
@@ -158,8 +164,7 @@ pub(crate) fn fork_line(
     session_id: &str,
     overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let launch = agent.launch_command(overrides);
-    let argv: Vec<String> = launch.split_whitespace().map(str::to_string).collect();
+    let argv = launch_argv(&agent.launch_command(overrides));
     agent.fork_command(session_id, Some(&argv))
 }
 
@@ -208,7 +213,6 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let command = agent.launch_command(&cx.global::<Config>().agent_launch);
         let slot = match at {
             SpawnWhere::NewTab => {
                 let cwd = self.tabs.get(self.active).and_then(|t| {
@@ -216,12 +220,32 @@ impl Tty7App {
                         .focused_or_first(window, cx)
                         .and_then(|leaf| leaf.read(cx).spawnable_cwd())
                 });
-                self.new_tab_slot(cwd, None, window, cx)
+                return self.launch_agent_in(agent, cwd, window, cx);
             }
             SpawnWhere::Split => {
                 self.split_slot(Axis::Horizontal, Some(SpawnAs::Shell(None)), window, cx)
             }
         };
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    /// Open a new tab in `cwd` for `agent` and start it there.
+    pub(crate) fn launch_agent_in(
+        &mut self,
+        agent: CLIAgent,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let slot = self.new_tab_slot(cwd, None, window, cx);
+        self.start_agent_in(agent, slot, cx);
+    }
+
+    fn start_agent_in(&mut self, agent: CLIAgent, slot: Option<PaneSlot>, cx: &mut Context<Self>) {
+        let command = crate::ui::agent_resume::with_minted_session(
+            agent,
+            agent.launch_command(&cx.global::<Config>().launch_lines()),
+        );
         // Nothing opened (the spawn failed, or this workspace cannot host a
         // shell right now), and the reason is already on screen. The command
         // goes nowhere rather than into whatever pane was focused before.

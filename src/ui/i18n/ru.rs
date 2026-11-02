@@ -2478,6 +2478,42 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsAgentLaunchOptions => "Параметры запуска…",
         L10nKey::SettingsAgentSummaryModel => "модель: {model}",
         L10nKey::SettingsAgentSummaryExtras => "+{count} параметров",
+        // agent-resume
+        L10nKey::QuitStopServerBodyAsleep => {
+            "tty7 закроется, сервер tty7 остановится, все процессы в оболочках завершатся. При следующем запуске вкладки и расположение вернутся в спящем виде: каждая запускается, когда вы её открываете, а агент продолжает свой разговор. Закрытие окна лишь сворачивает tty7 в трей, оболочки продолжают работать."
+        }
+        L10nKey::CmdContinueAllAgents => "Продолжить всех агентов",
+        L10nKey::CmdContinueAllAgentsSubtitle => {
+            "возобновить каждую спящую вкладку агента с интервалом в несколько секунд и попросить продолжить"
+        }
+        L10nKey::SettingsResumeAgents => "Возобновлять агентов при перезапуске рабочей области",
+        L10nKey::SettingsResumeAgentsDesc => {
+            "При перезапуске tty7 возобновлять каждый открытый сеанс агента."
+        }
+        L10nKey::SettingsAgentWakeConcurrency => "Агентов запускается одновременно",
+        L10nKey::SettingsAgentWakeConcurrencyDesc => {
+            "Сколько вкладок агентов пробуждение запускает разом; остальные ждут своей очереди."
+        }
+        L10nKey::SettingsAgentResumeMode => "Как возобновляются агенты",
+        L10nKey::SettingsAgentResumeModeDesc => {
+            "Запускать возобновление как программу вкладки или вводить его в оболочку. В оболочки, кроме sh, bash, zsh, dash, ksh и fish, оно всегда вводится."
+        }
+        L10nKey::SettingsAgentResumeProgram => "Запускать как вкладку",
+        L10nKey::SettingsAgentResumeTyped => "Вводить в оболочку",
+        L10nKey::SettingsContinueInterrupted => "Продолжать прерванных агентов",
+        L10nKey::SettingsContinueInterruptedDesc => {
+            "Отправлять сообщение о продолжении агенту, чей ход оборвался или чья фоновая работа не завершилась. Если выключено, агенты возобновляются молча."
+        }
+        L10nKey::SettingsContinuePrompt => "Сообщение о продолжении",
+        L10nKey::SettingsContinuePromptDesc => {
+            "Что отправляют прерванный агент и «Продолжить всех агентов»."
+        }
+        L10nKey::QuitStopServerBodyResume => {
+            "tty7 закроется, сервер tty7 остановится, все процессы в оболочках завершатся. При следующем запуске вкладки и расположение вернутся, и каждый агент сразу продолжит свой разговор; остальные вкладки запускаются, когда вы их открываете. Закрытие окна лишь сворачивает tty7 в трей, оболочки продолжают работать."
+        }
+        L10nKey::AppRestartServerBodyResume => {
+            "Все оболочки на этом компьютере завершатся. Вкладки и расположение сохранятся и восстановятся с новыми оболочками, а каждый агент продолжит свой разговор."
+        }
     })
 }
 
