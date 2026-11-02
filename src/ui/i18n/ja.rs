@@ -2516,6 +2516,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
             "エージェントの履歴はこのコンピューター上でのみ検索できます。"
         }
         L10nKey::SearchHistoryHits => "{count} 件",
+        // open-sessions
+        L10nKey::SearchSectionSessionsOpen => "タブで開いている",
     })
 }
 
