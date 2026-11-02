@@ -2503,6 +2503,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTabText => "テキスト",
         L10nKey::SearchPlaceholderText => "ファイルの内容を検索…",
         L10nKey::SearchTextTooShort => "ファイルの内容を検索するには 3 文字以上入力してください。",
+        // pane-addresses
+        L10nKey::CmdGoToPane => "ペイン %{n} へ移動",
+        L10nKey::CmdGoToTabAddress => "タブ @{n} へ移動",
     })
 }
 
