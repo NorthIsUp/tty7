@@ -10959,6 +10959,7 @@ pub(crate) fn new_terminal(
             restore_pane,
             shell,
             owner,
+            None,
         )?;
         return Ok(PaneSlot::Ready(build_terminal_view(
             parts, font_size, window, cx,
@@ -11019,6 +11020,7 @@ fn start_pane_spawn(
                     spawn.restore_pane,
                     spawn.shell.clone(),
                     spawn.owner,
+                    None,
                 )
                 .map_err(|e| format!("{e:#}"))
             })
