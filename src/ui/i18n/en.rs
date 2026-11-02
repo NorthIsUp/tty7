@@ -2439,6 +2439,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
         L10nKey::SearchHistoryHits => "{count} hits",
+        // open-sessions
+        L10nKey::SearchSectionSessionsOpen => "Open in a tab",
     }
 }
 
