@@ -447,6 +447,63 @@ pub enum GroupBackgroundScope {
 mod tests {
     use super::super::config::Config;
 
+    /// A file written before `ForkConfig` existed: every fork key, none at
+    /// its default.
+    const OLD_FILE: &str = r##"{
+        "font_size": 15.0,
+        "restore_asleep": false,
+        "continue_prompt": "go on",
+        "agent_wake_concurrency": 3,
+        "resume_agents_on_launch": true,
+        "agent_resume_mode": "program",
+        "continue_interrupted_agents": true,
+        "new_tab_page": false,
+        "split_harness": "same",
+        "split_dir": "same",
+        "dir_roots": ["~/work"],
+        "dir_frecency": {"/Users/me/src/x": {"count": 2, "last_used": 9}},
+        "group_colors": {"gamma": "#ffd7d7"},
+        "group_outline": true,
+        "group_background": false,
+        "group_outline_color": "theme",
+        "group_background_color": "theme",
+        "group_background_scope": "group",
+        "animations": false,
+        "nice": 0,
+        "shell_startup": "no_rcs_envlibs",
+        "github_panel_prefer_origin": false,
+        "global_hotkey": "cmd-shift-t",
+        "global_hotkey_fullscreen": true,
+        "global_hotkey_hide_on_blur": true,
+        "global_hotkey_fade_ms": 0
+    }"##;
+
+    #[test]
+    fn an_old_file_loads_and_saves_the_same_top_level_keys() {
+        let old: serde_json::Value = serde_json::from_str(OLD_FILE).unwrap();
+        let cfg: Config = serde_json::from_str(OLD_FILE).unwrap();
+        assert!(!cfg.fork.restore_asleep);
+        assert!(cfg.fork.resume_agents_on_launch);
+        assert_eq!(cfg.fork.agent_resume_mode, super::AgentResumeMode::Program);
+        assert!(cfg.fork.continue_interrupted_agents);
+        assert_eq!(cfg.fork.continue_prompt, "go on");
+        assert_eq!(cfg.fork.dir_frecency["/Users/me/src/x"].count, 2);
+        assert_eq!(cfg.fork.nice, 0);
+        assert_eq!(cfg.fork.shell_startup, super::ShellStartup::NoRcsEnvlibs);
+        assert_eq!(cfg.font_size, 15.0, "upstream's keys are untouched");
+
+        let saved = serde_json::to_value(&cfg).unwrap();
+        let saved = saved.as_object().unwrap();
+        assert!(!saved.contains_key("fork"), "flattened, not nested");
+        for (key, value) in old.as_object().unwrap() {
+            assert_eq!(saved.get(key), Some(value), "{key}");
+        }
+        let defaults = serde_json::to_value(Config::default()).unwrap();
+        for key in old.as_object().unwrap().keys() {
+            assert!(defaults.get(key).is_some(), "a default file writes {key}");
+        }
+    }
+
     /// A fork key that upstream's `Config` also had would be written twice
     /// and read by only one of them.
     #[test]
@@ -486,6 +543,22 @@ mod tests {
             "every fork key reaches the file"
         );
     }
+
+    /// The GitHub panel's Session tab replaced the first two;
+    /// `agent_wake_concurrency` replaced `continue_stagger_ms`.
+    #[test]
+    fn retired_keys_still_load() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"github_panel_session_filter": false, "github_panel_default_list": "issues", "continue_stagger_ms": 500, "nice": 2}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.fork.nice, 2);
+        let saved = serde_json::to_value(&cfg).unwrap();
+        assert!(saved.get("github_panel_default_list").is_none());
+        assert!(saved.get("github_panel_session_filter").is_none());
+        assert!(saved.get("continue_stagger_ms").is_none());
+    }
+
     /// `split_page: false` becomes upstream's split; true or absent, the
     /// page asking both.
     #[test]
@@ -528,4 +601,16 @@ mod tests {
         assert_eq!(cfg.agent_wake_concurrency, None);
     }
 
+    #[test]
+    fn a_bad_fork_value_falls_back_without_failing_the_file() {
+        let cfg: Config =
+            serde_json::from_str(r#"{"font_size": 13.0, "group_outline_color": 7}"#).unwrap();
+        assert_eq!(
+            cfg.fork.group_outline_color,
+            super::GroupColorSource::Hashed
+        );
+        assert_eq!(cfg.font_size, 13.0);
+        assert_eq!(cfg.fork.continue_prompt, super::DEFAULT_CONTINUE_PROMPT);
+        assert_eq!(cfg.fork.nice, 5);
+    }
 }
