@@ -2499,6 +2499,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsSplitTerminal => "Terminal",
         L10nKey::SettingsSplitSame => "Same as the pane",
         L10nKey::SettingsSplitChoose => "Choose",
+        // background-tabs
+        L10nKey::SearchHintBackground => "Open in background",
     }
 }
 
