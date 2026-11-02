@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 #MISE description="Check each stack feature applies to upstream main on its own, given the fork base and the features it needs (docs/fork/patch-stack.md)"
-# upstreamable [--build] [UPSTREAM [TIP]] [-- SLUG...]
+#USAGE flag "--build" help="Also cargo check each feature, failing on new warnings"
+#USAGE arg "[upstream]" default="upstream/main" help="Upstream ref to apply the features to"
+#USAGE arg "[tip]" default="HEAD" help="Stack tip the features are read from"
+#USAGE arg "[slug]..." var=#true help="Only check these features (default: all)"
 #
 # Each feature in stack-order.tsv (fork-* excepted) is cherry-picked onto
 # UPSTREAM with fork-infra, fork-config, fork-docs and the features its third
 # column names (and theirs), and with --build checked: it must compile and
 # warn nothing that UPSTREAM or TIP does not already warn.
 set -euo pipefail
-build=; [ "${1:-}" = --build ] && { build=1; shift; }
-upstream=${1:-upstream/main} tip=${2:-HEAD}
-only=(); while [ $# -gt 0 ]; do [ "$1" = -- ] && { shift; only=("$@"); break; }; shift; done
+build=${usage_build:-} upstream=$usage_upstream tip=$usage_tip
+eval "only=( ${usage_slug:-} )"
 order=${UPSTREAMABLE_ORDER:-docs/fork/stack-order.tsv}
 base=$(git merge-base "$upstream" "$tip")
 
