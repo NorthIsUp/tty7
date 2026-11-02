@@ -11,7 +11,7 @@ use crate::daemon::protocol::ShellSpec;
 use crate::terminal::PaneWorkspace;
 use crate::ui::i18n::{L10nKey, t_fmt};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PendingSpawn {
     pub workspace: Option<PaneWorkspace>,
     pub working_directory: Option<std::path::PathBuf>,
@@ -26,6 +26,8 @@ pub struct PendingSpawn {
     pub run_on_land: Option<String>,
     pub owner: Option<crate::core::session::WorkspaceId>,
     pub font_size: f32,
+    /// Fork: the grid to spawn at (see `background_grid`).
+    pub grid: Option<crate::ui::background_grid::Grid>,
 }
 
 pub enum PendingState {
