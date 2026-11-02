@@ -35,6 +35,7 @@ pub mod transport;
 pub(crate) const DETECTED_SHELL_ENV: &str = "TTY7_DETECTED_SHELL";
 
 pub(crate) mod shell_integration;
+pub(crate) mod shell_startup;
 
 #[cfg(windows)]
 pub(crate) mod winproc;
