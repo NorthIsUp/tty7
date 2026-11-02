@@ -2423,6 +2423,11 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppCodexServerDraining => "Codex's background server is shutting down",
         L10nKey::AppCodexServerRestart => "Restart Codex server",
         L10nKey::AppCodexServerRestartFailed => "Couldn't restart Codex's background server",
+        // search-text
+        L10nKey::CmdSearchText => "Search Text in Files…",
+        L10nKey::SearchTabText => "Text",
+        L10nKey::SearchPlaceholderText => "Search file contents…",
+        L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
     }
 }
 
