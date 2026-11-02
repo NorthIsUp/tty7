@@ -2538,6 +2538,37 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryHits => "Совпадений: {count}",
         // open-sessions
         L10nKey::SearchSectionSessionsOpen => "Открыты во вкладке",
+        // palette-tabs
+        L10nKey::CmdSearchAgents => "Искать сеансы агентов…",
+        L10nKey::NewTabPageTitle => "Новая вкладка",
+        L10nKey::NewTabPageTerminal => "Терминал",
+        L10nKey::NewTabPagePlaceholder => "Папка…",
+        L10nKey::NewTabPageDirsHeading => "Выберите каталог, в котором запустится {kind}",
+        L10nKey::SettingsNewTabAgents => "В новой вкладке",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "Агенты, которые страница новой вкладки предлагает рядом с терминалом. Выключенный остаётся в PATH и везде ещё"
+        }
+        L10nKey::SettingsAgentNoHooks => "Для этого агента нет хуков статуса",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "агенты новая вкладка показать скрыть agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "Что открывает разделение",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "Что ⌘D и ⌘⇧D открывают рядом с панелью: терминал, того же агента, что в панели, или выбор новой вкладки."
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "разделить панель агент терминал выбор split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "Папка разделения",
+        L10nKey::SettingsSplitDirDesc => {
+            "Где ⌘D и ⌘⇧D начинают: в папке панели или в папке из выбора новой вкладки."
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "разделить панель папка каталог split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "Терминал",
+        L10nKey::SettingsSplitSame => "Как в панели",
+        L10nKey::SettingsSplitChoose => "Выбрать",
     })
 }
 

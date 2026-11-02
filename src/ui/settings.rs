@@ -798,6 +798,21 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: Agents,
+            title: SettingsNewTabAgents,
+            keywords: SettingsSearchNewTabAgentsKeywords,
+        },
+        SearchEntry {
+            section: Agents,
+            title: SettingsSplitHarness,
+            keywords: SettingsSearchSplitHarnessKeywords,
+        },
+        SearchEntry {
+            section: Agents,
+            title: SettingsSplitDir,
+            keywords: SettingsSearchSplitDirKeywords,
+        },
+        SearchEntry {
+            section: Agents,
             title: SettingsInstallCliOnPath,
             keywords: SettingsSearchCommandLineToolKeywords,
         },
@@ -873,6 +888,9 @@ impl SearchEntry {
             L10nKey::SettingsMouseZoom => "mouse_zoom_modifier",
             L10nKey::SettingsTrimTrailingSpaces => "clipboard_trim_trailing_spaces",
             L10nKey::SettingsCopyJoinWrapped => "copy_join_wrapped",
+            L10nKey::SettingsNewTabAgents => "new_tab_hidden_agents",
+            L10nKey::SettingsSplitHarness => "split_harness",
+            L10nKey::SettingsSplitDir => "split_dir",
             L10nKey::SettingsCopyOnSelect => "copy_on_select",
             L10nKey::SettingsSmartSelection => "smart_select",
             L10nKey::SettingsPromptEditor => "prompt_editor",
@@ -965,6 +983,9 @@ impl SearchEntry {
             L10nKey::SettingsCopyOnSelect => t(L10nKey::SettingsCopyOnSelectDesc),
             L10nKey::SettingsTrimTrailingSpaces => t(L10nKey::SettingsTrimTrailingSpacesDesc),
             L10nKey::SettingsCopyJoinWrapped => t(L10nKey::SettingsCopyJoinWrappedDesc),
+            L10nKey::SettingsNewTabAgents => t(L10nKey::SettingsNewTabAgentsDesc),
+            L10nKey::SettingsSplitHarness => t(L10nKey::SettingsSplitHarnessDesc),
+            L10nKey::SettingsSplitDir => t(L10nKey::SettingsSplitDirDesc),
             L10nKey::SettingsVerifyHostKeys => t(L10nKey::SettingsVerifyHostKeysDesc),
             L10nKey::SettingsStartupWindow => t(L10nKey::SettingsStartupWindowDesc),
             L10nKey::SettingsRememberWindowSize => t(L10nKey::SettingsRememberWindowSizeDesc),
@@ -1063,6 +1084,11 @@ impl SearchEntry {
                 cfg.clipboard_trim_trailing_spaces != defaults.clipboard_trim_trailing_spaces
             }
             L10nKey::SettingsCopyJoinWrapped => cfg.copy_join_wrapped != defaults.copy_join_wrapped,
+            L10nKey::SettingsNewTabAgents => {
+                cfg.fork.new_tab_hidden_agents != defaults.fork.new_tab_hidden_agents
+            }
+            L10nKey::SettingsSplitHarness => cfg.fork.split_harness != defaults.fork.split_harness,
+            L10nKey::SettingsSplitDir => cfg.fork.split_dir != defaults.fork.split_dir,
             L10nKey::SettingsCopyOnSelect => cfg.copy_on_select != defaults.copy_on_select,
             L10nKey::SettingsSmartSelection => cfg.smart_select != defaults.smart_select,
             L10nKey::SettingsPromptEditor => cfg.prompt_editor != defaults.prompt_editor,
@@ -3915,6 +3941,60 @@ mod gpui_tests {
         vcx.run_until_parked();
         assert_eq!(inner.max_offset().y, px(0.));
         assert_eq!(inner.offset().y, px(0.));
+    }
+
+    /// The New Tab switches are a column of the integrations list, under its
+    /// header, on hooked rows and on a row for an agent with no hooks alike.
+    #[gpui::test]
+    fn new_tab_switches_line_up_under_their_header(cx: &mut TestAppContext) {
+        use crate::core::agent_hooks::{HookAgent, HooksState};
+
+        let (app, mut vcx) = harness(cx);
+        app.update_in(&mut vcx, |app, window, cx| {
+            // An override with a path puts an agent on PATH whatever PATH holds.
+            for slug in ["claude", "codex", "aider"] {
+                cx.global_mut::<Config>()
+                    .agent_launch
+                    .insert(slug.into(), "/bin/sh".into());
+            }
+            app.open_settings_section(SettingsSection::Agents, window, cx);
+        });
+        vcx.run_until_parked();
+        app.update_in(&mut vcx, |app, _, cx| {
+            let s = app.active_settings_mut().unwrap();
+            s.agent_hooks_seq += 1;
+            s.agent_hooks_states = super::AgentHooksView::Ready(
+                HookAgent::ALL
+                    .iter()
+                    .map(|&agent| super::AgentHookRow {
+                        agent,
+                        state: match agent {
+                            HookAgent::Claude => HooksState::Installed,
+                            _ => HooksState::NotInstalled,
+                        },
+                        target: String::new(),
+                    })
+                    .collect(),
+            );
+            cx.notify();
+        });
+        vcx.simulate_resize(size(px(1100.), px(700.)));
+        vcx.run_until_parked();
+        let header = vcx
+            .debug_bounds("new-tab-col-header")
+            .expect("the column has a header");
+        for slug in [
+            "new-tab-agent-claude",
+            "new-tab-agent-codex",
+            "new-tab-agent-aider",
+        ] {
+            let cell = vcx
+                .debug_bounds(slug)
+                .unwrap_or_else(|| panic!("{slug} has a New Tab switch"));
+            assert_eq!(cell.left(), header.left(), "{slug} is under the header");
+            assert_eq!(cell.right(), header.right(), "{slug} is under the header");
+            assert!(cell.top() > header.top());
+        }
     }
 
     /// #1221: the SSH page's "Show all" list scrolls on its own, and only an

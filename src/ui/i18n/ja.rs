@@ -2518,6 +2518,37 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryHits => "{count} 件",
         // open-sessions
         L10nKey::SearchSectionSessionsOpen => "タブで開いている",
+        // palette-tabs
+        L10nKey::CmdSearchAgents => "エージェントのセッションを検索…",
+        L10nKey::NewTabPageTitle => "新しいタブ",
+        L10nKey::NewTabPageTerminal => "ターミナル",
+        L10nKey::NewTabPagePlaceholder => "ディレクトリ…",
+        L10nKey::NewTabPageDirsHeading => "{kind} を起動するディレクトリを選択",
+        L10nKey::SettingsNewTabAgents => "新しいタブに表示",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新しいタブのページでターミナルの横に表示するエージェント。オフにしても PATH や他の場所からは使えます"
+        }
+        L10nKey::SettingsAgentNoHooks => "このエージェントにはステータスフックがありません",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "エージェント 新しいタブ 表示 非表示 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "分割で開くもの",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "⌘D と ⌘⇧D でペインの隣に開くもの: ターミナル、ペインと同じエージェント、または新しいタブのピッカーで選ぶ。"
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "分割 ペイン エージェント ターミナル ピッカー split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "分割のディレクトリ",
+        L10nKey::SettingsSplitDirDesc => {
+            "⌘D と ⌘⇧D の開始場所: ペインのディレクトリ、または新しいタブのピッカーで選ぶ。"
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "分割 ペイン ディレクトリ フォルダ split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "ターミナル",
+        L10nKey::SettingsSplitSame => "ペインと同じ",
+        L10nKey::SettingsSplitChoose => "選ぶ",
     })
 }
 
