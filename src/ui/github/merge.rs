@@ -10,7 +10,7 @@ use tty7_core::core::github::merge::{MergeMethod, MergeRules, merge, merge_rules
 use tty7_core::core::github::{ApiError, Detail, ItemState, RepoSlug};
 
 use crate::ui::app::Tty7App;
-use crate::ui::github::off_ui;
+use crate::ui::github::{off_ui, worker_died};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::panel_github::describe_error;
 use crate::ui::right_panel::TEXT_INSET;
@@ -216,14 +216,12 @@ impl Tty7App {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let transport = connection.transport.clone();
-            let Some(result) = off_ui(move || match action {
+            let result = off_ui(move || match action {
                 Action::Merge(m) => merge(&*transport, &slug, number, m),
                 Action::AutoMerge(m) => set_auto_merge(&*transport, &node_id, m),
             })
             .await
-            else {
-                return;
-            };
+            .unwrap_or_else(worker_died);
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(()) => {
@@ -241,5 +239,70 @@ impl Tty7App {
             });
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod gpui_tests {
+    use std::sync::Arc;
+
+    use gpui::TestAppContext;
+    use tty7_core::core::github::{Reply, Transport};
+
+    use super::*;
+    use crate::ui::app::test_window;
+    use crate::ui::github::Connection;
+
+    struct Dies;
+
+    impl Transport for Dies {
+        fn get(&self, _: &str) -> Result<Reply, ApiError> {
+            Err(ApiError::NotFound)
+        }
+
+        fn put(&self, _: &str, _: &[u8]) -> Result<Reply, ApiError> {
+            panic!("the worker dies mid-request");
+        }
+
+        fn authenticated(&self) -> bool {
+            true
+        }
+    }
+
+    #[gpui::test]
+    fn a_dead_worker_clears_the_merge_in_flight(cx: &mut TestAppContext) {
+        let (app, mut vcx) = test_window::harness(cx);
+        let slug = RepoSlug {
+            owner: "acme".into(),
+            name: "widgets".into(),
+        };
+        let key = (slug.clone(), 7);
+        app.update_in(&mut vcx, |app, _, cx| {
+            app.github.connection = Some(Connection {
+                transport: Arc::new(Dies),
+            });
+            app.github_run_merge(
+                slug,
+                7,
+                String::new(),
+                Action::Merge(MergeMethod::Squash),
+                cx,
+            );
+        });
+        let mut pending = None;
+        for _ in 0..200 {
+            vcx.background_executor.run_until_parked();
+            pending = app.update_in(&mut vcx, |app, _, _| {
+                app.github.merges.pending.get(&key).cloned()
+            });
+            if pending != Some(None) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            matches!(pending, Some(Some(ApiError::Network(_)))),
+            "not stuck in flight: {pending:?}"
+        );
     }
 }
