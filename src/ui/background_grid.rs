@@ -31,6 +31,18 @@ pub(crate) struct Grid {
     scale: f32,
 }
 
+#[cfg(test)]
+impl Grid {
+    pub(crate) fn for_test(cols: usize, rows: usize) -> Grid {
+        Grid {
+            size: TermSize::new(cols, rows),
+            cell_w: 16,
+            cell_h: 34,
+            scale: 2.,
+        }
+    }
+}
+
 /// The size, and device-pixel cell, to spawn a pane at.
 pub(crate) fn spawn_size(grid: Option<Grid>) -> (TermSize, u16, u16) {
     grid.map_or(PLACEHOLDER, |g| (g.size, g.cell_w, g.cell_h))

@@ -747,6 +747,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_resume_and_a_fresh_restart_carry_the_settings() {
+        let cfg = with(
+            CLIAgent::Codex,
+            settings("o3", &[("permission", "read-only")], &[]),
+        );
+        let lines = cfg.launch_lines();
+        let flags = "--model o3 --sandbox read-only --ask-for-approval on-request -c approvals_reviewer=user";
+        assert_eq!(
+            crate::ui::agent_launch::resume_line(CLIAgent::Codex, "0199-x", &lines),
+            Some(format!("codex resume 0199-x {flags}"))
+        );
+        assert_eq!(
+            crate::ui::agent_launch::fork_line(CLIAgent::Codex, "0199-x", &lines),
+            Some(format!("codex fork 0199-x {flags}"))
+        );
+        assert_eq!(
+            CLIAgent::Codex.relaunch_command(None, &lines),
+            format!("codex {flags}")
+        );
+        // A pane that recorded its own flags restarts with those instead.
+        let ran: Vec<String> = ["codex", "--model", "gpt-5"].map(String::from).to_vec();
+        assert_eq!(
+            CLIAgent::Codex.relaunch_command(Some(&ran), &lines),
+            "codex --model gpt-5"
+        );
+    }
+
     /// `agent_launch` lines from before the page existed load as its controls
     /// and still launch exactly as they did.
     #[test]
