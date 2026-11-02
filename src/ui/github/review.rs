@@ -11,7 +11,7 @@ use tty7_core::core::github::review::{ReviewEvent, submit_review};
 use tty7_core::core::github::{ApiError, Detail, RepoSlug};
 
 use crate::ui::app::Tty7App;
-use crate::ui::github::off_ui;
+use crate::ui::github::{off_ui, worker_died};
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::panel_github::describe_error;
 use crate::ui::right_panel::TEXT_INSET;
@@ -128,11 +128,9 @@ impl Tty7App {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let transport = connection.transport.clone();
-            let Some(result) =
-                off_ui(move || submit_review(&*transport, &slug, number, event, &body)).await
-            else {
-                return;
-            };
+            let result = off_ui(move || submit_review(&*transport, &slug, number, event, &body))
+                .await
+                .unwrap_or_else(worker_died);
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(()) => {

@@ -224,6 +224,12 @@ where
     }
 }
 
+/// A write whose worker thread died (panicked, or never spawned) failed: its
+/// busy state must clear, or the button stays disabled for good.
+pub(crate) fn worker_died() -> Result<(), ApiError> {
+    Err(ApiError::Network("the request's worker thread died".into()))
+}
+
 /// The real connector: resolve a token (env, then `gh`), build the client.
 /// A token from `gh` comes with the CLI's other accounts behind it, listed
 /// only if the active one comes up short.
