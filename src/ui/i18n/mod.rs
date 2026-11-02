@@ -1911,6 +1911,9 @@ l10n_keys! {
     SearchTabText,
     SearchPlaceholderText,
     SearchTextTooShort,
+    // pane-addresses
+    CmdGoToPane,
+    CmdGoToTabAddress,
 }
 
 /// The source control strings that are translated but not yet displayed.

@@ -153,6 +153,12 @@ pub enum CommandKind {
         workspace: WorkspaceId,
         tab: TabId,
     },
+    /// One pane of a tab, by the number `tty7 pane ls` prints for it.
+    GoToPane {
+        workspace: WorkspaceId,
+        tab: TabId,
+        pane: u64,
+    },
     /// A past agent session, reopened in a new tab where it ran.
     ResumeSession {
         agent: CLIAgent,
@@ -313,6 +319,7 @@ impl CommandKind {
             OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | GoToPane { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
             | GoToLocation { .. }
@@ -468,6 +475,7 @@ impl CommandKind {
             | OpenSshConnect(_)
             | SetTheme(_)
             | GoToTab { .. }
+            | GoToPane { .. }
             | OpenFile { .. }
             | GoToSymbol { .. }
             | GoToLocation { .. }
