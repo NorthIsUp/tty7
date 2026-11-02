@@ -351,6 +351,10 @@ impl Host for LocalHost {
         Ok(Roots::local().map_or_else(Vec::new, |roots| scan(&roots, known_dirs)))
     }
 
+    fn fork(&self) -> &dyn crate::core::fork_host::ForkHost {
+        self
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub> {
         guard_off_ui();
         local_watch(dirs, Arc::clone(&self.gitignore))
