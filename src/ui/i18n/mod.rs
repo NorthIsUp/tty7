@@ -1945,6 +1945,8 @@ l10n_keys! {
     SearchHistoryTooShort,
     SearchHistoryRemote,
     SearchHistoryHits,
+    // open-sessions
+    SearchSectionSessionsOpen,
 }
 
 /// The source control strings that are translated but not yet displayed.
