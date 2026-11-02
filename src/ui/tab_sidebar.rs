@@ -2330,6 +2330,7 @@ impl Tty7App {
             return;
         };
         tab.group.set(group);
+        self.hold_tab_group(index, group.is_some(), cx);
         // Carries the move to the daemon as a `TabSetGroup`, so another
         // window on the same workspace sees it too.
         self.save_session(cx);
@@ -2342,7 +2343,10 @@ impl Tty7App {
     pub(crate) fn move_tab_to(&mut self, index: usize, key: GroupKey, cx: &mut Context<Self>) {
         match key {
             GroupKey::Pinned(id) => self.set_tab_group(index, Some(id), cx),
-            GroupKey::Auto(auto) => self.pin_auto_group_with(auto, Some(index), cx),
+            GroupKey::Auto(auto) => {
+                self.pin_auto_group_with(auto, Some(index), cx);
+                self.hold_tab_group(index, true, cx);
+            }
         }
     }
 
@@ -2720,7 +2724,8 @@ impl Tty7App {
     /// — that is what lets a tab dragged out of a folder group while it is
     /// still inside the folder stay out: the watch already knows it is
     /// inside, so staying there is no entry. Only a tab not already kept in a
-    /// pinned group acts on an entry; a kept tab never leaves on its own.
+    /// pinned group acts on an entry. A tab in a folder group it is not in
+    /// leaves by [`group_follow`](crate::ui::group_follow)'s rule.
     ///
     /// A tab is only looked at once its repo probe has answered. Before that
     /// the question "is it inside" has half an answer — the cwd without the
@@ -2768,12 +2773,17 @@ impl Tty7App {
             let mut watch = tab.folder_watch.get();
             let entered = watch.observe(inside);
             tab.folder_watch.set(watch);
-            let kept = tab
-                .group
-                .get()
-                .is_some_and(|g| self.sidebar_groups.contains(g));
-            if let Some(id) = entered
-                && !kept
+            if crate::ui::group_follow::held(&self.sidebar_groups, tab) {
+                continue;
+            }
+            let kept = tab.group.get().filter(|&g| self.sidebar_groups.contains(g));
+            if let Some(to) =
+                crate::ui::group_follow::walked_out(&self.sidebar_groups, kept, inside)
+            {
+                tab.group.set(to);
+                joined = true;
+            } else if let Some(id) = entered
+                && kept.is_none()
             {
                 tab.group.set(Some(id));
                 joined = true;
@@ -2801,7 +2811,9 @@ impl Tty7App {
             });
             auto_key(host.as_deref(), known)
         });
-        if let Some(key) = resolved {
+        if let Some(key) = resolved
+            && !crate::ui::group_follow::frozen(&self.sidebar_groups, tab)
+        {
             *tab.auto_group.borrow_mut() = key;
         }
         tab.auto_group.borrow().clone()
@@ -2881,7 +2893,7 @@ impl Tty7App {
             .tabs
             .get(self.active)
             .and_then(|t| t.group.get())
-            .filter(|g| self.sidebar_groups.contains(*g));
+            .filter(|&g| crate::ui::group_follow::inherits(&self.sidebar_groups, g));
         let known = cwd.and_then(|cwd| {
             let host = self
                 .window_workspace(cx)
@@ -3022,7 +3034,7 @@ fn auto_header_menu(
 /// Where a tab about to be spawned goes, worked out before it exists — see
 /// [`Tty7App::spawn_group`].
 pub(crate) struct SpawnPlace {
-    group: Option<GroupId>,
+    pub(crate) group: Option<GroupId>,
     auto: Option<Option<AutoKey>>,
 }
 
@@ -3280,6 +3292,11 @@ fn git_click(
     })
 }
 
+// For `group_follow`'s tests; the module stays plain `mod` so the host-boundary
+// check sees where the test region starts.
+#[cfg(test)]
+pub(crate) use fold_tests::{folder, plant_repo, repo};
+
 #[cfg(test)]
 mod fold_tests {
     use super::*;
@@ -3299,7 +3316,14 @@ mod fold_tests {
     /// reads the tab's cwd and looks it up in the cache, and either one
     /// missing makes it return "no decision", which would leave every group
     /// below untouched and every assertion about moving vacuous.
-    fn plant(app: &Tty7App, i: usize, cwd: &str, root: &str, home: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant(
+        app: &Tty7App,
+        i: usize,
+        cwd: &str,
+        root: &str,
+        home: &str,
+        cx: &mut gpui::App,
+    ) {
         use crate::terminal::git_status::{GitStatusCache, RepoSnapshot};
         use crate::ui::host_ops::HostId;
 
@@ -3324,12 +3348,12 @@ mod fold_tests {
         });
     }
 
-    fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_repo(app: &Tty7App, i: usize, cwd: &str, root: &str, cx: &mut gpui::App) {
         plant(app, i, cwd, root, root, cx);
     }
 
     /// Put tab `i` somewhere the cache knows is in no repo at all.
-    fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
+    pub(crate) fn plant_plain(app: &Tty7App, i: usize, cwd: &str, cx: &mut gpui::App) {
         use crate::terminal::git_status::GitStatusCache;
         use crate::ui::host_ops::HostId;
 
@@ -3345,12 +3369,12 @@ mod fold_tests {
         });
     }
 
-    fn repo(s: &str) -> Option<GroupKey> {
+    pub(crate) fn repo(s: &str) -> Option<GroupKey> {
         Some(GroupKey::Auto(AutoKey::Repo(PathBuf::from(s))))
     }
 
     /// Pin a label group called `name`, answering its id.
-    fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn label(app: &mut Tty7App, name: &str, cx: &mut Context<Tty7App>) -> GroupId {
         let group = PinnedGroup::label(name);
         let id = group.id;
         app.edit_groups(cx, |groups| groups.pinned.push(group));
@@ -3358,7 +3382,7 @@ mod fold_tests {
     }
 
     /// Pin `folder`, answering the group's id.
-    fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
+    pub(crate) fn folder(app: &mut Tty7App, folder: &str, cx: &mut Context<Tty7App>) -> GroupId {
         app.pin_folder(PathBuf::from(folder), cx);
         app.sidebar_groups
             .pinned
