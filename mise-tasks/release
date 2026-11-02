@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Optimized build (thin LTO), the one to run day to day"
+set -euo pipefail
+exec cargo build --locked --release "$@"

@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+#MISE description="Check each stack feature applies to upstream main on its own, given the fork base and the features it needs (docs/fork/patch-stack.md)"
+#USAGE flag "--build" help="Also cargo check each feature, failing on new warnings"
+#USAGE flag "--test" help="Also cargo test the crates each feature touches (implies --build)"
+#USAGE arg "[upstream]" default="upstream/main" help="Upstream ref to apply the features to"
+#USAGE arg "[tip]" default="HEAD" help="Stack tip the features are read from"
+#USAGE arg "[slug]..." var=#true help="Only check these features (default: all)"
+#
+# Each feature in stack-order.tsv (fork-* excepted) is cherry-picked onto
+# UPSTREAM with the fork base (UPSTREAMABLE_BASE, default fork-config: the
+# empty ForkConfig section) and the features its third column names (and
+# theirs), and with --build checked: it must compile and warn nothing that
+# UPSTREAM or TIP does not already warn. No other fork-* commit is applied, a
+# feature may not name one as a dependency, and a feature commit may not
+# touch a fork-owned path: those are what upstream would never take.
+set -euo pipefail
+build=${usage_build:-} test=${usage_test:-} upstream=$usage_upstream tip=$usage_tip
+[ -n "$test" ] && build=1
+fork_base=${UPSTREAMABLE_BASE:-fork-config}
+eval "only=( ${usage_slug:-} )"
+order=${UPSTREAMABLE_ORDER:-docs/fork/stack-order.tsv}
+base=$(git merge-base "$upstream" "$tip")
+
+declare -A commit
+for c in $(git rev-list --reverse "$base..$tip"); do
+  slug=$(git log -1 --format='%(trailers:key=Fork-Feature,valueonly)' "$c" | head -1)
+  [ -n "$slug" ] && commit[$slug]=$c
+done
+declare -A needs; slugs=()
+while IFS=$'\t' read -r slug _ deps; do
+  [[ -z $slug || $slug == \#* ]] && continue
+  slugs+=("$slug"); needs[$slug]=${deps//,/ }
+done < "$order"
+
+# What a feature commit may not touch: the fork's own files. Its own
+# docs/fork/features/<slug>.md is the one fork path it brings.
+fork_owned() { # SLUG COMMIT
+  git diff-tree --no-commit-id --name-only -r "$2" | grep -E \
+    '^(FORK\.md|mise\.toml|mise-tasks/|\.github/workflows/niu-|docs/fork/)' |
+    grep -vxF "docs/fork/features/$1.md" || true
+}
+
+# The features SLUG needs, transitively, in stack order; the fork base is always applied.
+closure() {
+  local want=" $1 " grew=1 s d
+  while [ -n "$grew" ]; do
+    grew=
+    for s in $want; do for d in ${needs[$s]:-}; do
+      [[ $want == *" $d "* ]] || { want+="$d "; grew=1; }
+    done; done
+  done
+  for s in "${slugs[@]}"; do
+    if [[ $s != "$1" && $s != fork-* && $want == *" $s "* ]]; then echo -n "$s "; fi
+  done
+}
+
+# Neighbouring appends to the shared lists and the i18n blocks are not a
+# dependency; a union merge stands in for whoever resolves them upstream.
+# Not .git/info/attributes: every worktree shares that.
+attrs=$(mktemp)
+printf '%s merge=union\n' 'src/ui/i18n/*.rs' > "$attrs"
+
+# A feature's lines that sit next to a missing feature's conflict only because
+# the missing lines were their context. drop_foreign resolves exactly that:
+# ours is base minus some lines, and theirs still holds each of them unchanged,
+# so the answer is theirs without them. Anything else stays a conflict.
+drop_foreign() {
+  python3 - "$@" <<'PY'
+import difflib
+import sys
+
+
+def drop(ours, base, theirs):
+    """theirs without the base lines ours lacks, matched by position (a
+    repeated line is the one at that place); None unless ours is base minus
+    lines and theirs keeps each of those lines."""
+    missing = []
+    for tag, b1, b2, _, _ in difflib.SequenceMatcher(None, base, ours, autojunk=False).get_opcodes():
+        if tag == "delete":
+            missing.extend(range(b1, b2))
+        elif tag != "equal":
+            return None
+    at = {}
+    for tag, b1, b2, t1, _ in difflib.SequenceMatcher(None, base, theirs, autojunk=False).get_opcodes():
+        if tag == "equal":
+            at.update((b, t1 + b - b1) for b in range(b1, b2))
+    if any(m not in at for m in missing):
+        return None
+    gone = {at[m] for m in missing}
+    return [t for k, t in enumerate(theirs) if k not in gone]
+
+
+left = 0
+for path in sys.argv[1:]:
+    lines = open(path).read().split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        if not lines[i].startswith("<<<<<<< "):
+            out.append(lines[i]); i += 1; continue
+        j, ours = i + 1, []
+        while not lines[j].startswith("||||||| "): ours.append(lines[j]); j += 1
+        j, base = j + 1, []
+        while lines[j] != "=======": base.append(lines[j]); j += 1
+        j, theirs = j + 1, []
+        while not lines[j].startswith(">>>>>>> "): theirs.append(lines[j]); j += 1
+        res = drop(ours, base, theirs)
+        if res is None: out.extend(lines[i:j + 1]); left += 1
+        else: out.extend(res)
+        i = j + 1
+    open(path, "w").write("\n".join(out))
+sys.exit(1 if left else 0)
+PY
+}
+
+# UPSTREAMABLE_WT keeps one worktree, and its target/, between runs.
+if [ -n "${UPSTREAMABLE_WT:-}" ]; then
+  wt=$UPSTREAMABLE_WT
+  [ -e "$wt/.git" ] || git worktree add -q --detach "$wt" "$upstream"
+else
+  wt=$(mktemp -d)
+  git worktree add -q --detach "$wt" "$upstream"
+  trap 'git worktree remove --force "$wt"' EXIT
+fi
+g() { git -C "$wt" "$@"; }
+
+# Upstream main pins no Rust, so mise supplies stable.
+cargo_check() {
+  (cd "$wt" && env -u CARGO_BUILD_BUILD_DIR mise x rust@stable -- \
+    cargo check -q --workspace --all-targets --message-format short 2>&1)
+}
+# `-p` flags for the packages COMMIT touches: crates/<name>/, else the app.
+touched_crates() {
+  git diff-tree --no-commit-id --name-only -r "$1" |
+    sed -E 's#^crates/([^/]+)/.*#\1#; t; s#.*#tty7#' | sort -u | sed 's/^/-p /' | tr '\n' ' '
+}
+warnings() { { grep -E '^[^ ]+:[0-9]+:[0-9]+: warning' || true; } | sed -E 's/:[0-9]+:[0-9]+: /: /' | sort -u; }
+
+allowed=$(mktemp)
+if [ -n "$build" ]; then
+  for ref in "$upstream" "$tip"; do
+    g checkout -q --detach "$ref" && g reset -q --hard
+    cargo_check | warnings >> "$allowed" || true
+  done
+  sort -u -o "$allowed" "$allowed"
+fi
+
+fail=0
+for slug in "${slugs[@]}"; do
+  [[ $slug == fork-* ]] && continue
+  [ ${#only[@]} -eq 0 ] || [[ " ${only[*]} " == *" $slug "* ]] || continue
+  deps=$(closure "$slug")
+  g checkout -q --detach "$upstream" && g reset -q --hard
+  bad=
+  for d in ${needs[$slug]:-}; do
+    [[ $d == fork-* && $d != "$fork_base" ]] && { bad="needs $d, a fork-only commit"; break; }
+  done
+  owned=$([ -z "$bad" ] && [ -n "${commit[$slug]:-}" ] && fork_owned "$slug" "${commit[$slug]}" || true)
+  [ -n "$owned" ] && bad="touches fork-owned $(tr '\n' ' ' <<<"$owned")"
+  for d in $([ -z "$bad" ] && echo "$fork_base" $deps "$slug"); do
+    [ -n "${commit[$d]:-}" ] || { bad="no stack commit for $d"; break; }
+    g -c rerere.enabled=false -c core.attributesFile="$attrs" -c merge.conflictStyle=diff3 \
+      cherry-pick "${commit[$d]}" >/dev/null 2>&1 && continue
+    u=$(g diff --name-only --diff-filter=U)
+    if (cd "$wt" && drop_foreign $u); then
+      g add $u && GIT_EDITOR=true g cherry-pick --continue >/dev/null 2>&1 && continue
+    fi
+    bad="$d conflicts in $(g diff --name-only --diff-filter=U | tr '\n' ' ')"
+    g cherry-pick --abort >/dev/null 2>&1 || true
+    break
+  done
+  label="$slug${deps:+ (needs ${deps% })}"
+  if [ -n "$bad" ]; then
+    echo "❌ $label: $bad"; fail=1
+  elif [ -z "$build" ]; then
+    echo "✅ $label"
+  elif out=$(cargo_check); then
+    extra=$(warnings <<<"$out" | comm -23 - "$allowed")
+    if [ -n "$extra" ]; then
+      echo "❌ $label: new warnings"; sed 's/^/     /' <<<"$extra"; fail=1
+    elif [ -z "$test" ]; then echo "✅ $label (builds)"
+    elif crates=$(touched_crates "${commit[$slug]}") && (cd "$wt" && env -u CARGO_BUILD_BUILD_DIR \
+        mise x rust@stable -- cargo test -q $crates >/dev/null 2>&1); then
+      echo "✅ $label (builds, tests pass: ${crates//-p /})"
+    else echo "❌ $label: tests fail in ${crates//-p /}"; fail=1; fi
+  else
+    echo "❌ $label: does not build"; grep -E ': error' <<<"$out" | sort -u | head -8; fail=1
+  fi
+done
+exit $fail

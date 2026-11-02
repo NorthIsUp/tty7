@@ -1,0 +1,3 @@
+# Tasks live in mise-tasks/ as file tasks; they run the same commands CI does (.github/workflows/ci.yml).
+[tools]
+rust = "stable"
