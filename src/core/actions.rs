@@ -34,6 +34,7 @@ actions!(
         MarkTabUnread,
         HibernateTab,
         ContinueAllAgents,
+        SearchAgents,
         ForkAgentSession,
         ForkAgentSessionRight,
         ForkAgentSessionLeft,
