@@ -2501,6 +2501,15 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         // group-follow
         L10nKey::SidebarPinToCurrentGroup => "Pin to Current Group",
+        // github-session
+        L10nKey::GitHubSession => "Session",
+        L10nKey::GitHubAll => "All",
+        L10nKey::GitHubNoSessionMentions => {
+            "This session hasn't mentioned an issue or pull request"
+        }
+        L10nKey::GitHubNoSessionMatches => "Nothing this session mentions matches",
+        L10nKey::GitHubSortRecent => "Recent",
+        L10nKey::GitHubSortNumber => "Number",
     }
 }
 
