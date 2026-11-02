@@ -4395,6 +4395,9 @@ impl Tty7App {
     /// The new session starts in the far directory the pane was in, as a
     /// local ⌘T starts in the local one.
     pub(crate) fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_new_tab_page(window, cx) {
+            return;
+        }
         let source = self
             .tabs
             .get(self.active)
@@ -4664,6 +4667,9 @@ impl Tty7App {
     }
 
     pub(crate) fn split(&mut self, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_split_page(axis, window, cx) {
+            return;
+        }
         self.split_into(axis, None, window, cx);
     }
 
@@ -4687,6 +4693,19 @@ impl Tty7App {
         &mut self,
         axis: Axis,
         spawn: Option<SpawnAs>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PaneSlot> {
+        self.split_slot_in(axis, spawn, None, window, cx)
+    }
+
+    /// [`Self::split_slot`] starting in `dir` rather than where the split
+    /// pane is.
+    pub(crate) fn split_slot_in(
+        &mut self,
+        axis: Axis,
+        spawn: Option<SpawnAs>,
+        dir: Option<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PaneSlot> {
@@ -4719,10 +4738,10 @@ impl Tty7App {
                 ),
             },
         };
-        let cwd = {
+        let cwd = dir.or_else(|| {
             let target = target.read(cx);
             inherited_start_dir(opened, target.cwd(), target.remote_context().is_some())
-        };
+        });
         let new = match spawn {
             SpawnAs::Ssh(spec) => {
                 match new_terminal_native(
@@ -7041,6 +7060,7 @@ impl Tty7App {
             MarkTabUnread => self.mark_tab_unread(self.active, cx),
             HibernateTab => self.hibernate_tab(self.active, window, cx),
             ContinueAllAgents => self.continue_all_agents(window, cx),
+            SearchAgents => self.open_palette_on(SearchTab::Sessions, window, cx),
             ForkAgentSession => self.fork_active_pane_session(ForkPlacement::NewTab, window, cx),
             NewAgentTab => self.new_agent_tab(window, cx),
             FocusNextAgentNeedingAttention => self.focus_next_agent_needing_attention(window, cx),
@@ -7374,6 +7394,15 @@ impl Tty7App {
             }
             L10nKey::SettingsCopyJoinWrapped => {
                 self.update_config(cx, |c| c.copy_join_wrapped = defaults.copy_join_wrapped)
+            }
+            L10nKey::SettingsNewTabAgents => self.update_config(cx, |c| {
+                c.fork.new_tab_hidden_agents = defaults.fork.new_tab_hidden_agents.clone()
+            }),
+            L10nKey::SettingsSplitHarness => {
+                self.update_config(cx, |c| c.fork.split_harness = defaults.fork.split_harness)
+            }
+            L10nKey::SettingsSplitDir => {
+                self.update_config(cx, |c| c.fork.split_dir = defaults.fork.split_dir)
             }
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
@@ -10390,6 +10419,9 @@ impl Render for Tty7App {
                 }))
                 .on_action(cx.listener(|this, _: &ContinueAllAgents, window, cx| {
                     this.continue_all_agents(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SearchAgents, window, cx| {
+                    this.open_palette_on(SearchTab::Sessions, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ForkAgentSession, window, cx| {
                     this.fork_active_pane_session(ForkPlacement::NewTab, window, cx)

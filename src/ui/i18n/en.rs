@@ -2441,6 +2441,35 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchHistoryHits => "{count} hits",
         // open-sessions
         L10nKey::SearchSectionSessionsOpen => "Open in a tab",
+        // palette-tabs
+        L10nKey::CmdSearchAgents => "Search Agent Sessions…",
+        L10nKey::NewTabPageTitle => "New tab",
+        L10nKey::NewTabPageTerminal => "Terminal",
+        L10nKey::NewTabPagePlaceholder => "Directory…",
+        L10nKey::NewTabPageDirsHeading => "Pick the directory {kind} starts in",
+        L10nKey::SettingsNewTabAgents => "In New Tab",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "The agents the New Tab page offers beside Terminal. One switched off is still on PATH and everywhere else"
+        }
+        L10nKey::SettingsAgentNoHooks => "No status hooks for this agent",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "Split runs",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "What ⌘D and ⌘⇧D open beside the pane: a terminal, the same agent as the pane, or the New Tab picker to choose."
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "Split directory",
+        L10nKey::SettingsSplitDirDesc => {
+            "Where ⌘D and ⌘⇧D start: the pane's own directory, or the New Tab picker to choose one."
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => "split pane directory folder cwd picker cmd d",
+        L10nKey::SettingsSplitTerminal => "Terminal",
+        L10nKey::SettingsSplitSame => "Same as the pane",
+        L10nKey::SettingsSplitChoose => "Choose",
     }
 }
 

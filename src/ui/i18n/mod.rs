@@ -1922,6 +1922,25 @@ l10n_keys! {
     SearchHistoryHits,
     // open-sessions
     SearchSectionSessionsOpen,
+    // palette-tabs
+    CmdSearchAgents,
+    NewTabPageTitle,
+    NewTabPageTerminal,
+    NewTabPagePlaceholder,
+    NewTabPageDirsHeading,
+    SettingsNewTabAgents,
+    SettingsNewTabAgentsDesc,
+    SettingsAgentNoHooks,
+    SettingsSearchNewTabAgentsKeywords,
+    SettingsSplitHarness,
+    SettingsSplitHarnessDesc,
+    SettingsSearchSplitHarnessKeywords,
+    SettingsSplitDir,
+    SettingsSplitDirDesc,
+    SettingsSearchSplitDirKeywords,
+    SettingsSplitTerminal,
+    SettingsSplitSame,
+    SettingsSplitChoose,
 }
 
 /// The source control strings that are translated but not yet displayed.
