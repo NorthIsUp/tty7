@@ -322,6 +322,51 @@ fn a_restarted_daemon_still_has_the_screen_when_the_window_asks() {
     );
 }
 
+/// A restore names a pane that is gone. Asked for one that is still running —
+/// a window whose attach failed on its own side — the daemon refuses rather
+/// than put a fresh shell in its place and orphan the live one.
+#[test]
+fn a_restore_of_a_pane_that_is_still_running_is_refused() {
+    let instance = Instance::new();
+    let _running = instance.start();
+    let live = pane_showing_the_marker(&instance);
+
+    let mut stream =
+        transport::connect_endpoint_at(&instance.endpoint()).expect("connect to spawn");
+    ClientMsg::Spawn {
+        cwd: None,
+        size: size(),
+        shell: Some(interactive_shell()),
+        owner: None,
+        workspace: None,
+        restore: Some(RestoreFrom {
+            pane_id: live,
+            banner: None,
+            run_once: None,
+        }),
+        allow_remote_clipboard_write: false,
+    }
+    .encode(&mut stream)
+    .expect("send Spawn");
+    match DaemonMsg::read(&mut stream) {
+        Ok(DaemonMsg::Error(e)) => assert!(e.contains("still running"), "{e}"),
+        other => panic!("expected the restore to be refused, got {other:?}"),
+    }
+
+    let panes: Vec<u64> = instance
+        .panes()
+        .list()
+        .expect("list panes")
+        .into_iter()
+        .map(|p| p.pane_id)
+        .collect();
+    assert_eq!(
+        panes,
+        vec![live],
+        "no duplicate was spawned beside the live pane"
+    );
+}
+
 /// What a pane is running has to reach the tree, because that is the only
 /// place a window rebuilding the pane can read it from. Without it the rebuild
 /// falls back to the default shell, which is how a restart turns a bash pane
