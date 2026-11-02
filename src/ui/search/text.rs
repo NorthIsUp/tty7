@@ -125,6 +125,10 @@ impl LiveTab {
         }
     }
 
+    pub(crate) fn asks(&self) -> bool {
+        self.ask.is_some()
+    }
+
     /// A ticket that makes every earlier one stale.
     fn next(&self) -> Ticket {
         self.latest.set(self.latest.get() + 1);
@@ -226,10 +230,15 @@ impl Tty7App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<LiveTab> {
+        let history = self.spawn_host(cx).is_local();
         vec![
             LiveTab::new(
                 SearchTab::Text,
                 Some(self.live_ask(window, cx, Self::palette_text_search)),
+            ),
+            LiveTab::new(
+                SearchTab::History,
+                history.then(|| self.live_ask(window, cx, Self::palette_history_search)),
             ),
         ]
     }
