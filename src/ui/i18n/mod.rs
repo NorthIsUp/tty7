@@ -1989,6 +1989,13 @@ l10n_keys! {
     SidebarDeleteGroupBody,
     // group-follow
     SidebarPinToCurrentGroup,
+    // github-session
+    GitHubSession,
+    GitHubAll,
+    GitHubNoSessionMentions,
+    GitHubNoSessionMatches,
+    GitHubSortRecent,
+    GitHubSortNumber,
 }
 
 /// The source control strings that are translated but not yet displayed.
