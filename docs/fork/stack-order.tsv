@@ -1,0 +1,32 @@
+fork-infra	the fork's tasks, packaging, CI, sync and updater
+fork-docs	the fork's specs, plans and feature pages
+fork-config	the fork's settings section in config.json
+dev-build-guard	a cargo build never writes the user's config dir or agent hooks
+first-prompt	a typed launch waits for the shell's first prompt
+run-once	a new pane runs one command at its first prompt without making it the pane's shell	first-prompt
+spawn-grid	a hidden pane spawns at the window's real grid, not 80x24
+agent-launch-settings	Settings → Agents edits each agent's model, permission choices and extra args	fork-config,dev-build-guard
+agent-resume	agents come back after a reboot, asleep, woken a few at a time	fork-config,run-once,spawn-grid,agent-launch-settings,first-prompt
+agent-startup-prompts	answers an agent's startup prompts and offers to restart a draining Codex server	agent-resume
+search-text	Search Everywhere's Text tab finds text in files
+pane-addresses	⌘P takes a pane or tab address the way the CLI prints it
+search-history	Search Everywhere's History tab searches past agent sessions	search-text,agent-resume
+open-sessions	the Sessions tab leads with agent sessions already open in a tab
+palette-tabs	New Tab asks what to open and where	fork-config,search-text,agent-launch-settings,agent-resume
+background-tabs	⇧ opens a tab in the background	palette-tabs,spawn-grid
+panel-selected-contrast	the selected sidebar and panel row stands further off its background
+sidebar-groups	group colours, outline and fill, animated fold, default branch in the header	fork-config,panel-selected-contrast
+group-follow	a pinned folder group holds the tabs whose cwd is in it; a tab can be held	sidebar-groups
+pane-nice	pane shells start at the configured nice	fork-config
+github-session	the GitHub panel's Session tab and This session filter	fork-config,search-history
+github-review	the GitHub panel's pull request review box
+github-merge	the GitHub panel's pull request merge buttons and auto-merge	github-review
+hotkey-window	a global hotkey window	fork-config
+github-row-links	the GitHub panel's Open in Graphite tile	github-session
+github-recent-branches	the GitHub panel keeps the last five branches	github-session
+tab-usage	the sidebar shows each tab's pid, CPU and memory	fork-config,sidebar-groups
+shell-startup	pane shells can start without the user's rc files	fork-config,agent-resume
+spawn-trace	each new tab logs its start as one timeline	background-tabs
+quiet-close	an untouched new tab closes without asking	fork-config,background-tabs
+fork-group-repair	one-shot repair of tabs an older fork build filed in the wrong folder group	group-follow
+fork-config-compat	a config.json from before ForkConfig loads and saves every fork key
