@@ -76,6 +76,9 @@ pub struct ForkConfig {
     pub group_background_scope: GroupBackgroundScope,
     /// Animate a sidebar group folding open and shut.
     pub animations: bool,
+    /// Niceness every pane's shell starts at, so typing stays responsive while
+    /// agents build; 0 leaves it alone. Unix only.
+    pub nice: i32,
     /// Settings → Agents' launch settings, by agent slug. Appended to the
     /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
     #[serde(deserialize_with = "de_lenient")]
@@ -109,6 +112,7 @@ impl Default for ForkConfig {
             group_background_color: GroupColorSource::Hashed,
             group_background_scope: GroupBackgroundScope::Header,
             animations: true,
+            nice: 5,
             agent_settings: HashMap::new(),
         }
     }
