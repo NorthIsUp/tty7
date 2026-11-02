@@ -1962,6 +1962,8 @@ l10n_keys! {
     SettingsGroupAnimationsDesc,
     SidebarDeleteGroupTitle,
     SidebarDeleteGroupBody,
+    // group-follow
+    SidebarPinToCurrentGroup,
 }
 
 /// The source control strings that are translated but not yet displayed.
