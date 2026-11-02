@@ -6570,7 +6570,7 @@ impl Tty7App {
             None => Vec::new(),
         };
         out.extend(rest.drain(..).map(|s| row(s, recent.clone())));
-        (out, count)
+        crate::ui::search::open_first(out, count, &self.open_agent_sessions(cx))
     }
 
     /// The Actions tab: the fixed set, plus the rows only this window can

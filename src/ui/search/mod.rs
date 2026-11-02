@@ -11,6 +11,7 @@
 mod command;
 pub(crate) mod files;
 mod history_text;
+mod open_sessions;
 mod score;
 mod sources;
 mod text;
@@ -18,6 +19,7 @@ pub(crate) mod view;
 
 pub(crate) use command::{Avatar, ChromeState, CommandGroup, CommandKind, Item};
 pub(crate) use files::{FileIndexStore, FileList};
+pub(crate) use open_sessions::open_first;
 pub(crate) use score::fuzzy_score;
 pub(crate) use sources::{Catalog, LiveQuery, host_items};
 pub(crate) use view::{KEY_CONTEXT, SearchEvent, SearchView};

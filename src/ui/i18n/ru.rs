@@ -2536,6 +2536,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
         L10nKey::SearchHistoryHits => "Совпадений: {count}",
+        // open-sessions
+        L10nKey::SearchSectionSessionsOpen => "Открыты во вкладке",
     })
 }
 
