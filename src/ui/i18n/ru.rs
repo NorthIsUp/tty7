@@ -2602,6 +2602,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarDeleteGroupBody => {
             "Её название удалится вместе с ней. Вкладки останутся открытыми и вернутся в автоматические группы."
         }
+        // group-follow
+        L10nKey::SidebarPinToCurrentGroup => "Закрепить в текущей группе",
     })
 }
 

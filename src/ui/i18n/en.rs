@@ -2499,6 +2499,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SidebarDeleteGroupBody => {
             "Its name goes with it. Its tabs stay open and go back to their automatic groups."
         }
+        // group-follow
+        L10nKey::SidebarPinToCurrentGroup => "Pin to Current Group",
     }
 }
 
