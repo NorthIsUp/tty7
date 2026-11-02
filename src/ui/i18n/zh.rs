@@ -2267,6 +2267,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTabText => "文本",
         L10nKey::SearchPlaceholderText => "搜索文件内容…",
         L10nKey::SearchTextTooShort => "输入至少 3 个字符以搜索文件内容。",
+        // pane-addresses
+        L10nKey::CmdGoToPane => "跳到窗格 %{n}",
+        L10nKey::CmdGoToTabAddress => "跳到标签页 @{n}",
     })
 }
 

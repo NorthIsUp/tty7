@@ -2525,6 +2525,9 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchTextTooShort => {
             "Введите не меньше 3 символов, чтобы искать в содержимом файлов."
         }
+        // pane-addresses
+        L10nKey::CmdGoToPane => "Перейти к панели %{n}",
+        L10nKey::CmdGoToTabAddress => "Перейти к вкладке @{n}",
     })
 }
 

@@ -2428,6 +2428,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SearchTabText => "Text",
         L10nKey::SearchPlaceholderText => "Search file contents…",
         L10nKey::SearchTextTooShort => "Type at least 3 characters to search file contents.",
+        // pane-addresses
+        L10nKey::CmdGoToPane => "Go to Pane %{n}",
+        L10nKey::CmdGoToTabAddress => "Go to Tab @{n}",
     }
 }
 
