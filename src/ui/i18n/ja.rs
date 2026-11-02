@@ -2599,6 +2599,25 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeConfirm => {
             "要件を満たしたら #{number} を {base} にマージしますか（{method}）？"
         }
+        // hotkey-window
+        L10nKey::SwitcherSetHotkeyWorkspace => "ホットキーワークスペースに設定",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "ホットキーワークスペースを解除",
+        L10nKey::SwitcherHotkeyWorkspace => "ホットキーワークスペース",
+        L10nKey::SettingsHotkeyWindow => "ホットキーウィンドウ",
+        L10nKey::SettingsHotkeyOn => "グローバルホットキー",
+        L10nKey::SettingsHotkeyOnDesc => "どのアプリからでも tty7 を表示・非表示にします。",
+        L10nKey::SettingsHotkeyKey => "ホットキー",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "クリックしてキーを押します。Esc で取り消し、Backspace でオフ。"
+        }
+        L10nKey::SettingsHotkeyFullscreen => "フルスクリーン",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "マウスのある画面全体に、他のアプリより前面に tty7 を表示します。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "フォーカスを失ったら隠す",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
+        L10nKey::SettingsHotkeyFade => "フェード",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
     })
 }
 

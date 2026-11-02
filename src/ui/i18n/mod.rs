@@ -1983,6 +1983,21 @@ l10n_keys! {
     GitHubAutoMergeDisable,
     GitHubMergeConfirm,
     GitHubAutoMergeConfirm,
+    // hotkey-window
+    SwitcherSetHotkeyWorkspace,
+    SwitcherUnsetHotkeyWorkspace,
+    SwitcherHotkeyWorkspace,
+    SettingsHotkeyWindow,
+    SettingsHotkeyOn,
+    SettingsHotkeyOnDesc,
+    SettingsHotkeyKey,
+    SettingsHotkeyKeyDesc,
+    SettingsHotkeyFullscreen,
+    SettingsHotkeyFullscreenDesc,
+    SettingsHotkeyHideOnBlur,
+    SettingsHotkeyHideOnBlurDesc,
+    SettingsHotkeyFade,
+    SettingsHotkeyFadeDesc,
 }
 
 /// The source control strings that are translated but not yet displayed.
