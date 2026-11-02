@@ -2604,6 +2604,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         // group-follow
         L10nKey::SidebarPinToCurrentGroup => "Закрепить в текущей группе",
+        // github-session
+        L10nKey::GitHubSession => "Сеанс",
+        L10nKey::GitHubAll => "Все",
+        L10nKey::GitHubNoSessionMentions => "Этот сеанс не упоминал ни задач, ни пул-реквестов",
+        L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
+        L10nKey::GitHubSortRecent => "Недавние",
+        L10nKey::GitHubSortNumber => "Номер",
     })
 }
 
