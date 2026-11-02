@@ -2518,6 +2518,13 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppCodexServerDraining => "Фоновый сервер Codex завершает работу",
         L10nKey::AppCodexServerRestart => "Перезапустить сервер Codex",
         L10nKey::AppCodexServerRestartFailed => "Не удалось перезапустить фоновый сервер Codex",
+        // search-text
+        L10nKey::CmdSearchText => "Искать текст в файлах…",
+        L10nKey::SearchTabText => "Текст",
+        L10nKey::SearchPlaceholderText => "Искать в содержимом файлов…",
+        L10nKey::SearchTextTooShort => {
+            "Введите не меньше 3 символов, чтобы искать в содержимом файлов."
+        }
     })
 }
 
