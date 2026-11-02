@@ -426,6 +426,7 @@ fn handshake<R: Read>(
             .unwrap_or_default(),
         features,
         instance: crate::daemon::control::server_instance().to_string(),
+        pid: std::process::id(),
     }))?;
 
     if hello.control_version != CONTROL_VERSION {
@@ -2910,6 +2911,7 @@ mod tests {
                 home: "/root".into(),
                 features: vec![],
                 instance: "other-instance".into(),
+                pid: 0,
             })
             .encode(&mut s);
         });

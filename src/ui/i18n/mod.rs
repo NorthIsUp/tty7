@@ -1884,6 +1884,24 @@ l10n_keys! {
     SettingsAgentLaunchOptions,
     SettingsAgentSummaryModel,
     SettingsAgentSummaryExtras,
+    // agent-resume
+    QuitStopServerBodyAsleep,
+    CmdContinueAllAgents,
+    CmdContinueAllAgentsSubtitle,
+    SettingsResumeAgents,
+    SettingsResumeAgentsDesc,
+    SettingsAgentWakeConcurrency,
+    SettingsAgentWakeConcurrencyDesc,
+    SettingsAgentResumeMode,
+    SettingsAgentResumeModeDesc,
+    SettingsAgentResumeProgram,
+    SettingsAgentResumeTyped,
+    SettingsContinueInterrupted,
+    SettingsContinueInterruptedDesc,
+    SettingsContinuePrompt,
+    SettingsContinuePromptDesc,
+    QuitStopServerBodyResume,
+    AppRestartServerBodyResume,
 }
 
 /// The source control strings that are translated but not yet displayed.

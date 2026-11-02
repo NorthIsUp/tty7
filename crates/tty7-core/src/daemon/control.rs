@@ -784,6 +784,10 @@ pub struct ControlHelloOk {
     pub features: Vec<String>,
     #[serde(default)]
     pub instance: String,
+    /// The serving process's pid. A handoff keeps it and mints a new
+    /// `instance`, so the pair tells "same panes, new image" from a restart.
+    #[serde(default)]
+    pub pid: u32,
 }
 
 impl ControlHelloOk {
@@ -1556,6 +1560,7 @@ mod tests {
                 home: "/home/me".into(),
                 features: Vec::new(),
                 instance: "test-instance".into(),
+                pid: 0,
             },
             shutdown: None,
             reader_done: Mutex::new(false),
@@ -1924,6 +1929,7 @@ mod tests {
             home: "/home/me".into(),
             features: vec![feature::CONTROL.into(), feature::HOST_RPC.into()],
             instance: "test-instance".into(),
+            pid: 0,
         }
     }
 

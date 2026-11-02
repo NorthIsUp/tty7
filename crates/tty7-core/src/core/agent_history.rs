@@ -280,6 +280,86 @@ pub fn session_key(agent: CLIAgent, id: &str) -> String {
     format!("{}:{id}", agent.slug())
 }
 
+/// The directory `agent`'s session `id` belongs to, for a resume to start in:
+/// Codex's resume otherwise stops at a picker when it is run elsewhere, and
+/// Pi's `--session-id` quietly opens an empty session. `None` for other
+/// agents and for a session with no file yet.
+pub fn session_cwd(roots: &Roots, agent: CLIAgent, id: &str) -> Option<PathBuf> {
+    match agent {
+        CLIAgent::Codex => {
+            // `rollout-YYYY-MM-DDTHH-MM-SS-<id>.jsonl`: the time is fixed-width,
+            // so a shorter id that only ends the real one never matches.
+            let name = format!("-{id}.jsonl");
+            let found = codex_files(&roots.codex).into_iter().find(|f| {
+                f.path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_prefix("rollout-"))
+                    .and_then(|n| n.get(19..))
+                    == Some(name.as_str())
+            })?;
+            codex_session_cwd(&found.path)
+        }
+        CLIAgent::Pi => {
+            let suffix = format!("_{id}.jsonl");
+            let found = pi_files(&roots.pi.join("sessions"), agent)
+                .into_iter()
+                .find(|f| {
+                    f.path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with(&suffix))
+                })?;
+            let (head, _) = ends(&found.path, found.len).ok()?;
+            records(&head)
+                .find(|r| str_field(r, "type") == Some("session"))
+                .and_then(|r| str_field(&r, "cwd").map(PathBuf::from))
+        }
+        _ => None,
+    }
+}
+
+/// What Codex's resume picker calls the session directory: the newest cwd
+/// the rollout records — at its start, each turn, and each resume's
+/// settings, which move it when a resume ran somewhere else. The whole file
+/// is read, as the last turn can outrun any tail, but only those records
+/// are parsed.
+fn codex_session_cwd(path: &Path) -> Option<PathBuf> {
+    use std::io::BufRead;
+    const KINDS: [&str; 3] = [
+        "\"session_meta\"",
+        "\"turn_context\"",
+        "\"thread_settings_applied\"",
+    ];
+    let mut reader = std::io::BufReader::new(File::open(path).ok()?);
+    let mut line = Vec::new();
+    let mut cwd = None;
+    while reader.read_until(b'\n', &mut line).ok()? > 0 {
+        // Codex writes `type` (and an event's own `type`) first, so a
+        // record's kind is in its opening bytes.
+        let start = String::from_utf8_lossy(&line[..line.len().min(160)]);
+        if KINDS.iter().any(|k| start.contains(k))
+            && let Ok(record) = serde_json::from_slice::<Value>(&line)
+        {
+            cwd = codex_cwd(&record).or(cwd);
+        }
+        line.clear();
+    }
+    cwd
+}
+
+fn codex_cwd(record: &Value) -> Option<PathBuf> {
+    let payload = record.get("payload")?;
+    let cwd = match str_field(record, "type")? {
+        "session_meta" | "turn_context" => str_field(payload, "cwd"),
+        "event_msg" if str_field(payload, "type") == Some("thread_settings_applied") => {
+            str_field(payload.get("thread_settings")?, "cwd")
+        }
+        _ => None,
+    };
+    cwd.map(PathBuf::from)
+}
+
 /// This user's home, where the agents keep their history.
 pub fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -886,7 +966,7 @@ fn codex_not_the_users(meta: &Value) -> bool {
 /// The file's first [`HEAD_BYTES`] and last [`TAIL_BYTES`], as text. The two
 /// overlap on a short file, which is harmless: the head is read for the first
 /// of things and the tail for the last.
-fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
+pub(crate) fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
     let mut file = File::open(path)?;
     let mut head = Vec::new();
     (&mut file).take(HEAD_BYTES).read_to_end(&mut head)?;
@@ -903,12 +983,12 @@ fn ends(path: &Path, len: u64) -> std::io::Result<(String, String)> {
 
 /// Complete JSON records in `text`. A cut at either end leaves a partial
 /// line, which does not parse and is skipped.
-fn records(text: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
+pub(crate) fn records(text: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
     text.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key)?
         .as_str()
         .map(str::trim)
@@ -1559,6 +1639,53 @@ mod tests {
             codex_user("x")
         );
         assert!(parse_codex(&head, 0).is_some());
+    }
+
+    #[test]
+    fn a_session_resumes_in_the_directory_it_last_ran_in() {
+        let home = tempfile::tempdir().unwrap();
+        let roots = Roots::under(home.path());
+        let day = roots.codex.join("sessions/2026/10/31");
+        std::fs::create_dir_all(&day).unwrap();
+        let turn = |cwd: &str| line(json!({"type": "turn_context", "payload": {"cwd": cwd}}));
+        std::fs::write(
+            day.join("rollout-2026-10-31T12-00-00-0199-abc.jsonl"),
+            [
+                codex_meta(json!({})),
+                turn("/work"),
+                codex_user("look at turn_context in /elsewhere"),
+                turn("/moved"),
+                line(json!({"type": "event_msg", "payload": {
+                    "type": "thread_settings_applied",
+                    "thread_settings": {"cwd": "/resumed-here"},
+                }})),
+            ]
+            .concat(),
+        )
+        .unwrap();
+        assert_eq!(
+            session_cwd(&roots, CLIAgent::Codex, "0199-abc"),
+            Some(PathBuf::from("/resumed-here")),
+            "a resume's settings are the newest"
+        );
+        assert_eq!(session_cwd(&roots, CLIAgent::Codex, "abc"), None);
+
+        let project = roots.pi.join("sessions/--pi--");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("2026-10-31T12-00-00-000Z_p1.jsonl"),
+            lines(&[
+                json!({"type": "session", "id": "p1", "cwd": "/pi"}),
+                json!({"type": "message", "message": {"role": "user", "content": "hi"}}),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            session_cwd(&roots, CLIAgent::Pi, "p1"),
+            Some(PathBuf::from("/pi"))
+        );
+        assert_eq!(session_cwd(&roots, CLIAgent::Pi, "p2"), None);
+        assert_eq!(session_cwd(&roots, CLIAgent::Claude, "p1"), None);
     }
 
     #[test]
