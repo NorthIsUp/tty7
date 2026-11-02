@@ -2000,6 +2000,14 @@ l10n_keys! {
     GitHubReviewPlaceholder,
     GitHubReviewComment,
     GitHubReviewApprove,
+    // github-merge
+    GitHubMergeCommit,
+    GitHubMergeSquash,
+    GitHubMergeRebase,
+    GitHubAutoMergeEnable,
+    GitHubAutoMergeDisable,
+    GitHubMergeConfirm,
+    GitHubAutoMergeConfirm,
 }
 
 /// The source control strings that are translated but not yet displayed.

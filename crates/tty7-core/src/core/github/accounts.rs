@@ -120,6 +120,10 @@ impl Transport for FallbackTransport {
         self.call(path, |t| t.post(path, body))
     }
 
+    fn put(&self, path: &str, body: &[u8]) -> Result<Reply, ApiError> {
+        self.call(path, |t| t.put(path, body))
+    }
+
     fn authenticated(&self) -> bool {
         self.first.authenticated()
     }
