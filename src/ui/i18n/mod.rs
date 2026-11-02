@@ -2015,6 +2015,10 @@ l10n_keys! {
     SettingsShellStartupUser,
     SettingsShellStartupNoRcs,
     SettingsShellStartupEnvlibs,
+    // quiet-close
+    SettingsQuietClose,
+    SettingsQuietCloseDesc,
+    SettingsSearchQuietCloseKeywords,
 }
 
 /// The source control strings that are translated but not yet displayed.

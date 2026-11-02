@@ -733,6 +733,11 @@ fn settings_search_entries() -> &'static [SearchEntry] {
         },
         SearchEntry {
             section: General,
+            title: SettingsQuietClose,
+            keywords: SettingsSearchQuietCloseKeywords,
+        },
+        SearchEntry {
+            section: General,
             title: SettingsSidebarGrouping,
             keywords: SettingsSearchSidebarGroupingKeywords,
         },
@@ -891,6 +896,7 @@ impl SearchEntry {
             L10nKey::SettingsNewTabAgents => "new_tab_hidden_agents",
             L10nKey::SettingsSplitHarness => "split_harness",
             L10nKey::SettingsSplitDir => "split_dir",
+            L10nKey::SettingsQuietClose => "quiet_close",
             L10nKey::SettingsCopyOnSelect => "copy_on_select",
             L10nKey::SettingsSmartSelection => "smart_select",
             L10nKey::SettingsPromptEditor => "prompt_editor",
@@ -986,6 +992,7 @@ impl SearchEntry {
             L10nKey::SettingsNewTabAgents => t(L10nKey::SettingsNewTabAgentsDesc),
             L10nKey::SettingsSplitHarness => t(L10nKey::SettingsSplitHarnessDesc),
             L10nKey::SettingsSplitDir => t(L10nKey::SettingsSplitDirDesc),
+            L10nKey::SettingsQuietClose => t(L10nKey::SettingsQuietCloseDesc),
             L10nKey::SettingsVerifyHostKeys => t(L10nKey::SettingsVerifyHostKeysDesc),
             L10nKey::SettingsStartupWindow => t(L10nKey::SettingsStartupWindowDesc),
             L10nKey::SettingsRememberWindowSize => t(L10nKey::SettingsRememberWindowSizeDesc),
@@ -1089,6 +1096,7 @@ impl SearchEntry {
             }
             L10nKey::SettingsSplitHarness => cfg.fork.split_harness != defaults.fork.split_harness,
             L10nKey::SettingsSplitDir => cfg.fork.split_dir != defaults.fork.split_dir,
+            L10nKey::SettingsQuietClose => cfg.fork.quiet_close != defaults.fork.quiet_close,
             L10nKey::SettingsCopyOnSelect => cfg.copy_on_select != defaults.copy_on_select,
             L10nKey::SettingsSmartSelection => cfg.smart_select != defaults.smart_select,
             L10nKey::SettingsPromptEditor => cfg.prompt_editor != defaults.prompt_editor,
