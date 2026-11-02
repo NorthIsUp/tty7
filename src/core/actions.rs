@@ -33,6 +33,7 @@ actions!(
         CopyLinkPathUnderPointer,
         MarkTabUnread,
         HibernateTab,
+        ContinueAllAgents,
         ForkAgentSession,
         ForkAgentSessionRight,
         ForkAgentSessionLeft,
