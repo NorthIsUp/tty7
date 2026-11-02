@@ -67,6 +67,7 @@
 | `src/ui/tree_sync.rs`, `src/ui/windows.rs` | `TabClosed` delta, `delete_workspace` | `agent_resume::forget_restored` / `forget_workspace_restored`: a tab closed elsewhere, or a deleted workspace's tabs, are no wake's either |
 | `src/ui/app.rs` | `tabs_from_session` | the sleep test is one call, `agent_resume::record_restores_asleep` (hibernated, or with `restore_asleep` a local tab with no live pane, recorded so launch and restart wakes pick only those) |
 | `src/ui/app.rs` | `PendingSpawn` literals | `..Default::default()` |
+| `src/ui/local_link.rs`, `src/ui/remote_workspace.rs`, `src/terminal/view.rs` | link-up's same-daemon branch → `remote_workspace::relink_local_panes`; `relink_dead_panes` takes a local route; `wants_relink` no longer needs a workspace (+ test) | after an in-place `tty7 server restart` the local tabs relink to their kept panes instead of reading "process exited" |
 | `src/ui/agent_launch.rs` | `launch_agent` split into `launch_agent_in` / `start_agent_in` | mint Claude's `--session-id` at launch (`agent_resume::with_minted_session`); launch into an explicit cwd for the new tab page |
 | `src/ui/pending_pane.rs` | `PendingSpawn::agent_prompt`, `PendingSpawn::resume`, `Default` derive | carry the prompt, and the resume's delivery decided at the first spawn, until a connecting pane lands; literals fill the rest with `..Default::default()` |
 | `src/ui/diff_overlay.rs`, `src/ui/document_column.rs` | test `PendingSpawn` literals | `..Default::default()` |
