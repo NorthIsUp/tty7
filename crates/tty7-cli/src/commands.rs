@@ -1206,7 +1206,7 @@ fn worktree_new(args: WorktreeNew, ctx: &Context, backend: &mut dyn Backend) -> 
         .then(|| setup::find(&*host, &wt.path))
         .flatten()
         .zip(setup::env(&*host, &wt.main_root, &wt.path));
-    let overrides = tty7_core::core::config::Config::load().agent_launch;
+    let overrides = tty7_core::core::config::Config::load().launch_lines();
     let agent_line =
         agent.map(|a| setup::agent_line(a, args.task.as_deref().unwrap_or(""), &overrides));
     let line = setup::launch_line(
