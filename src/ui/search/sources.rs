@@ -153,6 +153,8 @@ impl Catalog {
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
             SearchTab::Text => self.live_source(tab),
             SearchTab::History => self.live_source(tab),
+            // The page draws its own rows (`new_tab_page`).
+            SearchTab::NewTab => Some(Box::new(Locations(&[]))),
         }
     }
 

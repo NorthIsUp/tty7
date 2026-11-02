@@ -18,6 +18,7 @@ use super::{FileList, SearchTab};
 use crate::core::actions::{SearchNextTab, SearchPrevTab};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, KEYCAP, keycap};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
+use crate::ui::new_tab_page::NewTabPage;
 
 /// What the list is showing: one of the tabs, or a list a row opens — the
 /// theme picker one of the Actions rows opens, or what can be done with a
@@ -433,6 +434,8 @@ pub struct SearchView {
     /// The editor's row as this window can fill it (`SearchTab::EDITOR_ORDER`
     /// less what cannot answer), set by whoever opened an editor tab.
     editor_tabs: Vec<SearchTab>,
+    /// The New Tab tab's page, drawn in place of the list.
+    new_tab: Option<Entity<NewTabPage>>,
     _sub: Subscription,
 }
 
@@ -468,13 +471,35 @@ impl SearchView {
             symbol_moved: false,
             heading: None,
             editor_tabs: Vec::new(),
+            new_tab: None,
             _sub,
         }
     }
 
+    pub(crate) fn set_new_tab(
+        &mut self,
+        page: Entity<NewTabPage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        NewTabPage::focus(&page, window, cx);
+        self.new_tab = Some(page);
+        cx.notify();
+    }
+
+    /// The page, while the New Tab tab is showing.
+    pub(crate) fn new_tab_page(&self) -> Option<Entity<NewTabPage>> {
+        self.new_tab
+            .clone()
+            .filter(|_| self.tab == SearchTab::NewTab)
+    }
+
     /// Puts the keyboard back in the search field (`palette`).
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-        self.list.update(cx, |state, cx| state.focus(window, cx));
+        match self.new_tab_page() {
+            Some(page) => NewTabPage::focus(&page, window, cx),
+            None => self.list.update(cx, |state, cx| state.focus(window, cx)),
+        }
     }
 
     /// Whether a row's list is showing rather than a tab.
@@ -719,6 +744,33 @@ impl SearchView {
             (i + n - 1) % n
         }];
         self.go_to_tab(next, window, cx);
+    }
+
+    /// ← and → walk the tab row while nothing is typed, as on the New Tab
+    /// page; with a query they are the caret's. Taken ahead of the field
+    /// (`palette`'s interceptor), which would otherwise eat them.
+    pub(crate) fn on_arrow(
+        &mut self,
+        ks: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let m = &ks.modifiers;
+        let bare = !(m.platform || m.control || m.alt || m.shift || m.function);
+        let forward = match ks.key.as_str() {
+            "left" => false,
+            "right" => true,
+            _ => return false,
+        };
+        if !bare
+            || self.in_sub_list()
+            || self.scope_row().is_none()
+            || !self.list.read(cx).delegate().query.is_empty()
+        {
+            return false;
+        }
+        self.step_tab(forward, window, cx);
+        true
     }
 
     fn open_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1233,6 +1285,10 @@ impl Render for SearchView {
             // click on it still reaches the field under it.
             .when(!typed, |card| card.child(esc_cap(cx)))
             .child(self.render_footer(cx));
+        let card = match self.new_tab_page() {
+            Some(page) => page.into_any_element(),
+            None => card.into_any_element(),
+        };
 
         div()
             .absolute()
@@ -1382,6 +1438,29 @@ mod tests {
             app.read_with(&vcx, |app, _| app.search.is_some()),
             "Tab stays inside the search instead of walking focus out of it"
         );
+    }
+
+    #[gpui::test]
+    fn arrows_walk_the_tabs_only_while_nothing_is_typed(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.open_search(SearchTab::All, "", window, cx)
+        });
+        vcx.run_until_parked();
+        let view = open(&app, &mut vcx);
+
+        vcx.simulate_keystrokes("right");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Terminals));
+        vcx.simulate_keystrokes("left left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
+
+        vcx.simulate_input("x");
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("left");
+        vcx.run_until_parked();
+        view.read_with(&vcx, |view, _| assert_eq!(view.tab, SearchTab::Actions));
     }
 
     /// Opened with nothing typed, Return goes back to the tab you were last
@@ -1632,6 +1711,12 @@ mod tests {
     fn a_query_after_one_that_found_nothing_still_arms_its_first_row(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
         crate::ui::i18n::set_locale("en");
+        // Split Right splits at once, rather than opening the new tab page.
+        vcx.update(|_, cx| {
+            let fork = &mut cx.global_mut::<crate::core::config::Config>().fork;
+            fork.split_harness = tty7_core::core::fork_config::SplitHarness::Terminal;
+            fork.split_dir = tty7_core::core::fork_config::SplitDir::Same;
+        });
         app.update_in(&mut vcx, |app, window, cx| {
             app.open_search(SearchTab::Actions, "", window, cx)
         });
