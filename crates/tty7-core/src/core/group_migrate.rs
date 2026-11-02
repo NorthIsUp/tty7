@@ -202,8 +202,8 @@ mod tests {
             std::fs::create_dir_all(&p).unwrap();
             p
         };
-        let (clara_d, tty7_d, mono_d, pkg_d) = (d("clara"), d("tty7"), d("mono"), d("mono/pkg"));
-        let (tsmux_d, clawmux_d, wt_d) = (d("tsmux"), d("clawmux"), d("clara/wt"));
+        let (alpha_d, tty7_d, mono_d, pkg_d) = (d("alpha"), d("tty7"), d("mono"), d("mono/pkg"));
+        let (beta_d, gamma_d, wt_d) = (d("beta"), d("gamma"), d("alpha/wt"));
         let tty7_src = d("tty7/src");
         // Spelled through /tmp, a symlink to /private/tmp on macOS.
         let tmp = tempfile::TempDir::new_in("/tmp").unwrap();
@@ -211,22 +211,22 @@ mod tests {
         std::fs::create_dir_all(&sym_raw).unwrap();
         let sym_real = sym_raw.canonicalize().unwrap();
 
-        let clara = PinnedGroup::folder(&clara_d);
+        let alpha = PinnedGroup::folder(&alpha_d);
         let tty7 = PinnedGroup::folder(&tty7_d);
         let pkg = PinnedGroup::folder(&pkg_d);
         let sym = PinnedGroup::folder(&sym_raw);
         let work = PinnedGroup::label("work");
-        let (c, t, p, s, w) = (clara.id, tty7.id, pkg.id, sym.id, work.id);
+        let (c, t, p, s, w) = (alpha.id, tty7.id, pkg.id, sym.id, work.id);
         let doc = json!({
             "workspaces": [{
-                "groups": {"pinned": [clara, tty7, pkg, sym, work]},
+                "groups": {"pinned": [alpha, tty7, pkg, sym, work]},
                 "tabs": [
-                    tab(c, &tsmux_d, 1, false),
+                    tab(c, &beta_d, 1, false),
                     tab(c, &tty7_d, 2, true),
-                    tab(t, &clawmux_d, 3, false),
-                    tab(c, &clara_d, 4, false),
+                    tab(t, &gamma_d, 3, false),
+                    tab(c, &alpha_d, 4, false),
                     tab(p, &mono_d, 5, false),
-                    tab(w, &tsmux_d, 6, false),
+                    tab(w, &beta_d, 6, false),
                     tab(c, &tty7_d, 7, false),
                     tab(c, &tty7_d, 8, false),
                     tab(s, &sym_real, 9, false),
@@ -243,13 +243,13 @@ mod tests {
         assert_eq!(
             groups_of(&store),
             vec![
-                None,    // tsmux: out of clara, auto
+                None,    // beta: out of alpha, auto
                 Some(t), // tty7 (asleep), cwd in tty7: into tty7's folder
-                None,    // clawmux: out of tty7, auto
-                Some(c), // clara's own tab stays
+                None,    // gamma: out of tty7, auto
+                Some(c), // alpha's own tab stays
                 Some(p), // a package inside its repo stays
                 Some(w), // a label group is the user's
-                Some(c), // a worktree under clara, home tty7: where it sits
+                Some(c), // a worktree under alpha, home tty7: where it sits
                 Some(c), // its repo is pinned elsewhere, no cwd: can't tell
                 Some(s), // /tmp and /private/tmp are one folder
             ]
@@ -257,7 +257,7 @@ mod tests {
         assert!(root.join(MARKER).exists());
         drop(store);
 
-        // The user drags a tsmux tab into clara by hand after the repair.
+        // The user drags a beta tab into alpha by hand after the repair.
         let mut doc: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         doc["workspaces"][0]["tabs"][0]["group"] = json!(c);
@@ -296,13 +296,13 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join(MACHINE_FILE);
         let elsewhere = tempfile::TempDir::new().unwrap();
-        let clara = PinnedGroup::folder(dir.path());
-        let c = clara.id;
+        let alpha = PinnedGroup::folder(dir.path());
+        let c = alpha.id;
         write(
             &path,
             &json!({
                 "workspaces": [{
-                    "groups": {"pinned": [clara]},
+                    "groups": {"pinned": [alpha]},
                     "tabs": [tab(c, elsewhere.path(), 1, false)],
                 }],
             }),
@@ -346,18 +346,18 @@ mod tests {
     fn a_tab_that_cannot_be_judged_is_skipped_once() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join(MACHINE_FILE);
-        let clara_d = dir.path().join("clara");
-        std::fs::create_dir_all(&clara_d).unwrap();
+        let alpha_d = dir.path().join("alpha");
+        std::fs::create_dir_all(&alpha_d).unwrap();
         let elsewhere = tempfile::TempDir::new().unwrap();
         let gone = PinnedGroup::folder(Path::new("/nonexistent/a"));
-        let clara = PinnedGroup::folder(&clara_d);
-        let (g, c) = (gone.id, clara.id);
+        let alpha = PinnedGroup::folder(&alpha_d);
+        let (g, c) = (gone.id, alpha.id);
         let doc = json!({
             "workspaces": [{
-                "groups": {"pinned": [gone, clara]},
+                "groups": {"pinned": [gone, alpha]},
                 "tabs": [
                     tab(g, Path::new("/nonexistent/b"), 1, false),
-                    tab(c, &clara_d, 2, false),
+                    tab(c, &alpha_d, 2, false),
                 ],
             }],
         });
@@ -367,7 +367,7 @@ mod tests {
         assert!(dir.path().join(MARKER).exists());
         drop(store);
 
-        // Dragged into clara by hand from another repo.
+        // Dragged into alpha by hand from another repo.
         let mut doc: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         doc["workspaces"][0]["tabs"][1] = tab(c, elsewhere.path(), 2, false);
