@@ -2528,6 +2528,14 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         // pane-addresses
         L10nKey::CmdGoToPane => "Перейти к панели %{n}",
         L10nKey::CmdGoToTabAddress => "Перейти к вкладке @{n}",
+        // search-history
+        L10nKey::SearchTabHistory => "История",
+        L10nKey::SearchPlaceholderHistory => "Искать сказанное вами и вашими агентами…",
+        L10nKey::SearchHistoryTooShort => {
+            "Введите не меньше 3 символов, чтобы искать в разговорах агентов."
+        }
+        L10nKey::SearchHistoryRemote => "История агентов ищется только на этом компьютере.",
+        L10nKey::SearchHistoryHits => "Совпадений: {count}",
     })
 }
 
