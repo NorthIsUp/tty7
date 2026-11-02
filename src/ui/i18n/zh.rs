@@ -2278,6 +2278,37 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryHits => "{count} 处匹配",
         // open-sessions
         L10nKey::SearchSectionSessionsOpen => "已在标签页中打开",
+        // palette-tabs
+        L10nKey::CmdSearchAgents => "搜索 Agent 会话…",
+        L10nKey::NewTabPageTitle => "新标签页",
+        L10nKey::NewTabPageTerminal => "终端",
+        L10nKey::NewTabPagePlaceholder => "目录…",
+        L10nKey::NewTabPageDirsHeading => "选择 {kind} 启动的目录",
+        L10nKey::SettingsNewTabAgents => "在新标签页中",
+        L10nKey::SettingsNewTabAgentsDesc => {
+            "新标签页在终端旁提供的 Agent。关闭的 Agent 仍在 PATH 中，其他地方照常可用"
+        }
+        L10nKey::SettingsAgentNoHooks => "此 Agent 没有状态钩子",
+        L10nKey::SettingsSearchNewTabAgentsKeywords => {
+            "Agent 新标签页 显示 隐藏 agents new tab page offer hide claude codex pi"
+        }
+        L10nKey::SettingsSplitHarness => "拆分时运行",
+        L10nKey::SettingsSplitHarnessDesc => {
+            "⌘D 和 ⌘⇧D 在窗格旁打开什么：终端、与该窗格相同的 Agent，或用新标签页选择器选择。"
+        }
+        L10nKey::SettingsSearchSplitHarnessKeywords => {
+            "拆分 窗格 Agent 终端 选择器 split pane harness agent terminal picker claude codex cmd d"
+        }
+        L10nKey::SettingsSplitDir => "拆分目录",
+        L10nKey::SettingsSplitDirDesc => {
+            "⌘D 和 ⌘⇧D 从哪里开始：该窗格的目录，或用新标签页选择器选择。"
+        }
+        L10nKey::SettingsSearchSplitDirKeywords => {
+            "拆分 窗格 目录 文件夹 split pane directory folder cwd picker cmd d"
+        }
+        L10nKey::SettingsSplitTerminal => "终端",
+        L10nKey::SettingsSplitSame => "与窗格相同",
+        L10nKey::SettingsSplitChoose => "选择",
     })
 }
 

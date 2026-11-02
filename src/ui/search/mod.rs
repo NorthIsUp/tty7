@@ -22,7 +22,7 @@ pub(crate) use files::{FileIndexStore, FileList};
 pub(crate) use open_sessions::open_first;
 pub(crate) use score::fuzzy_score;
 pub(crate) use sources::{Catalog, LiveQuery, host_items};
-pub(crate) use view::{KEY_CONTEXT, SearchEvent, SearchView};
+pub(crate) use view::{CARD_MAX_W, KEY_CONTEXT, SearchEvent, SearchView};
 
 use crate::ui::i18n::{L10nKey, t};
 
@@ -46,6 +46,9 @@ pub(crate) enum SearchTab {
     /// Full text over past agent conversations (`history_text`): like Text,
     /// asked only once enough is typed, and never on the All tab.
     History,
+    /// What to open and where (`new_tab_page`, ⌘T): the page draws itself in
+    /// place of the list. Off the row.
+    NewTab,
 }
 
 impl SearchTab {
@@ -90,6 +93,7 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchTabLocations,
             SearchTab::Text => L10nKey::SearchTabText,
             SearchTab::History => L10nKey::SearchTabHistory,
+            SearchTab::NewTab => L10nKey::NewTabPageTitle,
         })
     }
 
@@ -113,6 +117,7 @@ impl SearchTab {
             SearchTab::Locations => L10nKey::SearchPlaceholderLocations,
             SearchTab::Text => L10nKey::SearchPlaceholderText,
             SearchTab::History => L10nKey::SearchPlaceholderHistory,
+            SearchTab::NewTab => L10nKey::NewTabPagePlaceholder,
         })
     }
 

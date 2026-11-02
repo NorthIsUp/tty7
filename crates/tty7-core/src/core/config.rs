@@ -1083,6 +1083,7 @@ impl Config {
     }
 
     fn sanitize(&mut self) {
+        self.fork.migrate();
         if !self.font_size.is_finite() || self.font_size <= 0.0 {
             self.font_size = Config::default().font_size;
         }
