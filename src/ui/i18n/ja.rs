@@ -2645,6 +2645,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsShellStartupUser => "自分の rc ファイル",
         L10nKey::SettingsShellStartupNoRcs => "rc ファイルなし",
         L10nKey::SettingsShellStartupEnvlibs => "rc ファイルなし + 環境ツール",
+        // quiet-close
+        L10nKey::SettingsQuietClose => "未操作のタブは確認せずに閉じる",
+        L10nKey::SettingsQuietCloseDesc => {
+            "この起動で開き、入力・ペースト・ドロップを一度もしていないタブやペインは確認せずに閉じます。復元したタブは確認します"
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "閉じる 確認 省略 未操作 新規 タブ ペイン quiet close skip confirm untouched new tab pane fresh"
+        }
     })
 }
 
