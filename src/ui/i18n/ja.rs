@@ -2492,6 +2492,12 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppRestartServerBodyResume => {
             "このコンピュータ上のすべてのシェルを終了します。タブとレイアウトは保持され、新しいシェルで開き直し、各エージェントは元の会話を再開します。"
         }
+        // agent-startup-prompts
+        L10nKey::AppCodexServerDraining => "Codex のバックグラウンドサーバーが終了しています",
+        L10nKey::AppCodexServerRestart => "Codex サーバーを再起動",
+        L10nKey::AppCodexServerRestartFailed => {
+            "Codex のバックグラウンドサーバーを再起動できませんでした"
+        }
     })
 }
 

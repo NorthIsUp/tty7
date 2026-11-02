@@ -11,7 +11,10 @@ use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, EntityId, Global, IntoElement as _,
     Subscription, Window,
 };
+use gpui_component::WindowExt as _;
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState};
+use gpui_component::notification::Notification;
 
 use crate::core::config::Config;
 use crate::core::session::{SessionPane, SessionTab, WorkspaceId, WorkspaceStore};
@@ -19,14 +22,14 @@ use crate::daemon::protocol::ShellSpec;
 use crate::terminal::view::{ShellParts, TerminalView};
 use crate::terminal::{PaneRoute, PaneWorkspace};
 use crate::ui::app::{Tab, Tty7App};
-use crate::ui::first_prompt::type_at_first_prompt;
+use crate::ui::first_prompt::{on_this_machine, type_at_first_prompt};
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingSpawn;
 use crate::ui::wake_pool::Job;
 use crate::ui::windows::WindowRegistry;
 use tty7_core::core::agent_history::{self, Roots};
 use tty7_core::core::claude_background::{self, ResumePlan};
-use tty7_core::core::cli_agent::CLIAgent;
+use tty7_core::core::cli_agent::{CLIAgent, Offer};
 use tty7_core::core::fork_config::AgentResumeMode;
 use tty7_core::core::last_session;
 use tty7_core::core::machine::{AgentFacts, TabId};
@@ -596,6 +599,108 @@ struct RestoredDead {
 impl Global for RestoredDead {}
 
 const RESTORED_FILE: &str = "restored-asleep.json";
+
+/// The panes that saw Codex's app-server draining, behind the one notice
+/// that offers to restart it.
+#[derive(Default)]
+struct CodexDrain {
+    panes: Vec<gpui::WeakEntity<TerminalView>>,
+    open: bool,
+    restarted: Option<std::time::Instant>,
+}
+
+impl Global for CodexDrain {}
+
+/// shortcut: the resumes a restart types may still show the old error on
+/// screen, so offers this soon after one are dropped; a real second drain
+/// inside it goes unoffered until the user resumes again.
+const RESTART_SETTLE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `view`'s agent showed something [`Offer`] answers: one notice per
+/// incident however many panes report it, and nothing runs without its click.
+pub(crate) fn offer(offer: Offer, view: &Entity<TerminalView>, window: &mut Window, cx: &mut App) {
+    // The server is this machine's; a remote pane's Codex has its own.
+    if !on_this_machine(view.read(cx)) {
+        return;
+    }
+    let drain = cx.default_global::<CodexDrain>();
+    if drain
+        .restarted
+        .is_some_and(|at| at.elapsed() < RESTART_SETTLE)
+    {
+        return;
+    }
+    drain.panes.push(view.downgrade());
+    if std::mem::replace(&mut drain.open, true) {
+        return;
+    }
+    let note = Notification::warning(t(L10nKey::AppCodexServerDraining))
+        .id::<CodexDrain>()
+        .on_close(|_, cx| {
+            let drain = cx.default_global::<CodexDrain>();
+            drain.open = false;
+            drain.panes.clear();
+        })
+        .action(move |_, _, cx| {
+            Button::new("restart-codex-server")
+                .primary()
+                .label(t(L10nKey::AppCodexServerRestart))
+                .on_click(cx.listener(move |note, _, window, cx| {
+                    restart(offer, window, cx);
+                    note.dismiss(window, cx);
+                }))
+        });
+    window.push_notification(note, cx);
+}
+
+/// The absolute binary `view`'s agent ran from, which the daemon records
+/// from the process: the GUI's own `PATH` may not reach it.
+fn agent_binary(view: &TerminalView, cx: &App) -> Option<String> {
+    let (_, _, argv) = sleeping_agent(view, cx);
+    argv?.into_iter().next().filter(|p| p.starts_with('/'))
+}
+
+/// Run `offer`'s command with the panes' own Codex binary, then resume every
+/// pane the notice was for.
+fn restart(offer: Offer, window: &mut Window, cx: &mut App) {
+    let drain = cx.default_global::<CodexDrain>();
+    let panes = std::mem::take(&mut drain.panes);
+    drain.restarted = Some(std::time::Instant::now());
+    let program = panes
+        .iter()
+        .filter_map(|p| p.upgrade())
+        .find_map(|view| agent_binary(view.read(cx), cx))
+        .unwrap_or_else(|| "codex".into());
+    let args = offer.args();
+    let line = format!("{program} {}", args.join(" "));
+    window
+        .spawn(cx, async move |cx| {
+            let ran = cx
+                .background_executor()
+                .spawn(async move {
+                    std::process::Command::new(program)
+                        .args(args)
+                        .stdin(std::process::Stdio::null())
+                        .output()
+                })
+                .await;
+            let _ = cx.update(|window, cx| match ran {
+                Ok(out) if out.status.success() => {
+                    log::info!("{line} succeeded");
+                    for view in panes.iter().filter_map(|p| p.upgrade()) {
+                        if let Some(resume) = dead_agent(view.read(cx), None, cx) {
+                            type_resume(&view, resume, cx);
+                        }
+                    }
+                }
+                ran => {
+                    log::warn!("{line} failed: {:?}", ran.map(|o| o.status));
+                    window.push_notification(t(L10nKey::AppCodexServerRestartFailed), cx);
+                }
+            });
+        })
+        .detach();
+}
 
 #[cfg(not(test))]
 fn restored_file() -> Option<std::path::PathBuf> {
