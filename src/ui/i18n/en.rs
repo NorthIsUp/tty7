@@ -2524,6 +2524,25 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::GitHubAutoMergeConfirm => {
             "Merge #{number} into {base} once its requirements pass ({method})?"
         }
+        // hotkey-window
+        L10nKey::SwitcherSetHotkeyWorkspace => "Set as Hotkey Workspace",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "Unset Hotkey Workspace",
+        L10nKey::SwitcherHotkeyWorkspace => "Hotkey workspace",
+        L10nKey::SettingsHotkeyWindow => "Hotkey window",
+        L10nKey::SettingsHotkeyOn => "Global hotkey",
+        L10nKey::SettingsHotkeyOnDesc => "Show and hide tty7 from any app.",
+        L10nKey::SettingsHotkeyKey => "Hotkey",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "Click, then press a chord. Esc cancels, Backspace turns it off."
+        }
+        L10nKey::SettingsHotkeyFullscreen => "Full screen",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "Summon tty7 over the whole screen the mouse is on, above other apps."
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "Hide on focus loss",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
+        L10nKey::SettingsHotkeyFade => "Fade",
+        L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
     }
 }
 
