@@ -2370,6 +2370,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "切换到其他应用时隐藏 tty7。",
         L10nKey::SettingsHotkeyFade => "淡入淡出",
         L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
+        // github-row-links
+        L10nKey::GitHubOpenInGraphite => "在 Graphite 中打开",
     })
 }
 

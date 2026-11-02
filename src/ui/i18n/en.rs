@@ -2543,6 +2543,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "Hide tty7 whenever you switch to another app.",
         L10nKey::SettingsHotkeyFade => "Fade",
         L10nKey::SettingsHotkeyFadeDesc => "How long tty7 takes to fade in and out.",
+        // github-row-links
+        L10nKey::GitHubOpenInGraphite => "Open in Graphite",
     }
 }
 

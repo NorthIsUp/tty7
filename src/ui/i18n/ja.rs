@@ -2618,6 +2618,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyHideOnBlurDesc => "他のアプリに切り替えたら tty7 を隠します。",
         L10nKey::SettingsHotkeyFade => "フェード",
         L10nKey::SettingsHotkeyFadeDesc => "tty7 がフェードイン・アウトする時間。",
+        // github-row-links
+        L10nKey::GitHubOpenInGraphite => "Graphite で開く",
     })
 }
 
