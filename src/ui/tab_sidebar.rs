@@ -363,12 +363,12 @@ impl Tty7App {
             weight: Default::default(),
             style: Default::default(),
         };
-        // The active row renders its title at `FontWeight::MEDIUM`, which is
+        // The active row renders its title bold, which is
         // wider than the regular weight in any proportional face. Measuring
         // it as regular would let the one row the user is looking at overflow
         // into the truncation this is here to avoid.
         let title_font_active = gpui::Font {
-            weight: FontWeight::MEDIUM,
+            weight: FontWeight::BOLD,
             ..font.clone()
         };
         let rem = window.rem_size().as_f32();
@@ -964,7 +964,7 @@ impl Tty7App {
                                         .min_w_0()
                                         .truncate()
                                         .text_sm()
-                                        .when(is_active, |d| d.font_weight(FontWeight::MEDIUM))
+                                        .when(is_active, |d| d.font_weight(FontWeight::BOLD))
                                         .child(shown_title),
                                 )
                                 // The path is elided to the room the title
