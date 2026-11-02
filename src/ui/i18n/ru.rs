@@ -2648,6 +2648,23 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsHotkeyFadeDesc => "Сколько времени tty7 появляется и исчезает.",
         // github-row-links
         L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
+        // tab-usage
+        L10nKey::SettingsTabUsagePid => "Показывать PID вкладки",
+        L10nKey::SettingsTabUsagePidDesc => {
+            "Идентификатор процесса оболочки переднего окна в конце строки вкладки на боковой панели"
+        }
+        L10nKey::SettingsTabUsageCpu => "Показывать CPU вкладки",
+        L10nKey::SettingsTabUsageCpuDesc => {
+            "Загрузка CPU всеми процессами в панелях вкладки, включая дочерние. 100% — одно ядро"
+        }
+        L10nKey::SettingsTabUsageMemory => "Показывать память вкладки",
+        L10nKey::SettingsTabUsageMemoryDesc => {
+            "Резидентная память всех процессов в панелях вкладки, включая дочерние"
+        }
+        L10nKey::SettingsTabUsageAnnotate => "Отмечать ресурсоёмкие вкладки",
+        L10nKey::SettingsTabUsageAnnotateDesc => {
+            "Показывать CPU или память вкладки цветом предупреждения, пока они высоки"
+        }
     })
 }
 
