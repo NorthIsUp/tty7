@@ -170,6 +170,7 @@ impl LocalLink {
                             // tabs on screen never claims back.
                             crate::ui::tree_sync::resync_local_windows_from_tree(cx);
                         } else {
+                            crate::ui::remote_workspace::relink_local_panes(cx);
                             crate::ui::tree_sync::on_link_up(cx, tty7_core::host::HostId::LOCAL);
                         }
                     }

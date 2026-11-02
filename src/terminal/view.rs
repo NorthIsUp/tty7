@@ -2535,13 +2535,13 @@ impl TerminalView {
         self.ssh_spec.is_some() && self.terminal.exited
     }
 
-    /// Whether this pane is a workspace pane whose link died under it — the
-    /// far-end session should still be alive, so the link supervisor keeps
-    /// asking for it back. A child that exited is over, not disconnected, and
-    /// a pane whose machine already refused the relink is past asking.
+    /// Whether this pane's link died under it while its session should still
+    /// be alive — a remote machine's, or the local daemon's after an in-place
+    /// handoff — so the link supervisor keeps asking for it back. A child that
+    /// exited is over, not disconnected, and a pane whose machine already
+    /// refused the relink is past asking.
     pub fn wants_relink(&self) -> bool {
-        self.workspace.is_some()
-            && self.terminal.exited
+        self.terminal.exited
             && !self.terminal.child_exited()
             && !self.relink_abandoned
             && !self.relink_inflight
@@ -15910,6 +15910,20 @@ mod gpui_tests {
                 assert!(view.wants_relink());
                 view.abandon_relink();
                 assert!(!view.wants_relink(), "a refusal is final");
+            })
+            .unwrap();
+    }
+
+    /// An in-place handoff of the local daemon closes every pane link and
+    /// keeps every process; a local pane left like that is not exited.
+    #[gpui::test]
+    fn a_local_pane_whose_link_died_wants_a_relink(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, cx| {
+                assert!(!view.wants_relink(), "a live pane asks for nothing");
+                view.handle_event(AlacEvent::Exit, cx);
+                assert!(view.wants_relink(), "its process was never said to exit");
             })
             .unwrap();
     }
