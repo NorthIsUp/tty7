@@ -79,7 +79,7 @@ pub(crate) fn totals(procs: &[ProcEntry], cpu: &CpuTracker) -> (Option<f64>, Opt
     )
 }
 
-fn format_cpu(pct: f64) -> String {
+pub(crate) fn format_cpu(pct: f64) -> String {
     match pct < 10.0 {
         true => format!("{pct:.1}%"),
         false => format!("{pct:.0}%"),
