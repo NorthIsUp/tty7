@@ -2576,6 +2576,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarDeleteGroupBody => {
             "グループ名も消えます。タブは開いたまま、自動のグループに戻ります。"
         }
+        // group-follow
+        L10nKey::SidebarPinToCurrentGroup => "現在のグループに固定",
     })
 }
 
