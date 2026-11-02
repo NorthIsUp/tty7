@@ -764,12 +764,16 @@ if (($env.TTY7_SHELL_INTEGRATION? | default "") == "") {
 # --- end tty7 shell integration ---
 "#;
 
-fn zsh_redirectors() -> [(&'static str, String); 4] {
+pub(super) fn zsh_redirectors() -> [(&'static str, String); 4] {
     let redirect = |name: &str, tail: &str| {
         format!(
             "__tty7_ztmp=$ZDOTDIR\n\
              if [[ -n \"$TTY7_USER_ZDOTDIR\" ]]; then ZDOTDIR=$TTY7_USER_ZDOTDIR; else unset ZDOTDIR; fi\n\
+             if [[ -n \"$TTY7_SHELL_STARTUP\" ]]; then\n\
+             [[ -f \"$TTY7_SHELL_STARTUP/{name}\" ]] && source \"$TTY7_SHELL_STARTUP/{name}\"\n\
+             else\n\
              [[ -f \"${{ZDOTDIR:-$HOME}}/{name}\" ]] && source \"${{ZDOTDIR:-$HOME}}/{name}\"\n\
+             fi\n\
              {tail}ZDOTDIR=$__tty7_ztmp\n\
              unset __tty7_ztmp\n"
         )
@@ -1098,7 +1102,7 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-fn bash_rcfile() -> String {
+pub(super) fn bash_rcfile() -> String {
     format!(
         r#"
 # Replays what a real *login* shell would have sourced, in the same order —
@@ -1123,6 +1127,7 @@ fn bash_rcfile() -> String {
 # `~` is already expanded to $HOME by the time the wrapper sees $1, so matching
 # on the trailing path component covers `. ~/.bashrc`, `source "$HOME/.bashrc"`
 # and a spelled-out absolute path alike.
+if [[ -n "${{TTY7_SHELL_STARTUP-}}" ]]; then source "$TTY7_SHELL_STARTUP/.bashrc"; else
 __tty7_bashrc=0
 source() {{ case "${{1-}}" in */.bashrc|.bashrc) __tty7_bashrc=1;; esac; builtin source "$@"; }}
 .() {{ case "${{1-}}" in */.bashrc|.bashrc) __tty7_bashrc=1;; esac; builtin . "$@"; }}
@@ -1137,6 +1142,7 @@ fi
 unset -f source .
 if [[ $__tty7_bashrc == 0 && -f ~/.bashrc ]]; then source ~/.bashrc; fi
 unset __tty7_bashrc
+fi
 {BASH_INTEGRATION}"#
     )
 }
@@ -1327,7 +1333,8 @@ pub fn setup(program: Option<&str>, args: &[String], has_custom_args: bool) -> O
     // files run. Arguments tty7's own detection supplied (Git Bash's `-i -l`,
     // a WSL row's `--distribution`) are not user-authored and never land here;
     // `daemon::pane::has_custom_args` is where that line is drawn.
-    let mut injection = match integrated_kind(program, has_custom_args)? {
+    let kind = integrated_kind(program, has_custom_args)?;
+    let mut injection = match &kind {
         ShellKind::Zsh => setup_zsh(),
         ShellKind::Fish => setup_fish(),
         ShellKind::Bash => setup_bash(),
@@ -1338,6 +1345,7 @@ pub fn setup(program: Option<&str>, args: &[String], has_custom_args: bool) -> O
         #[cfg(not(windows))]
         ShellKind::Wsl => None,
     }?;
+    super::shell_startup::apply(&kind, &mut injection);
 
     injection
         .env
