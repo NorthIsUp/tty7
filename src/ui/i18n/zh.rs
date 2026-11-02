@@ -2353,6 +2353,23 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeDisable => "停用自动合并",
         L10nKey::GitHubMergeConfirm => "将 #{number} 合并到 {base}？",
         L10nKey::GitHubAutoMergeConfirm => "在满足要求后将 #{number} 合并到 {base}（{method}）？",
+        // hotkey-window
+        L10nKey::SwitcherSetHotkeyWorkspace => "设为热键工作区",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "取消热键工作区",
+        L10nKey::SwitcherHotkeyWorkspace => "热键工作区",
+        L10nKey::SettingsHotkeyWindow => "快捷键窗口",
+        L10nKey::SettingsHotkeyOn => "全局快捷键",
+        L10nKey::SettingsHotkeyOnDesc => "在任意应用中显示或隐藏 tty7。",
+        L10nKey::SettingsHotkeyKey => "快捷键",
+        L10nKey::SettingsHotkeyKeyDesc => "点击后按下组合键。Esc 取消，Backspace 关闭。",
+        L10nKey::SettingsHotkeyFullscreen => "全屏",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "在鼠标所在的屏幕上全屏显示 tty7，并置于其他应用之上。"
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "失去焦点时隐藏",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => "切换到其他应用时隐藏 tty7。",
+        L10nKey::SettingsHotkeyFade => "淡入淡出",
+        L10nKey::SettingsHotkeyFadeDesc => "tty7 淡入和淡出所用的时间。",
     })
 }
 

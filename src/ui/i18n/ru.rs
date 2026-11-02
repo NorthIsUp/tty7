@@ -2625,6 +2625,27 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubAutoMergeConfirm => {
             "Слить #{number} в {base}, когда требования будут выполнены ({method})?"
         }
+        // hotkey-window
+        L10nKey::SwitcherSetHotkeyWorkspace => "Сделать рабочей областью горячей клавиши",
+        L10nKey::SwitcherUnsetHotkeyWorkspace => "Отвязать от горячей клавиши",
+        L10nKey::SwitcherHotkeyWorkspace => "Рабочая область горячей клавиши",
+        L10nKey::SettingsHotkeyWindow => "Окно горячей клавиши",
+        L10nKey::SettingsHotkeyOn => "Глобальная горячая клавиша",
+        L10nKey::SettingsHotkeyOnDesc => "Показывать и скрывать tty7 из любого приложения.",
+        L10nKey::SettingsHotkeyKey => "Горячая клавиша",
+        L10nKey::SettingsHotkeyKeyDesc => {
+            "Нажмите, затем введите сочетание. Esc отменяет, Backspace отключает."
+        }
+        L10nKey::SettingsHotkeyFullscreen => "Во весь экран",
+        L10nKey::SettingsHotkeyFullscreenDesc => {
+            "Показывать tty7 на весь экран, где находится мышь, поверх других приложений."
+        }
+        L10nKey::SettingsHotkeyHideOnBlur => "Скрывать при потере фокуса",
+        L10nKey::SettingsHotkeyHideOnBlurDesc => {
+            "Скрывать tty7 при переключении на другое приложение."
+        }
+        L10nKey::SettingsHotkeyFade => "Затухание",
+        L10nKey::SettingsHotkeyFadeDesc => "Сколько времени tty7 появляется и исчезает.",
     })
 }
 
