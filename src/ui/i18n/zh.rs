@@ -2276,6 +2276,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SearchHistoryTooShort => "输入至少 3 个字符以搜索 agent 对话。",
         L10nKey::SearchHistoryRemote => "只能搜索这台电脑上的 agent 历史。",
         L10nKey::SearchHistoryHits => "{count} 处匹配",
+        // open-sessions
+        L10nKey::SearchSectionSessionsOpen => "已在标签页中打开",
     })
 }
 

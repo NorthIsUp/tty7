@@ -545,9 +545,12 @@ impl Source for Sessions<'_> {
     /// The last few sessions that ran where you are, and nothing from
     /// elsewhere: a session from another project is not what an empty query
     /// in this one is reaching for.
+    /// Those open in a tab lead the list but not the All tab, which has
+    /// their tab already.
     fn highlights(&self, _cx: &App) -> Vec<Item> {
         self.items[..self.here.min(self.items.len())]
             .iter()
+            .filter(|item| matches!(item.kind, CommandKind::ResumeSession { .. }))
             .take(SESSIONS_HERE_ON_ALL)
             .cloned()
             .collect()
