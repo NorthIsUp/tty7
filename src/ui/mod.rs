@@ -64,6 +64,7 @@ pub mod ssh_prompt;
 pub mod switcher;
 pub mod tab_sidebar;
 pub mod tab_strip;
+pub(crate) mod tab_usage;
 pub mod theme;
 pub mod tray;
 pub mod tree_sync;
