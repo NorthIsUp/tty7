@@ -2646,6 +2646,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsHotkeyFade => "Затухание",
         L10nKey::SettingsHotkeyFadeDesc => "Сколько времени tty7 появляется и исчезает.",
+        // github-row-links
+        L10nKey::GitHubOpenInGraphite => "Открыть в Graphite",
     })
 }
 

@@ -1998,6 +1998,8 @@ l10n_keys! {
     SettingsHotkeyHideOnBlurDesc,
     SettingsHotkeyFade,
     SettingsHotkeyFadeDesc,
+    // github-row-links
+    GitHubOpenInGraphite,
 }
 
 /// The source control strings that are translated but not yet displayed.
