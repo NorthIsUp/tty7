@@ -544,17 +544,17 @@ mod tests {
     /// same depth, is filed by where it sits, whatever the header order.
     #[test]
     fn an_equal_depth_tie_goes_to_the_folder_the_cwd_is_in() {
-        let mut pinned = folders(&["/w/tty7", "/w/clara"]);
-        let clara = pinned[1].id;
-        let (cwd, home) = (p("/w/clara/wt"), p("/w/tty7"));
+        let mut pinned = folders(&["/w/tty7", "/w/alpha"]);
+        let alpha = pinned[1].id;
+        let (cwd, home) = (p("/w/alpha/wt"), p("/w/tty7"));
         assert_eq!(
             pinned_folder_for(&pinned, Some(&cwd), Some(&home)),
-            Some(clara)
+            Some(alpha)
         );
         pinned.reverse();
         assert_eq!(
             pinned_folder_for(&pinned, Some(&cwd), Some(&home)),
-            Some(clara)
+            Some(alpha)
         );
     }
 

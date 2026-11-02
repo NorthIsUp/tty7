@@ -107,12 +107,12 @@ mod tests {
 
     #[test]
     fn an_unheld_tab_outside_its_folder_group_walks_out() {
-        let clara = PinnedGroup::folder(Path::new("/w/clara"));
+        let alpha = PinnedGroup::folder(Path::new("/w/alpha"));
         let tty7 = PinnedGroup::folder(Path::new("/w/tty7"));
         let work = PinnedGroup::label("work");
-        let (c, t, w) = (clara.id, tty7.id, work.id);
+        let (c, t, w) = (alpha.id, tty7.id, work.id);
         let groups = WorkspaceGroups {
-            pinned: vec![clara, tty7, work],
+            pinned: vec![alpha, tty7, work],
             ..Default::default()
         };
         assert_eq!(walked_out(&groups, Some(c), None), Some(None));
@@ -316,13 +316,13 @@ mod tests {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
 
         app.update(&mut vcx, |app, cx| {
-            let clara = folder(app, "/w/clara", cx);
-            app.set_tab_group(0, Some(clara), cx);
+            let alpha = folder(app, "/w/alpha", cx);
+            app.set_tab_group(0, Some(alpha), cx);
             app.active = 0;
-            let place = app.spawn_group(Some(&PathBuf::from("/w/tsmux")), cx);
+            let place = app.spawn_group(Some(&PathBuf::from("/w/beta")), cx);
             assert_eq!(place.group, None);
-            let place = app.spawn_group(Some(&PathBuf::from("/w/clara/src")), cx);
-            assert_eq!(place.group, Some(clara), "inside it, its cwd files it");
+            let place = app.spawn_group(Some(&PathBuf::from("/w/alpha/src")), cx);
+            assert_eq!(place.group, Some(alpha), "inside it, its cwd files it");
         });
     }
 }
