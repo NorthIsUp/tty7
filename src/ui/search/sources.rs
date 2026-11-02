@@ -152,6 +152,7 @@ impl Catalog {
             SearchTab::Symbols => Some(Box::new(Symbols(&self.symbols))),
             SearchTab::Locations => Some(Box::new(Locations(&self.locations))),
             SearchTab::Text => self.live_source(tab),
+            SearchTab::History => self.live_source(tab),
         }
     }
 
@@ -201,7 +202,7 @@ impl Catalog {
     fn all(&self, query: &str, cx: &App) -> Vec<Section> {
         let tabs = SearchTab::ORDER
             .into_iter()
-            .filter(|tab| !matches!(tab, SearchTab::Text))
+            .filter(|tab| !matches!(tab, SearchTab::Text | SearchTab::History))
             .filter_map(|tab| self.source(tab));
         if query.is_empty() {
             // Terminals first: before anything is typed the likeliest thing

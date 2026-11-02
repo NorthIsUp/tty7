@@ -2431,6 +2431,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         // pane-addresses
         L10nKey::CmdGoToPane => "Go to Pane %{n}",
         L10nKey::CmdGoToTabAddress => "Go to Tab @{n}",
+        // search-history
+        L10nKey::SearchTabHistory => "History",
+        L10nKey::SearchPlaceholderHistory => "Search what you and your agents said…",
+        L10nKey::SearchHistoryTooShort => {
+            "Type at least 3 characters to search agent conversations."
+        }
+        L10nKey::SearchHistoryRemote => "Agent history is searched on this computer only.",
+        L10nKey::SearchHistoryHits => "{count} hits",
     }
 }
 

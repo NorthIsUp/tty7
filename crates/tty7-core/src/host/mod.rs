@@ -394,6 +394,11 @@ pub trait Host: Send + Sync + 'static {
         Ok(Vec::new())
     }
 
+    /// The fork's calls (`core::fork_host`), where this host answers them.
+    fn fork(&self) -> &dyn crate::core::fork_host::ForkHost {
+        &crate::core::fork_host::NoFork
+    }
+
     fn watch(&self, dirs: &[PathBuf]) -> io::Result<WatchSub>;
 
     fn is_connected(&self) -> bool {
