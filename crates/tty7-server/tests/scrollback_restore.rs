@@ -181,6 +181,7 @@ impl Instance {
             restore: Some(RestoreFrom {
                 pane_id: dead,
                 banner: Some("the shell below is new".to_string()),
+                run_once: None,
             }),
             allow_remote_clipboard_write: false,
         }

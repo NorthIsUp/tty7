@@ -4435,6 +4435,7 @@ mod replay_tests {
             None,
             None,
             None,
+            None,
             false,
             || {},
         )
@@ -4520,6 +4521,7 @@ mod replay_tests {
             7712,
             std::env::current_dir().ok(),
             ws(80, 24),
+            None,
             None,
             None,
             None,
