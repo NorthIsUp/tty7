@@ -18,6 +18,7 @@ use gpui_component::{ActiveTheme as _, Icon, IconName, v_flex};
 
 use crate::core::cli_agent::CLIAgent;
 use crate::core::config::{Config, ProfileUsage, unix_now};
+use crate::core::spawn_trace::{self, Stage, Trace};
 use crate::ui::agent_launch::most_recent;
 use crate::ui::app::{SpawnAs, Tty7App};
 use crate::ui::dialog::{CARD_RADIUS, FOOTER_H, keycap};
@@ -90,6 +91,8 @@ pub(crate) struct NewTabPage {
     selected: usize,
     home: Option<PathBuf>,
     scroll: ScrollHandle,
+    /// From ⌘T, so the pick and the spawn after it log under one attempt.
+    trace: Option<Trace>,
     _subs: Vec<Subscription>,
 }
 
@@ -367,6 +370,7 @@ impl NewTabPage {
             selected: 0,
             home,
             scroll: ScrollHandle::new(),
+            trace: None,
             _subs: subs,
         }
     }
@@ -400,16 +404,29 @@ impl NewTabPage {
 
     /// Deferred: a key or click reaches the page while it is being updated,
     /// and opening closes the palette that holds it.
-    fn open(&self, background: bool, window: &mut Window, cx: &mut App) {
+    fn open(&mut self, background: bool, window: &mut Window, cx: &mut App) {
         // No row: nothing to open, and the page stays for another query.
         let Some(dir) = self.rows.get(self.selected).cloned() else {
             return;
         };
         let (kind, target) = (self.kinds[self.kind], self.target);
+        let mut trace = self.trace.take();
+        if let Some(t) = &mut trace {
+            // Never the path itself: the log is sent along with bug reports.
+            let typed = self.typed.as_ref().is_some_and(|(_, (d, _))| *d == dir);
+            let kind = match kind {
+                Kind::Terminal => "terminal".to_string(),
+                Kind::Agent(agent) => format!("agent:{}", agent.slug()),
+            };
+            let from = if typed { "typed" } else { "row" };
+            t.stage(Stage::Picked, &format!("kind={kind} dir={from}"));
+        }
         let app = self.app.clone();
         window.defer(cx, move |window, cx| {
             let _ = app.update(cx, |app, cx| {
-                app.open_from_new_tab_page(kind, dir, target, background, window, cx)
+                spawn_trace::handing(trace, || {
+                    app.open_from_new_tab_page(kind, dir, target, background, window, cx)
+                });
             });
         });
     }
@@ -649,6 +666,7 @@ impl Tty7App {
         if !self.can_spawn_locally(cx) {
             return false;
         }
+        let mut trace = Trace::attempt();
         if let Some(search) = &self.search {
             if search.read(cx).tab() == SearchTab::NewTab {
                 return true;
@@ -733,6 +751,12 @@ impl Tty7App {
                 search.set_new_tab(page.clone(), window, cx)
             });
         }
+        let at = match target {
+            Target::Tab => "target=tab",
+            Target::Split(_) => "target=split",
+        };
+        trace.stage(Stage::NewTabPageOpened, at);
+        page.update(cx, |page, _| page.trace = Some(trace));
         true
     }
 
