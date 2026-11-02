@@ -2506,6 +2506,16 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         // pane-addresses
         L10nKey::CmdGoToPane => "ペイン %{n} へ移動",
         L10nKey::CmdGoToTabAddress => "タブ @{n} へ移動",
+        // search-history
+        L10nKey::SearchTabHistory => "履歴",
+        L10nKey::SearchPlaceholderHistory => "あなたとエージェントの会話を検索…",
+        L10nKey::SearchHistoryTooShort => {
+            "エージェントの会話を検索するには 3 文字以上入力してください。"
+        }
+        L10nKey::SearchHistoryRemote => {
+            "エージェントの履歴はこのコンピューター上でのみ検索できます。"
+        }
+        L10nKey::SearchHistoryHits => "{count} 件",
     })
 }
 

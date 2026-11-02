@@ -272,6 +272,9 @@ impl ListDelegate for SearchDelegate {
                 t(L10nKey::SearchSymbolsNoneHint)
             }
             Scope::Tab(SearchTab::Text) => super::text::empty_hint(&self.query),
+            Scope::Tab(SearchTab::History) => {
+                super::history_text::empty_hint(&self.catalog, &self.query)
+            }
             _ => t(L10nKey::PaletteTryDifferentSearch),
         };
         // The headline in body ink and the way out under it in caption ink:
