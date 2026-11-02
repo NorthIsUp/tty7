@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Tests; extra args go to cargo test (e.g. `mise run test -p tty7-core`)"
+set -euo pipefail
+# A developer's git config (status.showUntrackedFiles, tag.gpgsign) changes
+# what the tests' throwaway repos report.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+exec cargo test --locked "$@"
