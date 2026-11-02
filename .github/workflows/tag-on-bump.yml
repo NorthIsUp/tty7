@@ -1,0 +1,41 @@
+name: Tag on bump
+
+# A merge to main whose workspace version has no `v<version>` tag yet tags it
+# and starts release.yml on that tag. The dispatch is explicit because a tag
+# pushed with GITHUB_TOKEN does not fire release.yml's `push: tags` trigger.
+on:
+  push:
+    branches: [main-niu]
+    paths: [Cargo.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  tag:
+    if: github.repository == 'NorthIsUp/tty7'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag and release a new version
+        run: |
+          set -euo pipefail
+          VERSION=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
+          TAG="v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists; nothing to release"
+            exit 0
+          fi
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "::notice::tagged $TAG and started release.yml"
