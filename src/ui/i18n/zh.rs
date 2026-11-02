@@ -2332,6 +2332,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SidebarDeleteGroupBody => {
             "分组名称也会一起删除。其中的标签页保持打开，回到自动分组。"
         }
+        // group-follow
+        L10nKey::SidebarPinToCurrentGroup => "固定在当前分组",
     })
 }
 
