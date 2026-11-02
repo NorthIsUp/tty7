@@ -2570,6 +2570,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsShellStartupUser => "Your rc files",
         L10nKey::SettingsShellStartupNoRcs => "No rc files",
         L10nKey::SettingsShellStartupEnvlibs => "No rc files + env tools",
+        // quiet-close
+        L10nKey::SettingsQuietClose => "Skip confirmation for untouched tabs",
+        L10nKey::SettingsQuietCloseDesc => {
+            "A tab or pane opened this run and never typed, pasted or dropped into closes without asking. Restored tabs still ask."
+        }
+        L10nKey::SettingsSearchQuietCloseKeywords => {
+            "quiet close skip confirm untouched new tab pane fresh unused ask prompt"
+        }
     }
 }
 

@@ -1266,6 +1266,12 @@ fn close_reason(
     }
 }
 
+/// A pane opened this run that nobody has typed into closes without a
+/// question, when `quiet_close` is on: there is nothing in it to lose.
+fn quiet_close(leaf: &Entity<TerminalView>, cx: &App) -> bool {
+    cx.global::<Config>().fork.quiet_close && leaf.read(cx).untouched()
+}
+
 /// The question to put to the user before ending work that is still going on.
 fn close_prompt(ends_the_tab: bool, reason: &CloseReason) -> (String, String) {
     use crate::terminal::view::PaneBusy;
@@ -1698,7 +1704,10 @@ impl Tty7App {
                 window,
                 cx,
             ) {
-                Ok(first) => (vec![Tab::new(Pane::leaf(first))], 0),
+                Ok(first) => {
+                    mark_untouched(&first, cx);
+                    (vec![Tab::new(Pane::leaf(first))], 0)
+                }
                 Err(e) => {
                     log::error!("first terminal failed to start: {e}");
                     // The home screen is what a user sees when they have closed
@@ -4371,6 +4380,9 @@ impl Tty7App {
         let was_focused = pending.read(cx).focus_handle.contains_focused(window, cx);
         let restored = parts.restored;
         let view = build_terminal_view(parts, font_size, window, cx);
+        if pending.read(cx).spawn.untouched && !restored {
+            view.update(cx, |view, _| view.mark_untouched());
+        }
         crate::ui::agent_resume::landed(&view, &pending.read(cx).spawn.clone(), restored, cx);
         let slot = PaneSlot::Ready(view.clone());
         replace_leaf_in(&mut self.tabs, slot_id, slot.clone());
@@ -4571,6 +4583,7 @@ impl Tty7App {
         };
         // Something opened, so whatever the last failure was is stale.
         self.startup_error = None;
+        mark_untouched(&tab, cx);
         let new_tab = Tab::new(Pane::leaf(tab.clone()));
         group.seat(&new_tab);
         self.seat_new_tab(new_tab, window, cx);
@@ -4617,6 +4630,7 @@ impl Tty7App {
         self.remember_active_pane(window, cx);
         self.maximized = None;
         let insert_at = self.new_tab_insert_at(cx);
+        view.update(cx, |view, _| view.mark_untouched());
         self.tabs
             .insert(insert_at, Tab::new(Pane::leaf(PaneSlot::Ready(view))));
         self.active = insert_at;
@@ -4797,6 +4811,7 @@ impl Tty7App {
                 }
             }
         };
+        mark_untouched(&new, cx);
         let tab = self.tabs.get_mut(self.active)?;
         if !tab
             .pane
@@ -6177,6 +6192,7 @@ impl Tty7App {
                 return;
             }
         };
+        mark_untouched(&new, cx);
         // A remote workspace's pane is still dialling here; the fork runs
         // the moment it lands.
         crate::ui::agent_launch::run_when_ready(&new, cmd, cx);
@@ -6371,6 +6387,7 @@ impl Tty7App {
                 return;
             }
         };
+        mark_untouched(&view, cx);
         if let Some(first) = first {
             crate::ui::agent_launch::run_when_ready(&view, first, cx);
         }
@@ -7252,7 +7269,10 @@ impl Tty7App {
             crate::terminal::notify_desktop(Some("tty7"), t(L10nKey::AppNoRunningCodingAgent));
             return;
         };
-        target.read(cx).send_agent_prompt(prompt);
+        target.update(cx, |view, _| {
+            view.note_user_input();
+            view.send_agent_prompt(prompt);
+        });
         if let Some(i) = self
             .tabs
             .iter()
@@ -7410,6 +7430,9 @@ impl Tty7App {
             }
             L10nKey::SettingsSplitDir => {
                 self.update_config(cx, |c| c.fork.split_dir = defaults.fork.split_dir)
+            }
+            L10nKey::SettingsQuietClose => {
+                self.update_config(cx, |c| c.fork.quiet_close = defaults.fork.quiet_close)
             }
             L10nKey::SettingsCopyOnSelect => self.set_copy_on_select(defaults.copy_on_select, cx),
             L10nKey::SettingsSmartSelection => self.set_smart_select(defaults.smart_select, cx),
@@ -8615,6 +8638,11 @@ impl Tty7App {
         leaf: &Entity<TerminalView>,
         cx: &App,
     ) -> Option<CloseReason> {
+        // Never still asks about a warned SSH connection.
+        let mode = match quiet_close(leaf, cx) {
+            true => crate::core::config::ConfirmClose::Never,
+            false => mode,
+        };
         close_reason(mode, self.leaf_is_warn_ssh(leaf, cx), leaf.read(cx).busy())
     }
 
@@ -8640,14 +8668,12 @@ impl Tty7App {
             ConfirmClose::Always => ConfirmClose::WhenBusy,
             other => other,
         };
-        let specific = self
-            .tabs
-            .get(index)?
-            .pane
-            .terminals()
+        let leaves = self.tabs.get(index)?.pane.terminals();
+        let specific = leaves
             .iter()
             .find_map(|l| self.leaf_close_reason_as(asked_as, l, cx));
-        specific.or((mode == ConfirmClose::Always).then_some(CloseReason::Idle))
+        let quiet = leaves.iter().all(|l| quiet_close(l, cx));
+        specific.or((mode == ConfirmClose::Always && !quiet).then_some(CloseReason::Idle))
     }
 
     fn focused_pane_close_reason(&self, window: &Window, cx: &App) -> Option<CloseReason> {
@@ -11060,6 +11086,15 @@ pub(crate) fn new_terminal(
         ..Default::default()
     };
     Ok(pending_terminal(spawn, window, cx))
+}
+
+/// See [`TerminalView::mark_untouched`]; a slot still dialling carries it to
+/// its landing.
+fn mark_untouched(slot: &PaneSlot, cx: &mut App) {
+    match slot {
+        PaneSlot::Ready(view) => view.update(cx, |view, _| view.mark_untouched()),
+        PaneSlot::Connecting(pending) => pending.update(cx, |p, _| p.spawn.untouched = true),
+    }
 }
 
 /// A pane slot that spawns `spawn` off the UI thread and lands it when done.
@@ -14920,4 +14955,111 @@ fn remember_sessions(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(host, found);
+}
+
+#[cfg(test)]
+mod quiet_close_gpui_tests {
+    use gpui::{TestAppContext, VisualTestContext};
+
+    use crate::core::config::{Config, ConfirmClose};
+    use crate::ui::app::Tty7App;
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::pane::PaneSlot;
+
+    /// One idle tab under `Always`, so the question goes up unless quiet
+    /// close takes it away.
+    fn one_tab(
+        cx: &mut TestAppContext,
+        quiet_close: bool,
+    ) -> (
+        gpui::Entity<Tty7App>,
+        VisualTestContext,
+        Vec<crate::daemon::transport::Stream>,
+    ) {
+        let (app, mut vcx, streams) = harness_with_tabs(cx, 1);
+        vcx.update(|_, cx| {
+            let cfg = cx.global_mut::<Config>();
+            cfg.confirm_close = ConfirmClose::Always;
+            cfg.fork.quiet_close = quiet_close;
+        });
+        (app, vcx, streams)
+    }
+
+    fn leaf(app: &gpui::Entity<Tty7App>, vcx: &mut VisualTestContext) -> PaneSlot {
+        app.update(vcx, |app, _| {
+            PaneSlot::Ready(app.tabs[0].pane.terminals()[0].clone())
+        })
+    }
+
+    /// Closes tab 0 and answers whether it asked first.
+    fn close_asks(app: &gpui::Entity<Tty7App>, vcx: &mut VisualTestContext) -> bool {
+        app.update_in(vcx, |app, window, cx| {
+            let asked = app.tab_close_reason(0, cx).is_some();
+            let pane_asked = app.focused_pane_close_reason(window, cx).is_some();
+            assert_eq!(asked, pane_asked, "tab and pane agree");
+            app.close_tab(0, window, cx);
+            assert_eq!(app.close_prompt_open, asked);
+            assert_eq!(app.tabs.is_empty(), !asked);
+            asked
+        })
+    }
+
+    #[gpui::test]
+    fn a_new_tab_closed_at_once_skips_the_question(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, true);
+        let slot = leaf(&app, &mut vcx);
+        vcx.update(|_, cx| super::mark_untouched(&slot, cx));
+        assert!(!close_asks(&app, &mut vcx));
+    }
+
+    #[gpui::test]
+    fn a_new_tab_typed_into_still_asks(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, true);
+        let slot = leaf(&app, &mut vcx);
+        vcx.update(|_, cx| super::mark_untouched(&slot, cx));
+        let PaneSlot::Ready(view) = slot else {
+            unreachable!()
+        };
+        view.update(&mut vcx, |view, cx| view.commit_text("l", cx));
+        assert!(close_asks(&app, &mut vcx));
+    }
+
+    #[gpui::test]
+    fn a_new_tab_pasted_into_still_asks(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, true);
+        let slot = leaf(&app, &mut vcx);
+        vcx.update(|_, cx| super::mark_untouched(&slot, cx));
+        let PaneSlot::Ready(view) = slot else {
+            unreachable!()
+        };
+        view.update(&mut vcx, |view, cx| view.paste("ls".into(), cx));
+        assert!(close_asks(&app, &mut vcx));
+    }
+
+    /// Restore, wake and respawn never mark their panes.
+    #[gpui::test]
+    fn a_restored_tab_still_asks(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, true);
+        assert!(close_asks(&app, &mut vcx));
+    }
+
+    #[gpui::test]
+    fn with_the_setting_off_a_new_tab_still_asks(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, false);
+        let slot = leaf(&app, &mut vcx);
+        vcx.update(|_, cx| super::mark_untouched(&slot, cx));
+        assert!(close_asks(&app, &mut vcx));
+    }
+
+    #[gpui::test]
+    fn an_agent_launch_line_is_not_user_input(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = one_tab(cx, true);
+        let slot = leaf(&app, &mut vcx);
+        vcx.update(|_, cx| super::mark_untouched(&slot, cx));
+        let PaneSlot::Ready(view) = slot else {
+            unreachable!()
+        };
+        view.update(&mut vcx, |view, _| view.run_command_line("claude"));
+        assert!(!close_asks(&app, &mut vcx));
+    }
 }

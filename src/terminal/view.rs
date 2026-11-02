@@ -312,6 +312,9 @@ pub struct TerminalView {
     shell_spec: Option<ShellSpec>,
     owner_workspace: Option<crate::core::session::WorkspaceId>,
     restored: bool,
+    /// Opened new this run and never typed, pasted or dropped into; see
+    /// `quiet_close`. Lines tty7 types itself leave it set.
+    untouched: bool,
     ssh_spec: Option<Box<crate::daemon::protocol::NativeSshSpec>>,
     /// The verified remote staging directory for pasted images, once one has
     /// been prepared for this pane. `None` means "not prepared yet", never
@@ -1767,6 +1770,20 @@ impl TerminalView {
         self.restored
     }
 
+    pub(crate) fn untouched(&self) -> bool {
+        self.untouched
+    }
+
+    /// Only a tab or split the user just opened calls this; a restore, a wake
+    /// or a respawn never does, so those keep asking before they close.
+    pub(crate) fn mark_untouched(&mut self) {
+        self.untouched = true;
+    }
+
+    pub(crate) fn note_user_input(&mut self) {
+        self.untouched = false;
+    }
+
     pub fn owner_workspace(&self) -> Option<crate::core::session::WorkspaceId> {
         self.owner_workspace
     }
@@ -1979,6 +1996,7 @@ impl TerminalView {
             shell_spec: None,
             owner_workspace: None,
             restored: false,
+            untouched: false,
             ssh_spec: None,
             remote_clipboard_dir: None,
             remote_clipboard_write_in_flight: None,
@@ -2739,6 +2757,7 @@ impl TerminalView {
         if self.terminal.exited && !link_dropped_on_a_remote_pane {
             return;
         }
+        self.untouched = false;
         if self.integration_notice.take().is_some() {
             cx.notify();
         }
@@ -3522,6 +3541,7 @@ impl TerminalView {
         if !self.accepts_input(cx) {
             return;
         }
+        self.untouched = false;
         // The agent's input is under the box, so a paste meant for it goes
         // into the box — out of sight under it, it would be sent unseen.
         if self.composer_takes_typing(&text, cx) {
@@ -3830,6 +3850,7 @@ impl TerminalView {
         let Some(item) = cx.read_from_clipboard() else {
             return;
         };
+        self.untouched = false;
         let paths = clipboard_paths(&item);
         if !paths.is_empty() {
             self.paste_local_paths(paths, cx);
@@ -3851,6 +3872,7 @@ impl TerminalView {
     }
 
     pub(super) fn drop_files(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
+        self.untouched = false;
         self.paste_local_paths(paths.paths().to_vec(), cx);
     }
 
@@ -3862,6 +3884,7 @@ impl TerminalView {
         drag: &crate::ui::file_tree::RemotePathDrag,
         cx: &mut Context<Self>,
     ) {
+        self.untouched = false;
         self.paste_paths(vec![drag.path.to_string_lossy().into_owned()], cx);
     }
 
@@ -6170,6 +6193,7 @@ impl TerminalView {
         if self.terminal.exited || text.is_empty() || !self.accepts_input(cx) {
             return;
         }
+        self.untouched = false;
         if self.composer_takes_typing(text, cx) {
             return;
         }

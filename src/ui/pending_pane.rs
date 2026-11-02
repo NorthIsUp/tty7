@@ -34,6 +34,9 @@ pub struct PendingSpawn {
     /// Fork: how this pane's agent resume is delivered, decided once at its
     /// first spawn (see `agent_resume::spawn_job`).
     pub resume: Option<crate::ui::agent_resume::PaneResume>,
+    /// Fork: the pane lands marked untouched (see `quiet_close`) unless it
+    /// reattached.
+    pub untouched: bool,
 }
 
 pub enum PendingState {
