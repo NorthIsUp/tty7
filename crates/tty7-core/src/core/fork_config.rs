@@ -61,6 +61,21 @@ pub struct ForkConfig {
     /// How often and how recently each directory was launched into from the
     /// new tab page, keyed by its absolute path.
     pub dir_frecency: HashMap<String, ProfileUsage>,
+    /// Sidebar group colour overrides, by group name: `"gamma": "#ffd7d7"`.
+    pub group_colors: HashMap<String, String>,
+    /// A 1px outline round each sidebar group header.
+    pub group_outline: bool,
+    /// A tinted fill behind each sidebar group header.
+    pub group_background: bool,
+    #[serde(deserialize_with = "de_lenient")]
+    pub group_outline_color: GroupColorSource,
+    #[serde(deserialize_with = "de_lenient")]
+    pub group_background_color: GroupColorSource,
+    /// Whether the fill and outline wrap the header alone or the whole group.
+    #[serde(deserialize_with = "de_lenient")]
+    pub group_background_scope: GroupBackgroundScope,
+    /// Animate a sidebar group folding open and shut.
+    pub animations: bool,
     /// Settings → Agents' launch settings, by agent slug. Appended to the
     /// agent's `agent_launch` line ([`super::config::Config::launch_lines`]).
     #[serde(deserialize_with = "de_lenient")]
@@ -87,6 +102,13 @@ impl Default for ForkConfig {
             new_tab_hidden_agents: BTreeSet::new(),
             dir_roots: ["~/src", "~/code", "~/projects"].map(String::from).to_vec(),
             dir_frecency: HashMap::new(),
+            group_colors: HashMap::new(),
+            group_outline: false,
+            group_background: true,
+            group_outline_color: GroupColorSource::Hashed,
+            group_background_color: GroupColorSource::Hashed,
+            group_background_scope: GroupBackgroundScope::Header,
+            animations: true,
             agent_settings: HashMap::new(),
         }
     }
@@ -332,6 +354,17 @@ impl Config {
     }
 }
 
+/// Where a sidebar group header's outline or fill takes its colour from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupColorSource {
+    /// A neutral from the theme, the same for every group.
+    Theme,
+    /// The group's own colour: its `group_colors` override, else its hash.
+    #[default]
+    Hashed,
+}
+
 /// How a restored agent pane resumes its session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -342,6 +375,16 @@ pub enum AgentResumeMode {
     /// The new shell runs it itself, once, as the tab's program. Only for
     /// sh, bash, zsh, dash, ksh and fish; any other shell is typed into.
     Program,
+}
+
+/// How much of a sidebar group its fill and outline cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupBackgroundScope {
+    #[default]
+    Header,
+    /// The header and its rows, as one block.
+    Group,
 }
 
 #[cfg(test)]

@@ -125,6 +125,18 @@ pub struct Surface {
     pub cursor: u32,
     pub text_resting: u32,
     pub text_selected: u32,
+    /// The foreground the rungs were stepped toward.
+    pub fg: u32,
+}
+
+impl Surface {
+    /// A panel's selected fill and its ink, stepped off `under`, the fill the
+    /// row actually sits on: a group's wash is not the rail, so a rung
+    /// measured from the rail can land on the wash, or past it, rather than
+    /// a step clear of it.
+    pub(crate) fn selected_on(&self, under: Hsla) -> (u32, u32) {
+        panel_selected(pack(under), self.fg, self.text_resting)
+    }
 }
 
 /// A panel's selected rung on `base` and its ink.
@@ -294,6 +306,7 @@ impl Theme {
             cursor: raise(base, fg, state::CURSOR),
             text_resting,
             text_selected: stepped_ink(selected, base, fg, text_resting),
+            fg,
         }
     }
 
@@ -310,6 +323,7 @@ impl Theme {
             selected,
             text_resting,
             text_selected,
+            fg,
             ..self.surface(base)
         }
     }
@@ -1848,6 +1862,29 @@ mod tests {
                     t.id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn the_selected_rung_on_a_wash_steps_off_the_wash() {
+        for t in builtins() {
+            let sf = t.surfaces().rail;
+            let hsla = |c: u32| Hsla::from(gpui::rgb(c));
+            assert_eq!(
+                sf.selected_on(hsla(sf.base)),
+                (sf.selected, sf.text_selected),
+                "{}: on the bare rail it is the rail's own rung",
+                t.id
+            );
+            let wash = mix(sf.base, 0x2878df, 0.2);
+            let (fill, ink) = sf.selected_on(hsla(wash));
+            assert!(
+                contrast(fill, wash) >= state::PANEL_SELECTED - 0.02,
+                "{}: selected is only {:.2}:1 from the wash",
+                t.id,
+                contrast(fill, wash)
+            );
+            assert!(contrast(fill, ink) >= 4.5, "{}: ink on the wash", t.id);
         }
     }
 

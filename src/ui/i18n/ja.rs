@@ -2551,6 +2551,31 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitChoose => "選ぶ",
         // background-tabs
         L10nKey::SearchHintBackground => "バックグラウンドで開く",
+        // sidebar-groups
+        L10nKey::SettingsGroupOutline => "グループの枠線",
+        L10nKey::SettingsGroupOutlineDesc => {
+            "各グループ（見出しとタブ）の周りに細い枠線を引きます。"
+        }
+        L10nKey::SettingsGroupOutlineColor => "枠線の色",
+        L10nKey::SettingsGroupOutlineColorDesc => "テーマの境界線色、または各グループ固有の色。",
+        L10nKey::SettingsGroupBackground => "グループの背景",
+        L10nKey::SettingsGroupBackgroundDesc => "各グループ見出しの背後に淡い塗りを敷きます。",
+        L10nKey::SettingsGroupBackgroundColor => "背景の色",
+        L10nKey::SettingsGroupBackgroundColorDesc => "テーマの中間色、または各グループ固有の色。",
+        L10nKey::SettingsGroupColorTheme => "テーマ",
+        L10nKey::SettingsGroupColorHashed => "グループの色",
+        L10nKey::SettingsGroupBackgroundScope => "背景の範囲",
+        L10nKey::SettingsGroupBackgroundScopeDesc => {
+            "見出しのみ、または見出しとタブをひとまとまりに。"
+        }
+        L10nKey::SettingsGroupScopeHeader => "見出し",
+        L10nKey::SettingsGroupScopeGroup => "グループ全体",
+        L10nKey::SettingsGroupAnimations => "折りたたみのアニメーション",
+        L10nKey::SettingsGroupAnimationsDesc => "グループを瞬時に切り替えず、滑らかに開閉します。",
+        L10nKey::SidebarDeleteGroupTitle => "グループ「{name}」を削除しますか？",
+        L10nKey::SidebarDeleteGroupBody => {
+            "グループ名も消えます。タブは開いたまま、自動のグループに戻ります。"
+        }
     })
 }
 
