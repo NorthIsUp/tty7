@@ -1868,6 +1868,8 @@ l10n_keys! {
     SettingsCopyJoinWrapped,
     SettingsCopyJoinWrappedDesc,
     SettingsSearchCopyJoinWrappedKeywords,
+    // dev-build-guard
+    SettingsAgentHooksDevBuild,
 }
 
 /// The source control strings that are translated but not yet displayed.
