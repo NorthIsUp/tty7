@@ -1178,7 +1178,24 @@ pub enum HookOutcome {
     NoTty7Hooks,
 }
 
+/// A build must not write the user's own agent configs: the hook commands
+/// would name a binary the next `cargo clean` deletes. A remote target names
+/// the remote's installed binary, and a scratch home is the build's own.
+fn refuse_a_dev_build(target: &HookTarget) -> anyhow::Result<()> {
+    if target.is_local()
+        && home_dir().is_some_and(|home| home == target.home)
+        && crate::core::dev_build::is_dev_build(&target.exe)
+    {
+        anyhow::bail!(
+            "only an installed tty7 writes agent hooks; this build runs from {}",
+            target.exe.display()
+        );
+    }
+    Ok(())
+}
+
 pub fn install_hooks(target: &HookTarget, agent: HookAgent) -> anyhow::Result<HookOutcome> {
+    refuse_a_dev_build(target)?;
     let path = agent.target_path(target);
     if agent == HookAgent::Muse {
         return muse_hooks_install(target, &path);
@@ -1215,6 +1232,7 @@ pub fn install_hooks(target: &HookTarget, agent: HookAgent) -> anyhow::Result<Ho
 }
 
 pub fn uninstall_hooks(target: &HookTarget, agent: HookAgent) -> anyhow::Result<HookOutcome> {
+    refuse_a_dev_build(target)?;
     let path = agent.target_path(target);
     if agent == HookAgent::Muse {
         return muse_hooks_uninstall(target, &path);
@@ -1266,7 +1284,7 @@ pub fn refresh_remote_hooks(host: &dyn Host, home: PathBuf) -> usize {
 }
 
 pub fn refresh_hooks_at_launch() -> usize {
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) || crate::core::dev_build::running_dev_build() {
         return 0;
     }
     let host = crate::host::local::LocalHost::new();
@@ -2910,6 +2928,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ev.readout, Default::default());
+    }
+
+    #[test]
+    fn a_dev_build_is_refused_only_for_the_users_own_home() {
+        let host = local_host();
+        let build = std::env::current_exe().unwrap();
+        let real = HookTarget::local_for_exe(&*host, build.clone()).unwrap();
+        assert_eq!(Some(&real.home), home_dir().as_ref());
+        assert!(
+            refuse_a_dev_build(&real).is_err(),
+            "the test binary is a build"
+        );
+        let scratch = HookTarget {
+            host: &*host,
+            home: std::env::temp_dir().join("tty7-scratch-home"),
+            exe: build,
+        };
+        assert!(refuse_a_dev_build(&scratch).is_ok());
+        let installed = HookTarget::local_for_exe(
+            &*host,
+            PathBuf::from("/Applications/tty7.app/Contents/MacOS/tty7-app"),
+        )
+        .unwrap();
+        assert!(refuse_a_dev_build(&installed).is_ok());
+        let remote_host = FakeRemote::shared();
+        let remote = HookTarget::remote(&*remote_host, PathBuf::from("/home/me"));
+        assert!(refuse_a_dev_build(&remote).is_ok());
     }
 
     /// The exhaustive match keeps every detected agent mapped; this keeps the
@@ -5111,7 +5156,12 @@ mod tests {
         unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &dir) };
 
         let host = local_host();
-        let t = HookTarget::local(&*host).expect("home resolves in tests");
+        // A scratch home: a build may write hooks there, never into $HOME.
+        let t = HookTarget {
+            host: &*host,
+            home: dir.clone(),
+            exe: std::env::current_exe().unwrap(),
+        };
         let remote_host = FakeRemote::shared();
         let remote = HookTarget::remote(&*remote_host, PathBuf::from("/home/me"));
         assert_eq!(
@@ -5257,7 +5307,12 @@ mod tests {
         unsafe { std::env::set_var("KIMI_CODE_HOME", &dir) };
 
         let host = local_host();
-        let t = HookTarget::local(&*host).expect("home resolves in tests");
+        // A scratch home: a build may write hooks there, never into $HOME.
+        let t = HookTarget {
+            host: &*host,
+            home: dir.clone(),
+            exe: std::env::current_exe().unwrap(),
+        };
         assert_eq!(HookAgent::Kimi.target_path(&t), config);
 
         assert_eq!(hooks_state(&t, HookAgent::Kimi), HooksState::NotInstalled);
