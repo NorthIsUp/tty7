@@ -2000,6 +2000,15 @@ l10n_keys! {
     SettingsHotkeyFadeDesc,
     // github-row-links
     GitHubOpenInGraphite,
+    // tab-usage
+    SettingsTabUsagePid,
+    SettingsTabUsagePidDesc,
+    SettingsTabUsageCpu,
+    SettingsTabUsageCpuDesc,
+    SettingsTabUsageMemory,
+    SettingsTabUsageMemoryDesc,
+    SettingsTabUsageAnnotate,
+    SettingsTabUsageAnnotateDesc,
 }
 
 /// The source control strings that are translated but not yet displayed.
