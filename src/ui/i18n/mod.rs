@@ -1914,6 +1914,12 @@ l10n_keys! {
     // pane-addresses
     CmdGoToPane,
     CmdGoToTabAddress,
+    // search-history
+    SearchTabHistory,
+    SearchPlaceholderHistory,
+    SearchHistoryTooShort,
+    SearchHistoryRemote,
+    SearchHistoryHits,
 }
 
 /// The source control strings that are translated but not yet displayed.
