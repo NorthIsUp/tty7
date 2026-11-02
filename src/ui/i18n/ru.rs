@@ -2569,6 +2569,8 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "Терминал",
         L10nKey::SettingsSplitSame => "Как в панели",
         L10nKey::SettingsSplitChoose => "Выбрать",
+        // background-tabs
+        L10nKey::SearchHintBackground => "Открыть в фоне",
     })
 }
 

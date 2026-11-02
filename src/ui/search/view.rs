@@ -998,6 +998,20 @@ impl SearchView {
                 vec![keycap("↵", cx)],
                 t(L10nKey::SwitcherHintOpen),
             ))
+            .when(self.selected_opens_tab(cx), |row| {
+                row.child(footer_hint(
+                    vec![keycap("⇧", cx), keycap("↵", cx)],
+                    t(L10nKey::SearchHintBackground),
+                ))
+            })
+    }
+
+    fn selected_opens_tab(&self, cx: &App) -> bool {
+        self.list
+            .read(cx)
+            .delegate()
+            .selected_item()
+            .is_some_and(|item| crate::ui::background_tab::opens_tab(&item.kind))
     }
 }
 
