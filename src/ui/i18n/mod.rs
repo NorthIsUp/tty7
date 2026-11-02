@@ -1927,6 +1927,10 @@ l10n_keys! {
     SettingsContinuePromptDesc,
     QuitStopServerBodyResume,
     AppRestartServerBodyResume,
+    // agent-startup-prompts
+    AppCodexServerDraining,
+    AppCodexServerRestart,
+    AppCodexServerRestartFailed,
 }
 
 /// The source control strings that are translated but not yet displayed.
