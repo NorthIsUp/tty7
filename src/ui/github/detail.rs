@@ -63,7 +63,7 @@ impl Tty7App {
         repo: &RepoKey,
         slug: &RepoSlug,
         number: u64,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (Vec<AnyElement>, AnyElement) {
         self.github_ensure_detail(slug, number, cx);
@@ -139,6 +139,7 @@ impl Tty7App {
             body = body.child(self.github_detail_files(repo, slug, &detail, files, cx));
         }
         body = body.child(self.github_detail_comments(slug, number, &detail, cx));
+        body = body.children(self.github_review_box(slug, number, &detail, window, cx));
         (pinned, body.into_any_element())
     }
 

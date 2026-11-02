@@ -2611,6 +2611,10 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::GitHubNoSessionMatches => "Среди упомянутого в этом сеансе совпадений нет",
         L10nKey::GitHubSortRecent => "Недавние",
         L10nKey::GitHubSortNumber => "Номер",
+        // github-review
+        L10nKey::GitHubReviewPlaceholder => "Оставьте рецензию…",
+        L10nKey::GitHubReviewComment => "Комментировать",
+        L10nKey::GitHubReviewApprove => "Одобрить",
     })
 }
 
