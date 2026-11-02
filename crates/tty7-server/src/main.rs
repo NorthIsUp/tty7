@@ -178,6 +178,7 @@ fn run_stdio(args: &[String]) -> io::Result<()> {
         match upstream {
             Some(s) => bridge(s),
             None => {
+                tty7_core::daemon::dev_config_guard::enforce();
                 let link = StdioDuplex::take()?;
                 server::serve_with(
                     link,
