@@ -153,11 +153,11 @@ thread_local! {
 }
 
 /// Hands `trace` to the `new_terminal` that `f` reaches; a spawn refused
-/// before it leaves the trace behind, so it is cleared after.
+/// before it leaves the trace behind, so the outer value is put back after.
 pub fn handing<R>(trace: Option<Trace>, f: impl FnOnce() -> R) -> R {
-    HANDED.set(trace);
+    let outer = HANDED.replace(trace);
     let r = f();
-    HANDED.set(None);
+    HANDED.set(outer);
     r
 }
 
@@ -247,6 +247,18 @@ mod tests {
             request_tab();
             assert!(take_handed().unwrap().seen(Stage::TabRequested));
         });
+        assert!(take_handed().is_none());
+    }
+
+    #[test]
+    fn a_nested_handing_leaves_the_outer_trace_handed() {
+        let outer = Trace::attempt();
+        let attempt = outer.attempt;
+        let kept = handing(Some(outer), || {
+            handing(None, || ());
+            take_handed().map(|t| t.attempt)
+        });
+        assert_eq!(kept, Some(attempt), "the inner handing must not drop it");
         assert!(take_handed().is_none());
     }
 }
