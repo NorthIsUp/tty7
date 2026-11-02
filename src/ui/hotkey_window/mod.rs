@@ -171,7 +171,8 @@ fn summon_alone_with(
 }
 
 /// The hotkey workspace, only while the chord is configured and macOS took
-/// it: a hotkey that never registered cannot bring the window back.
+/// it: a hotkey that never registered cannot bring the window back, so launch
+/// restore and "most recent window" must not skip it either.
 fn armed(
     spec: &Option<String>,
     registered: bool,
@@ -181,7 +182,7 @@ fn armed(
     registered.then_some(workspace?)
 }
 
-fn armed_workspace(cx: &App) -> Option<WorkspaceId> {
+pub(crate) fn armed_workspace(cx: &App) -> Option<WorkspaceId> {
     #[cfg(test)]
     if let Some(hk) = cx.try_global::<tests::FakeHotkey>() {
         return hk.workspace;
@@ -207,8 +208,8 @@ fn summon(cx: &mut App) {
     let _ = cx;
 }
 
-/// The hotkey window's workspace while the hotkey is on, which "most recent
-/// window" and launch restore skip.
+/// The hotkey window's workspace while the hotkey is configured, registered
+/// or not: the switcher still marks it.
 pub(crate) fn workspace(cx: &App) -> Option<WorkspaceId> {
     #[cfg(target_os = "macos")]
     return appkit::workspace(cx);
@@ -576,6 +577,54 @@ pub(crate) mod tests {
         });
         cx.run_until_parked();
         cx.update(|cx| assert!(!cx.has_global::<Summoned>()));
+    }
+
+    #[gpui::test]
+    fn launch_restore_skips_the_armed_hotkey_workspace_even_with_a_path(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        // `restore_one` saves, and a test has no business writing the real views.
+        let _ = tty7_core::core::config::set_config_dir(
+            std::env::temp_dir().join(format!("tty7-hotkey-test-{}", std::process::id())),
+        );
+        let remote = crate::core::session::RemoteRef::new(
+            crate::core::session::RemoteTarget::Alias {
+                alias: "box".into(),
+            },
+            WorkspaceId::new(),
+        );
+        let hot = WindowView {
+            open: true,
+            last_active: 2,
+            ..WindowView::on_remote(remote)
+        };
+        let other = WindowView {
+            open: true,
+            last_active: 1,
+            ..WindowView::default()
+        };
+        let (hot_id, other_id) = (hot.id, other.id);
+        cx.update(|cx| {
+            let views = WindowViews {
+                views: vec![other, hot],
+                active: Some(hot_id),
+            };
+            cx.set_global(FakeHotkey {
+                workspace: Some(hot_id),
+                summoned: false,
+            });
+            WorkspaceStore::install_for_test(cx, views.clone());
+            let path = std::path::Path::new("/tmp");
+            let kept = crate::ui::windows::restore_target(cx, Some(path)).map(|(id, _)| id);
+            assert_eq!(
+                kept,
+                Some(other_id),
+                "the remote hotkey workspace is not the candidate"
+            );
+            WorkspaceStore::install_for_test(cx, views);
+            let kept = crate::ui::windows::restore_target(cx, None).map(|(id, _)| id);
+            assert_eq!(kept, Some(other_id));
+        });
     }
 
     #[test]

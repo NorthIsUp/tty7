@@ -67,7 +67,7 @@ impl WindowRegistry {
 
     pub fn most_recent(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
-        let hotkey = crate::ui::hotkey_window::workspace(cx);
+        let hotkey = crate::ui::hotkey_window::armed_workspace(cx);
         let active = WorkspaceStore::all(cx).active;
         let registry = cx.global::<Self>();
         active
@@ -83,7 +83,7 @@ impl WindowRegistry {
 
     pub fn most_recent_local(cx: &mut App) -> Option<WorkspaceId> {
         Self::sweep(cx);
-        let hotkey = crate::ui::hotkey_window::workspace(cx);
+        let hotkey = crate::ui::hotkey_window::armed_workspace(cx);
         let views = WorkspaceStore::all(cx);
         let registry = cx.global::<Self>();
         let is_open_local = |id: WorkspaceId| {
@@ -460,8 +460,9 @@ pub type RestoreTarget = (WorkspaceId, usize);
 /// workspace — which is what every path-carrying launch used to do.
 pub fn restore_target(cx: &mut App, path: Option<&std::path::Path>) -> Option<RestoreTarget> {
     if path.is_some() {
+        let hotkey = crate::ui::hotkey_window::armed_workspace(cx);
         let views = WorkspaceStore::all(cx);
-        let candidate = views.workspace_to_restore()?;
+        let candidate = crate::ui::hotkey_window::to_restore(views, hotkey)?;
         if views.get(candidate).is_some_and(|view| view.is_remote()) {
             return None;
         }
