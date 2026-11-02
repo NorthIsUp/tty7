@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Format the workspace"
+set -euo pipefail
+exec cargo fmt "$@"
