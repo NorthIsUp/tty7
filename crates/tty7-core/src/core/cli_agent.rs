@@ -1238,6 +1238,7 @@ impl Offer {
 pub struct StartupWatch {
     pub agent: CLIAgent,
     until: Instant,
+    screens: Vec<(Regex, &'static StartupPrompt)>,
 }
 
 pub const STARTUP_WINDOW: Duration = Duration::from_secs(10);
@@ -1248,6 +1249,12 @@ impl StartupWatch {
         (!agent.startup_prompts().is_empty()).then(|| StartupWatch {
             agent,
             until: now + STARTUP_WINDOW,
+            // Patterns are static; a test compiles every one.
+            screens: agent
+                .startup_prompts()
+                .iter()
+                .map(|p| (Regex::new(p.screen).expect("startup prompt regex"), p))
+                .collect(),
         })
     }
 
@@ -1257,10 +1264,10 @@ impl StartupWatch {
 
     /// The prompt `screen` shows, if any.
     pub fn answer(&self, screen: &str) -> Option<&'static StartupPrompt> {
-        self.agent
-            .startup_prompts()
+        self.screens
             .iter()
-            .find(|p| Regex::new(p.screen).is_ok_and(|re| re.is_match(screen)))
+            .find(|(re, _)| re.is_match(screen))
+            .map(|&(_, p)| p)
     }
 }
 
@@ -1679,6 +1686,15 @@ enter continue · esc use session · ^c quit";
             Offer::RestartCodexServer.args(),
             ["app-server", "daemon", "restart"]
         );
+    }
+
+    #[test]
+    fn every_startup_prompt_pattern_compiles() {
+        for agent in CLIAgent::ALL {
+            for p in agent.startup_prompts() {
+                assert!(Regex::new(p.screen).is_ok(), "{} {}", agent.slug(), p.name);
+            }
+        }
     }
 
     #[test]
