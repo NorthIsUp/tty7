@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use tty7_core::client::PaneClient;
+use tty7_core::client::{ControlClient, PaneClient};
+use tty7_core::daemon::control::{ControlHello, ControlHelloOk};
 use tty7_core::daemon::protocol::{DaemonMsg, ShellSpec, WinSize};
 
 const READY_WITHIN: Duration = Duration::from_secs(30);
@@ -74,6 +75,25 @@ impl Daemon {
             .version()
             .expect("the daemon answers its version")
             .instance
+    }
+
+    /// What a window's control link is told on connect, retried while the new
+    /// image brings its control endpoint up.
+    fn control_hello(&self) -> ControlHelloOk {
+        let deadline = Instant::now() + READY_WITHIN;
+        loop {
+            match ControlClient::connect_at(
+                &self.dir.path().join("control.sock"),
+                &ControlHello::host_rpc("probe", "probe"),
+            ) {
+                Ok(client) => return client.hello().clone(),
+                Err(e) => assert!(
+                    Instant::now() < deadline,
+                    "the control endpoint did not answer within {READY_WITHIN:?}: {e}"
+                ),
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     fn await_ready(&self) {
@@ -255,4 +275,31 @@ fn a_handoff_to_something_that_will_not_exec_leaves_the_daemon_serving() {
     );
 
     session.kill().expect("kill the pane");
+}
+
+/// A window tells a handoff from a restart by the control hello: a handoff
+/// keeps the pid and every pane under it, a restart keeps neither. Reading a
+/// handoff's new instance as a restart rebuilt every tab over live panes.
+#[test]
+fn a_handoff_tells_control_clients_the_same_process_still_answers() {
+    let daemon = Daemon::start();
+    let before = daemon.control_hello();
+    assert_ne!(before.pid, 0, "the hello carries the server's pid");
+
+    daemon
+        .panes()
+        .hand_off(&Daemon::binary())
+        .expect("the daemon hands over");
+    daemon.await_ready();
+    let after = daemon.control_hello();
+
+    assert_ne!(after.instance, before.instance, "a new image answers");
+    assert_eq!(after.pid, before.pid, "under the same process");
+
+    let other = Daemon::start();
+    assert_ne!(
+        other.control_hello().pid,
+        before.pid,
+        "a different daemon process says so"
+    );
 }

@@ -2151,6 +2151,7 @@ mod tests {
                 home: "/home/test".into(),
                 features: Vec::new(),
                 instance: "test".into(),
+                pid: 0,
             })
             .encode(&mut server);
         });

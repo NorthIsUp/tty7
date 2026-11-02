@@ -753,6 +753,7 @@ mod tests {
                 crate::daemon::control::feature::HOST_RPC.into(),
             ],
             instance: "test-instance".into(),
+            pid: 0,
         }
     }
 

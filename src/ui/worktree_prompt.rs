@@ -209,7 +209,7 @@ impl Tty7App {
         }
         let agent = start
             .agent
-            .map(|a| setup::agent_line(a, &start.task, &cx.global::<Config>().agent_launch));
+            .map(|a| setup::agent_line(a, &start.task, &cx.global::<Config>().launch_lines()));
         let Some((script, env)) = setup else {
             let line = setup::launch_line(&wt.path, None, agent);
             self.open_worktree_tab(wt, line, window, cx);

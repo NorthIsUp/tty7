@@ -402,6 +402,21 @@ pub fn descends_from(pid: u32, ancestor: u32) -> bool {
     runs_under(pid, ancestor, parent_pid)
 }
 
+/// Whether `pid` or one of its parents is a process `is` picks out.
+pub fn runs_under_one(pid: u32, is: impl Fn(u32) -> bool) -> bool {
+    let mut cur = pid;
+    for _ in 0..MAX_ANCESTRY {
+        if is(cur) {
+            return true;
+        }
+        match parent_pid(cur) {
+            Some(parent) if parent > 1 && parent != cur => cur = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// How far up a chain [`descends_from`] climbs before giving up. A hook sits a
 /// handful of levels under the pane's shell: shell, agent, the agent's
 /// `sh -c`, the hook.
