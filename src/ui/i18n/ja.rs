@@ -2549,6 +2549,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsSplitTerminal => "ターミナル",
         L10nKey::SettingsSplitSame => "ペインと同じ",
         L10nKey::SettingsSplitChoose => "選ぶ",
+        // background-tabs
+        L10nKey::SearchHintBackground => "バックグラウンドで開く",
     })
 }
 
