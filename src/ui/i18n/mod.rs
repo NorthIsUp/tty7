@@ -1895,6 +1895,20 @@ l10n_keys! {
     SettingsSearchCopyJoinWrappedKeywords,
     // dev-build-guard
     SettingsAgentHooksDevBuild,
+    // agent-launch-settings
+    SettingsAgentLaunchesAs,
+    SettingsAgentModel,
+    SettingsAgentModelDesc,
+    SettingsAgentPermission,
+    SettingsAgentSandbox,
+    SettingsAgentDefault,
+    SettingsAgentExtraArgs,
+    SettingsAgentExtraArgsDesc,
+    SettingsAgentAddArg,
+    SettingsAgentRemoveArg,
+    SettingsAgentLaunchOptions,
+    SettingsAgentSummaryModel,
+    SettingsAgentSummaryExtras,
 }
 
 /// The source control strings that are translated but not yet displayed.
@@ -2263,6 +2277,7 @@ mod tests {
             L10nKey::SettingsDeleteProfileCascade,
             L10nKey::SettingsAliasesLinked,
             L10nKey::SettingsMoreAgents,
+            L10nKey::SettingsAgentSummaryExtras,
             L10nKey::SettingsMoreHosts,
             L10nKey::SettingsRestoreChanged,
             L10nKey::SettingsMatchCount,
