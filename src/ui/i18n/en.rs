@@ -2419,6 +2419,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::AppRestartServerBodyResume => {
             "This ends every shell on this computer. Your tabs and layout are kept and reopen with fresh shells, and every agent picks its conversation back up."
         }
+        // agent-startup-prompts
+        L10nKey::AppCodexServerDraining => "Codex's background server is shutting down",
+        L10nKey::AppCodexServerRestart => "Restart Codex server",
+        L10nKey::AppCodexServerRestartFailed => "Couldn't restart Codex's background server",
     }
 }
 

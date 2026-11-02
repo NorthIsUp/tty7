@@ -2258,6 +2258,10 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppRestartServerBodyResume => {
             "这会结束这台电脑上的所有 shell。标签页和布局会保留，并以新的 shell 重新打开，每个 agent 会接着原来的对话继续。"
         }
+        // agent-startup-prompts
+        L10nKey::AppCodexServerDraining => "Codex 的后台服务器正在关闭",
+        L10nKey::AppCodexServerRestart => "重启 Codex 服务器",
+        L10nKey::AppCodexServerRestartFailed => "无法重启 Codex 的后台服务器",
     })
 }
 

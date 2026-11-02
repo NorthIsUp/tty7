@@ -2514,6 +2514,10 @@ pub fn translate_ru(key: L10nKey) -> Option<&'static str> {
         L10nKey::AppRestartServerBodyResume => {
             "Все оболочки на этом компьютере завершатся. Вкладки и расположение сохранятся и восстановятся с новыми оболочками, а каждый агент продолжит свой разговор."
         }
+        // agent-startup-prompts
+        L10nKey::AppCodexServerDraining => "Фоновый сервер Codex завершает работу",
+        L10nKey::AppCodexServerRestart => "Перезапустить сервер Codex",
+        L10nKey::AppCodexServerRestartFailed => "Не удалось перезапустить фоновый сервер Codex",
     })
 }
 
