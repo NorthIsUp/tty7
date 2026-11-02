@@ -170,7 +170,7 @@ mod macos {
     }
 
     fn install_inner(plan: &InstallPlan) -> Result<(), String> {
-        let replacement = plan.stage.join("unpacked/tty7.app");
+        let replacement = unpacked_app(&plan.stage.join("unpacked"));
         wait_for_exit(plan.parent_pid);
         log_line(&plan.log, "re-verifying staged tty7 update");
         let verification = verify_archive(&plan.archive, &plan.checksums, &plan.asset_name)
@@ -224,7 +224,19 @@ mod macos {
                 .arg(&unpacked),
             "extracting the update archive",
         )?;
-        Ok(unpacked.join("tty7.app"))
+        Ok(unpacked_app(&unpacked))
+    }
+
+    /// The one bundle the archive unpacked to. Found rather than named, since
+    /// the NorthIsUp fork ships it as tty7-niu.app (FORK.md).
+    fn unpacked_app(unpacked: &Path) -> PathBuf {
+        fs::read_dir(unpacked)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "app"))
+            .unwrap_or_else(|| unpacked.join("tty7.app"))
     }
 
     fn verify_update(
@@ -534,6 +546,14 @@ mod macos {
         fn bundle(path: &Path, marker: &str) {
             fs::create_dir_all(path.join("Contents/MacOS")).unwrap();
             fs::write(path.join("marker"), marker).unwrap();
+        }
+
+        #[test]
+        fn the_unpacked_bundle_is_found_whatever_its_name() {
+            let root = tempfile::tempdir().unwrap();
+            assert_eq!(unpacked_app(root.path()), root.path().join("tty7.app"));
+            bundle(&root.path().join("tty7-niu.app"), "fork");
+            assert_eq!(unpacked_app(root.path()), root.path().join("tty7-niu.app"));
         }
 
         #[test]

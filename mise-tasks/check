@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="What CI gates on: fmt, then build and test"
+set -euo pipefail
+cargo fmt --check
+cargo build --locked
+cargo test --locked

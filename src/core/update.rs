@@ -12,9 +12,10 @@ use std::time::Duration;
 use tty7_core::daemon::install::AssetFetcher as _;
 
 use crate::core::config::{Config, UpdateChannel};
+use crate::core::fork_update::{self, update_repo};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 
-const REPO: &str = "l0ng-ai/tty7";
+const REPO: &str = update_repo!();
 
 /// The rolling prerelease the Nightly channel follows. Force-moved to a new
 /// commit every night, which is exactly why it cannot double as a version.
@@ -24,13 +25,17 @@ const NIGHTLY_TAG: &str = "nightly";
 /// inferred. See `resolve_version`.
 const NIGHTLY_MANIFEST: &str = "nightly.json";
 
-pub const RELEASES_URL: &str = "https://github.com/l0ng-ai/tty7/releases/latest";
+pub const RELEASES_URL: &str = concat!("https://github.com/", update_repo!(), "/releases/latest");
 
 /// The nightly release's own page. Unlike Stable's, this URL is stable across
 /// nights — the tag stays put even as the commit under it moves. Spelled out
 /// rather than built from `NIGHTLY_TAG`, which `concat!` cannot take; the tail
 /// is asserted against it in `each_channel_reads_its_own_feed` instead.
-pub const NIGHTLY_RELEASE_URL: &str = "https://github.com/l0ng-ai/tty7/releases/tag/nightly";
+pub const NIGHTLY_RELEASE_URL: &str = concat!(
+    "https://github.com/",
+    update_repo!(),
+    "/releases/tag/nightly"
+);
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -229,6 +234,7 @@ pub fn spawn_check(cx: &mut App) {
     // Before the config gate: a package staged by an earlier run, or a failure
     // from one, has to reach Settings whether or not checking is still on.
     hydrate_from_disk(cx);
+    fork_update::watch(cx);
     // Off the startup path: this can remove a 30 MB directory, and nothing
     // waits on the result.
     let keep = UpdateState::load().pending.map(|pending| pending.stage);
@@ -294,7 +300,7 @@ fn spawn_recheck_loop(cx: &mut App) {
 }
 
 fn spawn_check_inner(report_failure: bool, cx: &mut App) {
-    if is_busy(cx) {
+    if is_busy(cx) || fork_update::is_local_install() {
         return;
     }
     update_status(cx, |status| status.phase = UpdatePhase::Checking);
