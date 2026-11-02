@@ -1941,6 +1941,8 @@ l10n_keys! {
     SettingsSplitTerminal,
     SettingsSplitSame,
     SettingsSplitChoose,
+    // background-tabs
+    SearchHintBackground,
 }
 
 /// The source control strings that are translated but not yet displayed.
