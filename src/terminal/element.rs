@@ -2370,7 +2370,10 @@ impl Element for TerminalElement {
         );
         if let Some(snap) = &built {
             let snap = snap.clone();
-            self.view.update(cx, |view, _| view.grid_snap = Some(snap));
+            self.view.update(cx, |view, _| {
+                view.grid_snap = Some(snap);
+                crate::core::spawn_trace::painted(&mut view.spawn_trace);
+            });
         }
         // `must_block` above is exactly the condition under which `build_grid`
         // is not allowed to come back empty, so one of the two is always here.
