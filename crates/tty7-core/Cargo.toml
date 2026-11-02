@@ -17,6 +17,11 @@ log.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 
+# The OS CSPRNG. It mints the Windows transport's auth token (loopback TCP,
+# unlike a Unix socket, is open to any local process) and the mise env cache
+# key the panes share (`daemon::shell_startup`).
+getrandom = "0.3"
+
 # SSH connection-manager data layer (`core::ssh_profile` / `core::keychain`) and
 # workspace identity (`core::session`). `uuid` mints stable ids (v4) and
 # serde-serializes them as strings.
@@ -176,12 +181,7 @@ core-foundation = "0.10"
 system-configuration = { version = "0.6", optional = true }
 system-configuration-sys = { version = "0.6", optional = true }
 
-# The Windows GUI⇄daemon transport is loopback TCP, which (unlike a Unix socket)
-# any local process can connect to — so the daemon authenticates each connection
-# against a random token it writes into the user-private port file. `getrandom`
-# is the OS CSPRNG that mints that token.
 [target.'cfg(windows)'.dependencies]
-getrandom = "0.3"
 
 # Toolhelp process enumeration + `TerminateProcess`, used by `daemon::winproc` to
 # title a pane by its foreground command and to tear down a shell's descendant
