@@ -1525,7 +1525,16 @@ impl AgentSessionState {
         if let Some(id) = &ev.session_id {
             self.session_id = Some(id.clone());
         }
-        if let Some(cwd) = &ev.cwd {
+        // Codex's tool reports carry the command's own workdir, which a single
+        // `git status` in another checkout sets; Claude's carry the session's.
+        let tool_scoped = ev.agent == Some(CLIAgent::Codex)
+            && matches!(
+                ev.kind,
+                AgentEventKind::ToolComplete | AgentEventKind::PermissionRequest
+            );
+        if let Some(cwd) = &ev.cwd
+            && !tool_scoped
+        {
             self.cwd = Some(cwd.clone());
         }
         self.readout.merge(&ev.readout);
@@ -2620,6 +2629,32 @@ enter continue · esc use session · ^c quit";
 
         s.apply_event(&ev(AgentEventKind::SessionEnd, None));
         assert_eq!(s.cwd, None, "session end releases the cwd claim");
+    }
+
+    /// A Codex tool report's `cwd` is where that one command ran, not where
+    /// the session is: a command run in another checkout must not move it.
+    #[test]
+    fn a_codex_tool_report_leaves_the_session_cwd() {
+        use std::path::{Path, PathBuf};
+
+        let ev = |kind, cwd: &str| AgentEvent {
+            agent: Some(CLIAgent::Codex),
+            kind,
+            session_id: Some("s".into()),
+            message: None,
+            cwd: Some(PathBuf::from(cwd)),
+            source: None,
+            readout: Default::default(),
+        };
+
+        let mut s = AgentSessionState::default();
+        s.apply_event(&ev(AgentEventKind::SessionStart, "/repo"));
+        s.apply_event(&ev(AgentEventKind::ToolComplete, "/elsewhere"));
+        s.apply_event(&ev(AgentEventKind::PermissionRequest, "/elsewhere"));
+        assert_eq!(s.cwd.as_deref(), Some(Path::new("/repo")));
+
+        s.apply_event(&ev(AgentEventKind::PromptSubmit, "/repo/sub"));
+        assert_eq!(s.cwd.as_deref(), Some(Path::new("/repo/sub")));
     }
 
     #[test]
