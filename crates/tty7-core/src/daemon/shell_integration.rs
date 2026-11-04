@@ -3130,6 +3130,7 @@ mod tests {
             .arg(&rcfile)
             .args(["-i", "-c", "true"])
             .env("HOME", &home)
+            .env_remove("TTY7_SHELL_STARTUP")
             .output();
         let sourced = ran.ok().map(|_| {
             std::fs::read_to_string(&ticks)
