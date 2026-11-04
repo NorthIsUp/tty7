@@ -67,6 +67,7 @@ read when a sync stops on a conflict in that feature.
 - [quiet-close](docs/fork/features/quiet-close.md): an untouched new tab closes without asking
 - [fork-group-repair](docs/fork/features/fork-group-repair.md): one-shot repair of tabs an older fork build filed in the wrong folder group
 - [fork-config-compat](docs/fork/features/fork-config-compat.md): a config.json from before ForkConfig loads and saves every fork key
+- [codex-tool-cwd](docs/fork/features/codex-tool-cwd.md): a Codex command run in another directory leaves the tab where it is
 
 ## Syncing
 
