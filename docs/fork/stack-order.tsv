@@ -30,3 +30,4 @@ spawn-trace	each new tab logs its start as one timeline	background-tabs
 quiet-close	an untouched new tab closes without asking	fork-config,background-tabs
 fork-group-repair	one-shot repair of tabs an older fork build filed in the wrong folder group	group-follow
 fork-config-compat	a config.json from before ForkConfig loads and saves every fork key
+codex-tool-cwd	a Codex command run in another directory leaves the tab where it is
