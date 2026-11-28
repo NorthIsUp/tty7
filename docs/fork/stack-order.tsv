@@ -31,3 +31,10 @@ quiet-close	an untouched new tab closes without asking	fork-config,background-ta
 fork-group-repair	one-shot repair of tabs an older fork build filed in the wrong folder group	group-follow
 fork-config-compat	a config.json from before ForkConfig loads and saves every fork key
 codex-tool-cwd	a Codex command run in another directory leaves the tab where it is
+claude-subagent-cwd	a Claude subagent's cwd stays off the pane
+terminal-id-replies	the terminal answers DA1, DA2 and XTVERSION
+osc52-clipboard	OSC 52 clipboard writes reach the clipboard
+linear-links	link detection stays linear on dense output
+braille-titles	braille spinner characters stay in OSC 0 tab titles
+divider-drag-fps	the sidebar divider drag keeps 60 fps
+sidebar-window-drag	the empty space under the sidebar tabs drags the window

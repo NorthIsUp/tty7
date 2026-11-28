@@ -68,6 +68,13 @@ read when a sync stops on a conflict in that feature.
 - [fork-group-repair](docs/fork/features/fork-group-repair.md): one-shot repair of tabs an older fork build filed in the wrong folder group
 - [fork-config-compat](docs/fork/features/fork-config-compat.md): a config.json from before ForkConfig loads and saves every fork key
 - [codex-tool-cwd](docs/fork/features/codex-tool-cwd.md): a Codex command run in another directory leaves the tab where it is
+- [claude-subagent-cwd](docs/fork/features/claude-subagent-cwd.md): a Claude subagent's cwd stays off the pane
+- [terminal-id-replies](docs/fork/features/terminal-id-replies.md): the terminal answers DA1, DA2 and XTVERSION
+- [osc52-clipboard](docs/fork/features/osc52-clipboard.md): OSC 52 clipboard writes reach the clipboard
+- [linear-links](docs/fork/features/linear-links.md): link detection stays linear on dense output
+- [braille-titles](docs/fork/features/braille-titles.md): braille spinner characters stay in OSC 0 tab titles
+- [divider-drag-fps](docs/fork/features/divider-drag-fps.md): the sidebar divider drag keeps 60 fps
+- [sidebar-window-drag](docs/fork/features/sidebar-window-drag.md): the empty space under the sidebar tabs drags the window
 
 ## Syncing
 
