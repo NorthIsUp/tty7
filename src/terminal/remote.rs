@@ -1704,7 +1704,9 @@ impl RemoteTerminal {
                                         } else {
                                             clipboard_write_busy.store(false, Ordering::Release);
                                         }
-                                    } else {
+                                    } else if write.mime
+                                        != tty7_core::core::clipboard::TEXT_PLAIN_MIME
+                                    {
                                         let reply = tty7_core::core::clipboard::response(
                                             write.id.as_deref(),
                                             "EBUSY",
